@@ -27,6 +27,9 @@ import { Plane, Flight, buildAirstrip } from './plane.js';
 import { Helicopter, HeliFlight, buildHelipad } from './heli.js';
 import { buildStations, CAPACITY } from './station.js';
 import { buildHerds } from './herds.js';
+import { buildHamlets } from './hamlet.js';
+import { buildShrineLife } from './shrine.js';
+import { ALL_PEOPLE } from './people.js';
 import { buildPassengers } from './passengers.js';
 import { buildConstruction } from './construction.js';
 import { buildKites } from './kites.js';
@@ -88,8 +91,8 @@ const PRESETS = [
   { key: 'morning', name: 'Early morning', elev: 7, az: 100, turb: 9, ray: 1.3, mie: 0.009, mieG: 0.8, sun: '#ffdcb0', sunI: 3.0, sky: '#d6e2ea', ground: '#6f6650', hemiI: 1.6, fog: '#d3d9d4', fogD: 0.0072, exp: 0.62, wind: 0.45, clouds: 0.22, cLit: '#ffe8d0', cShade: '#a9aab5', sound: 'dawn', motes: { ...M_DEFAULT, i: 0.8 } },
   { key: 'noon', name: 'Bright noon', elev: 58, az: 165, turb: 3, ray: 1.1, mie: 0.004, mieG: 0.8, sun: '#fff3e2', sunI: 3.4, sky: '#bcd6ef', ground: '#7a6a48', hemiI: 1.3, fog: '#c8d8e4', fogD: 0.0024, exp: 0.52, wind: 0.7, clouds: 0.38, cLit: '#ffffff', cShade: '#aab4c0', sound: 'calm', motes: { ...M_DEFAULT, i: 0.6 } },
   { key: 'dusk', name: 'Dusk', elev: 3, az: 258, turb: 7, ray: 3, mie: 0.007, mieG: 0.87, sun: '#ff9a5a', sunI: 2.4, sky: '#9fadcc', ground: '#4d4038', hemiI: 1.15, fog: '#b9a093', fogD: 0.005, exp: 0.75, wind: 0.5, clouds: 0.3, cLit: '#ffb98a', cShade: '#6b5a6a', sound: 'insects', motes: { ...M_DEFAULT, i: 1.2 } },
-  { key: 'night', name: 'Full-moon night', night: true, elev: 34, az: 140, sun: '#b4c6e8', sunI: 1.4, sky: '#4a6194', ground: '#1e2026', hemiI: 1.1, fog: '#142038', fogD: 0.004, exp: 1.3, wind: 0.35, clouds: 0.14, cLit: '#56637d', cShade: '#141a28', sound: 'insects', motes: { color: '#d8ff6a', i: 5, density: 0.22, height: 3.2, speed: 0.12, size: 1.5 } },
-  { key: 'newmoon', name: 'Moonless night', night: true, dark: true, elev: 40, az: 140, sun: '#6070a0', sunI: 0.16, sky: '#1a2236', ground: '#08090c', hemiI: 0.5, fog: '#04060b', fogD: 0.0045, exp: 1.15, wind: 0.25, clouds: 0.04, cLit: '#1a2030', cShade: '#04060a', sound: 'insects', motes: { color: '#d8ff6a', i: 6.5, density: 0.34, height: 3, speed: 0.12, size: 1.6 } },
+  { key: 'night', name: 'Full-moon night', night: true, elev: 34, az: 140, sun: '#b4c6e8', sunI: 1.4, sky: '#4a6194', ground: '#1e2026', hemiI: 1.1, fog: '#142038', fogD: 0.004, exp: 1.3, wind: 0.35, clouds: 0.14, cLit: '#56637d', cShade: '#141a28', sound: 'insects', motes: { color: '#d8ff6a', i: 5, density: 0, height: 3.2, speed: 0.12, size: 1.5 } },
+  { key: 'newmoon', name: 'Moonless night', night: true, dark: true, elev: 40, az: 140, sun: '#6070a0', sunI: 0.16, sky: '#1a2236', ground: '#08090c', hemiI: 0.5, fog: '#04060b', fogD: 0.0045, exp: 1.15, wind: 0.25, clouds: 0.04, cLit: '#1a2030', cShade: '#04060a', sound: 'insects', motes: { color: '#d8ff6a', i: 6.5, density: 0, height: 3, speed: 0.12, size: 1.6 } },
   { key: 'windy', name: 'Windy day', elev: 30, az: 220, turb: 7, ray: 1.2, mie: 0.006, mieG: 0.8, sun: '#fff0d8', sunI: 3.4, sky: '#c4d4e2', ground: '#7a6a50', hemiI: 1.5, fog: '#cfd5d6', fogD: 0.0034, exp: 0.6, wind: 1.9, clouds: 0.55, cloudSpeed: 4, cLit: '#ffffff', cShade: '#8f98a3', sound: 'wind', motes: { color: '#b8b060', i: 0.7, density: 0.4, height: 7, speed: 7, size: 1.8 } },
   { key: 'storm', name: 'Dry thunderstorm', storm: true, elev: 22, az: 230, turb: 12, ray: 0.5, mie: 0.012, mieG: 0.75, sun: '#aab0c4', sunI: 0.9, sky: '#69727f', ground: '#3a3832', hemiI: 1.4, fog: '#5f6672', fogD: 0.0062, exp: 0.78, wind: 2.3, clouds: 0.99, cloudSpeed: 3.5, cLit: '#7f8796', cShade: '#2f343e', sound: 'storm', motes: { color: '#a89a70', i: 0.6, density: 0.5, height: 6, speed: 8, size: 1.6 } },
   { key: 'rain', name: 'Monsoon rain', elev: 35, az: 200, turb: 10, ray: 0.4, mie: 0.01, mieG: 0.7, sun: '#d8dde2', sunI: 0.8, sky: '#a2adb7', ground: '#4a4a42', hemiI: 1.9, fog: '#8f989f', fogD: 0.0105, exp: 0.7, wind: 1.1, clouds: 0.95, cloudSpeed: 1.5, cLit: '#a3aab1', cShade: '#5d646b', rain: 1, sound: 'rain', motes: { ...M_DEFAULT, density: 0 } },
@@ -99,7 +102,7 @@ let soundChoice = 'auto';
 const WY = () => WATER_Y + WATER.off;
 // only the river (and its ghat and pool) holds water: low dry hollows elsewhere are just ground
 const wet = (x, z) => riverDist(x, z) < RIVER_HALF + 3;
-let herds = null, birds = null;
+let herds = null, birds = null, hamlets = null, shrineLife = null;
 let stations = null, drv = null, drvLoco = null, drvView = 0;
 let river, motes, train, flocks, people, animals, waterfall, lanterns, farm, fish, wild, map;
 const scare = { shake: 0, cool: 0 };
@@ -167,6 +170,8 @@ function applyPreset(i) {
   if (flocks) flocks.enabled = !night && !p.rain && !p.storm;
   if (birds) birds.enabled = !p.storm && !p.rain;
   herds?.setNight(!!night);
+  hamlets?.setNight(!!night);
+  shrineLife?.setNight(!!night);
   helipad?.setNight(!!night);
   storm.on = !!p.storm;
   storm.base = { hemiI: p.hemiI, exp: p.exp, fog: new THREE.Color(p.fog), cLit: new THREE.Color(p.cLit), fogD: p.fogD };
@@ -290,23 +295,23 @@ let jumpQueued = false;
 // rides: the bicycle parked by the road where the walk starts, and a battered old moped across the road
 const vehicles = [
   { obj: new Bicycle(), name: 'bicycle', park: { x: roadX(25) + 2.3, z: 25, rot: 0.4 }, walk: 5.5, run: 8.5, boost: 12.5, accel: 1.3, reach: 2.2, rad: 0.4, lean: 1,
-    on: 'On the bicycle', off: 'Off the bicycle', help: [['E', 'get off'], ['B', 'bell'], ['Shift', 'faster'], ['N', 'nitro']], ask: 'ride the bicycle' },
-  { obj: new Moped(), name: 'moped', park: { x: layout.moped.x, z: layout.moped.z, rot: -0.6 }, walk: 9, run: 14, boost: 21, accel: 0.9, reach: 2.2, rad: 0.45, lean: 1,
+    on: 'On the bicycle', off: 'Off the bicycle', help: [['E', 'get off'], ['B', 'bell'], ['Shift', 'pedal harder']], ask: 'ride the bicycle' },
+  { obj: new Moped(), name: 'moped', nitro: true, park: { x: layout.moped.x, z: layout.moped.z, rot: -0.6 }, walk: 9, run: 14, boost: 21, accel: 0.9, reach: 2.2, rad: 0.45, lean: 1,
     on: 'Phat-phat-phat… the old moped starts', off: 'Off the moped', help: [['E', 'get off'], ['B', 'horn'], ['Shift', 'faster'], ['N', 'nitro']], ask: 'ride the moped', flame: true },
   { obj: new AutoRickshaw(), name: 'auto', park: { x: layout.auto.x, z: layout.auto.z, rot: layout.auto.rot }, walk: 8.5, run: 13, boost: 19, accel: 0.8, reach: 2.8, rad: 0.75, lean: 0.2,
     four: true, wb: 1.6, rev: 3.5, probes: [-0.65, 0.6], exit: [-1.1, 0.2], box: [0, -0.1, 0.72, 1.3],
-    on: 'Driving the auto rickshaw', off: 'Out of the auto', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['N', 'nitro']], ask: 'drive the auto rickshaw', flame: true },
-  { obj: new Scooter(), name: 'scooter', park: { x: roadX(29) - 2.8, z: 29, rot: 2.6 }, walk: 8.5, run: 13, boost: 23, accel: 1.0, reach: 2.3, rad: 0.45, lean: 1, flame: true,
+    on: 'Driving the auto rickshaw', off: 'Out of the auto', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn']], ask: 'drive the auto rickshaw', flame: true },
+  { obj: new Scooter(), name: 'scooter', nitro: true, park: { x: roadX(29) - 2.8, z: 29, rot: 2.6 }, walk: 8.5, run: 13, boost: 23, accel: 1.0, reach: 2.3, rad: 0.45, lean: 1, flame: true,
     on: 'On the scooter', off: 'Off the scooter', help: [['E', 'get off'], ['B', 'horn'], ['Shift', 'faster'], ['N', 'nitro']], ask: 'ride the scooter' },
-  { obj: new SmallCar(), name: 'car', park: { x: roadX(100) + 5, z: 100, rot: 0.1 }, walk: 12, run: 18, boost: 28, accel: 0.9, reach: 3.0, rad: 0.82, lean: 0.1, flame: true,
+  { obj: new SmallCar(), name: 'car', nitro: true, park: { x: roadX(100) + 5, z: 100, rot: 0.1 }, walk: 12, run: 18, boost: 28, accel: 0.9, reach: 3.0, rad: 0.82, lean: 0.1, flame: true,
     four: true, wb: 2.05, rev: 4.5, probes: [-1.05, 0, 1.05], exit: [-1.2, 0], box: [0.33, 0, 0.8, 1.68],
     on: 'In the little car — vroom!', off: 'Out of the car', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['N', 'nitro']], ask: 'drive the little car' },
-  { obj: new MiniBus(), name: 'minibus', park: { x: roadX(84) - 4.9, z: 84, rot: 0 }, walk: 8.5, run: 13, boost: 18, accel: 0.55, reach: 4.2, rad: 1.12, lean: 0.04, flame: false,
+  { obj: new MiniBus(), name: 'minibus', park: { x: roadX(84) - 4.9, z: 84, rot: 0 }, walk: 13.9, run: 22.2, boost: 22.2, accel: 0.75, reach: 4.2, rad: 1.12, lean: 0.04, flame: false,
     four: true, wb: 4.1, rev: 3.2, probes: [-2.4, -0.8, 0.8, 2.4], exit: [2.6, 2.3], box: [0.55, 0, 1.15, 3.35],
-    on: 'The village minibus — stop at a 🚏 to pick people up', off: 'Out of the minibus', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['N', 'nitro']], ask: 'drive the minibus' },
+    on: 'The village minibus — stop at a 🚏 to pick people up (Shift for full speed, 80 km/h)', off: 'Out of the minibus', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster (80 km/h)'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn']], ask: 'drive the minibus' },
   { obj: Object.assign(new ERickshaw(), { fare0: 10, fareK: 2 }), name: 'erick', park: { x: roadX(62) - 4.3, z: 62, rot: 0 }, walk: 6.5, run: 9, boost: 13, accel: 0.75, reach: 2.8, rad: 0.62, lean: 0.15, flame: false,
     four: true, wb: 1.8, rev: 3, probes: [-0.95, 0.05, 0.95], exit: [-1.05, 0.5], box: [0, -0.15, 0.62, 1.42],
-    on: 'The e-rickshaw — pick up to 4 riders at a 🚏 bus stop', off: 'Out of the e-rickshaw', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['N', 'nitro']], ask: 'drive the e-rickshaw' },
+    on: 'The e-rickshaw — pick up to 4 riders at a 🚏 bus stop', off: 'Out of the e-rickshaw', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn']], ask: 'drive the e-rickshaw' },
   { obj: new RowBoat(), name: 'boat', water: true, park: { x: layout.boat.x, z: layout.boat.z, rot: layout.boat.rot }, walk: 1.8, run: 2.8, boost: 3.6, accel: 0.6, reach: 3.4, rad: 0.9, lean: 0,
     on: 'In the boat — row with W, A, D', off: 'Back on the bank', help: [['E', 'get out at a bank'], ['Shift', 'row harder']], ask: 'row the boat' },
 ];
@@ -332,6 +337,12 @@ const vehicles = [
       ['bicycle', () => paint(new Bicycle(), 'frame', '#2e6b4a'), 0.9, 32.8],
       ['scooter', () => new Scooter('#e8b020'), 2.2, 32.8],
     ]) { const p = at(lx, lz); add(name, mk(), p.x, p.z, nose); }
+  }
+  // a moped and a bicycle left by the square in each of the two ring-line villages
+  for (const v of layout.newVillages ?? []) {
+    const a = v.th + Math.PI * 0.5, cx = v.x + Math.cos(v.th) * 9, cz = v.z + Math.sin(v.th) * 9;
+    add('moped', paint(new Moped(), 'paint', v.style === 'kutch' ? '#c4241c' : '#2a5aa8'), cx + Math.cos(a) * 1.2, cz + Math.sin(a) * 1.2, -v.th);
+    add('bicycle', new Bicycle(), cx - Math.cos(a) * 1.2, cz - Math.sin(a) * 1.2, -v.th);
   }
   // by the roadside, wherever the verge is clear
   for (const [name, mk, z, side] of [
@@ -497,14 +508,14 @@ function hornFor(v) {
 // the rider climbs off (not very happily) and waits at the roadside. Park it back near him and walk off and he
 // rides away again; leave it anywhere far away and it finds its own way home.
 const TAKE_TPL = {
-  bus: { walk: 7, run: 11, boost: 16, accel: 0.45, reach: 5, rad: 1.25, lean: 0.03, flame: false,
+  bus: { walk: 13, run: 22.2, boost: 22.2, accel: 0.65, reach: 5, rad: 1.25, lean: 0.03, flame: false,
     four: true, wb: 5.5, rev: 3, probes: [0.4, -1.6, -3.6, -5.6, -7.6], exit: [-1.6, 0.3], box: [0.6, -3.6, 1.25, 4.55],
     shapeOver: { half: [1.25, 1.5, 4.5], com: [0.6, 1.6, -3.6] },
-    off: 'Off the bus', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['N', 'nitro']], ask: 'drive the bus' },
+    off: 'Off the bus', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster (80 km/h)'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn']], ask: 'drive the bus' },
   jeep: { walk: 11, run: 16, boost: 24, accel: 0.8, reach: 3, rad: 0.92, lean: 0.08, flame: true,
     four: true, wb: 2.45, rev: 4, probes: [-1.6, 0.1, 1.7], exit: [-1.3, 0], box: [0.38, 0.13, 0.92, 2.15],
     shapeOver: { half: [0.9, 0.9, 2.1], com: [0.38, 1.0, 0.13] },
-    off: 'Out of the jeep', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['N', 'nitro']], ask: 'drive the jeep' },
+    off: 'Out of the jeep', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn']], ask: 'drive the jeep' },
 };
 const TAKE_NAME = { bicycle: 'bicycle', moped: 'motorbike', scooter: 'scooter', bus: 'bus', jeep: 'jeep' };
 const TAKE_SHOUT = {
@@ -793,8 +804,8 @@ function crashCheck(dt) {
       const [dv, spin] = launch(body.p.x, body.p.z, body.mass, body.v); body.kick(dv, spin);
     }
     // anyone standing on the line is thrown aside
-    for (const h of [...people.hittables(), ...(herds?.hittables() ?? [])]) {
-      if (h.person.fallT > 0 || obbDist(h.x, h.z, b) > 0.35) continue;
+    for (const h of hitList) {
+      if (h.person.fallT > 0 || !(obbDist(h.x, h.z, b) <= 0.35)) continue;
       const sd = side(h.x, h.z);
       knockPerson(h, tdz * sd * 3 + b.vx * 0.3, -tdx * sd * 3 + b.vz * 0.3, sp * 1.5);
     }
@@ -810,6 +821,16 @@ function crashCheck(dt) {
     }
   }
   // 2. what the boy's vehicle runs into
+  if (ride && ride.fly && !flight.crashed && player.speed > 2 && (flight.ground || flight.agl < 2.5)) {
+    // taxiing (or skimming the ground): anyone under the wings or the rotor goes flying
+    const c = Math.cos(flight.heading), sn = Math.sin(flight.heading);
+    for (const h of hitList) {
+      if (h.person.fallT > 0) continue;
+      const dx = h.x - player.x, dz = h.z - player.z;
+      const along = dx * sn + dz * c, across = dx * c - dz * sn;
+      if (ride.heli ? Math.hypot(dx, dz) < 4.4 : Math.abs(along) < 3 && Math.abs(across) < 5.3) knockPerson(h, player.dirX * player.speed + dx, player.dirZ * player.speed + dz, player.speed);
+    }
+  }
   if (!ride || ride.water || ride.fly || knock.on || player.speed < 0.8) return;
   const four = !!ride.four;
   const vP = new THREE.Vector3(player.dirX * player.speed, 0, player.dirZ * player.speed);
@@ -817,7 +838,7 @@ function crashCheck(dt) {
   const mine = ride.probes ? ride.probes.map((o) => [player.x + Math.sin(player.facing) * o, player.z + Math.cos(player.facing) * o]) : [[player.x + Math.sin(player.facing) * 0.45, player.z + Math.cos(player.facing) * 0.45], [player.x, player.z]];
   const rP = ride.probes ? ride.rad : 0.35;
   // people: anyone in the way of the boy's vehicle is knocked flat (and gets up again, cross)
-  if (player.speed > 2.2) for (const h of [...people.hittables(), ...(herds?.hittables() ?? [])]) {
+  if (player.speed > 2.2) for (const h of hitList) {
     if (h.person.fallT > 0) continue;
     if (Math.abs(h.x - player.x) + Math.abs(h.z - player.z) > 12) continue;
     let hit = false;
@@ -860,11 +881,42 @@ function crashCheck(dt) {
   }
 }
 
+// everyone on foot near the boy (not riding or sitting up in anything), gathered once a frame for collisions
+let hitList = [];
+function collectHittables() {
+  hitList = [];
+  for (const p of ALL_PEOPLE) {
+    if (p.noHit || p.fallT > 0) continue;
+    let o = p.root, vis = true;
+    while (o) { if (!o.visible) { vis = false; break; } o = o.parent; }
+    if (!vis) continue;
+    const e = p.root.matrixWorld.elements, x = e[12], y = e[13], z = e[14];
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
+    if (!(Math.abs(x - player.x) + Math.abs(z - player.z) <= 160)) continue;
+    if (y - groundHeight(x, z, y + 0.3) > 0.6) continue; // up on a ride, a cart or a seat
+    hitList.push({ x, z, person: p });
+  }
+}
+// traffic that can't stop in time
+function trafficHits() {
+  for (const t of people.travellers.list) {
+    if (t.kind === 'walker' || t.crash || t.taken || !t.holder.visible || (t.speed ?? 0) < 2.5) continue;
+    const c = Math.cos(t.heading), sn = Math.sin(t.heading), hl = t.veh ? t.veh.len / 2 : t.kind === 'cart' ? 2.6 : 0.9, hw = t.veh ? t.veh.half : t.kind === 'cart' ? 0.9 : 0.35;
+    for (const h of hitList) {
+      if (h.person.fallT > 0) continue;
+      const dx = h.x - t.p.x, dz = h.z - t.p.z;
+      if (Math.abs(dx) + Math.abs(dz) > hl + 4) continue;
+      const along = dx * sn + dz * c, across = dx * c - dz * sn;
+      if (Math.abs(along) < hl + 0.25 && Math.abs(across) < hw + 0.3) knockPerson(h, sn * t.speed + across * c * 2, c * t.speed - across * sn * 2, t.speed);
+    }
+  }
+}
 // someone knocked over by a vehicle or the train: they go down with a cry
 let personToastT = 0;
 function knockPerson(h, dx, dz, speed) {
-  if (!h.person.knockDown(dx, dz, speed / 8)) return;
   const d = Math.hypot(h.x - player.x, h.z - player.z);
+  if (!Number.isFinite(d) || !Number.isFinite(dx) || !Number.isFinite(dz)) return;
+  if (!h.person.knockDown(dx, dz, Number.isFinite(speed) ? speed / 8 : 1)) return;
   audio.crash(clamp(0.5 - d / 120, 0.08, 0.4), 0.15);
   const [hi, ro] = pick([['अरे!', 'Arre!'], ['आह!', 'Aah!'], ['बचाओ!', 'Bachao!'], ['अरे बाप रे!', 'Arre baap re!']]);
   if (d < 60) audio.say(hi, { roman: ro, pitch: h.person.female ? 1.6 : 0.95, rate: 1.15, volume: clamp(1 - d / 60, 0.3, 1) });
@@ -916,7 +968,7 @@ async function build() {
   };
   stations = buildStations(scene, train, {
     sonpur: layout.sonpur,
-    villageFor: (h) => (h.name === 'Noorpur' ? NP : MP),
+    villageFor: (h) => h.village ?? (h.name.startsWith('Noorpur') ? NP : h.name === 'Mariapur' ? MP : null),
     onArrive: (st, n) => {
       const d = Math.hypot(player.x - st.h.yard.x, player.z - st.h.yard.z);
       if (st.train === drv) queueToast(`${st.h.name} — ${n} getting off, ${st.waiting()} waiting to board`);
@@ -928,6 +980,8 @@ async function build() {
     if (d < 500) audio.horn(clamp(1 - d / 480, 0.15, 1));
     if (type === 'arrive' && d < 60 && !drv && !ride) queueToast('Train standing at the platform — walk up to the engine cab and press E to drive it!');
   };
+  // the crossing bell: a quick ding-ding while the barriers are down
+  train.onCrossingBell = (X, closed) => { X.bellT = closed ? 0 : -1; };
   train.onEmerge = () => {
     const d = Math.min(...train.boxes.map((b) => Math.hypot(b.x - player.x, b.z - player.z)), 400);
     audio.horn(clamp(1 - d / 380, 0.15, 1));
@@ -938,7 +992,8 @@ async function build() {
     started: () => started,
     onBell: (d) => audio.cycleBell(clamp(1 - d / 25, 0, 1) * 0.8),
     onHorn: (d, kind) => { const v = clamp(1 - d / 70, 0, 1); if (v > 0.05) ({ scooter: () => audio.scooterHorn(v), bus: () => audio.busHorn(v), jeep: () => audio.jeepHorn(v) }[kind] ?? (() => audio.mopedHorn(v)))(); },
-    trainNear: (x, z) => train.boxes.some((b) => {
+    personAhead: (x, z, r) => hitList.some((h) => Math.abs(h.x - x) < r && Math.abs(h.z - z) < r),
+    trainNear: (x, z) => train.closedBoxes().some((b) => Math.hypot(b.x - x, b.z - z) < 7) || train.boxes.some((b) => {
       const dx = x - b.x, dz = z - b.z, c = Math.cos(b.rot), sn = Math.sin(b.rot);
       return Math.abs(dx * c - dz * sn) < 6 && Math.abs(dx * sn + dz * c) < b.hd + 30;
     }),
@@ -975,6 +1030,8 @@ async function build() {
     say: (hi, ro, d, pitch) => { if (d < 45) audio.say(hi, { roman: ro, pitch, rate: 1.05, volume: clamp(1 - d / 50, 0.2, 1) }); },
     moo: (v) => audio.moo(v), cowbell: (v) => audio.cowbell(v), bleat: (v) => audio.bleat(v),
   });
+  hamlets = buildHamlets(scene, layout.newVillages ?? []);
+  shrineLife = buildShrineLife(scene);
   motes = buildMotes();
   scene.add(motes);
   boy.root.rotation.order = 'YXZ';
@@ -1008,6 +1065,7 @@ window.addEventListener('keydown', (e) => {
     toast(PRESETS[presetIdx].name);
   }
   if (e.code === 'KeyM') toggleMute();
+  if (e.code === 'KeyU' && !e.repeat) toggleFullscreen();
   if (e.code === 'KeyE') toggleRide();
   if (e.code === 'KeyH') toggleHelp();
   if (e.code === 'KeyC') cycleCamera();
@@ -1051,6 +1109,20 @@ function toggleMute() {
   $('mute').textContent = audio.muted ? 'Sound off' : 'Sound on';
 }
 $('mute').addEventListener('click', toggleMute);
+// full screen: the whole page fills the screen (Esc or U again to leave)
+function toggleFullscreen() {
+  const d = document, el = d.documentElement;
+  if (!(d.fullscreenElement || d.webkitFullscreenElement)) {
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) Promise.resolve(req.call(el, { navigationUI: 'hide' })).then(() => { if (started) canvas.requestPointerLock?.(); }).catch(() => {});
+  } else (d.exitFullscreen || d.webkitExitFullscreen)?.call(d);
+}
+$('fullscreen').addEventListener('click', (e) => { toggleFullscreen(); e.currentTarget.blur(); });
+for (const ev of ['fullscreenchange', 'webkitfullscreenchange']) document.addEventListener(ev, () => {
+  const on = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  $('fullscreen').textContent = on ? '⤡ Exit full screen' : '⛶ Full screen';
+  window.dispatchEvent(new Event('resize'));
+});
 for (const p of PRESETS) $('atmo').add(new Option(p.name, p.key));
 for (const [k, v] of Object.entries(SEASONS)) $('season').add(new Option(v.name.split(' — ')[0], k));
 $('season').addEventListener('change', (e) => { season = e.target.value; applyPreset(presetIdx); applySeason(); e.target.blur(); });
@@ -1130,7 +1202,7 @@ function updatePlayer(dt) {
   const riding = !!ride;
   const depthHere = wet(player.x, player.z) ? WY() - groundHeight(player.x, player.z, player.y) : -9;
   const four = riding && !!ride.four;
-  const wantNitro = riding && !ride.water && (keys.KeyN || keys.Space) && (four ? f > 0 && drive.v > 0 : len > 0);
+  const wantNitro = riding && !ride.water && ride.nitro && (keys.KeyN || keys.Space) && (four ? f > 0 && drive.v > 0 : len > 0);
   if (wantNitro && nitro.fuel > 0.02 && !nitro.locked) {
     if (!nitro.on) { nitro.on = true; audio.whoosh(); }
     nitro.fuel = Math.max(0, nitro.fuel - dt * 0.28);
@@ -1210,6 +1282,7 @@ function updatePlayer(dt) {
       if (herds) for (const c of herds.colliders()) pushOut(p, rad, c);
     }
     for (const b of train.boxes) pushOut(p, 0.3, b);
+    for (const b of train.closedBoxes()) pushOut(p, rad, b);
     const blocked = (x, z) => {
       const g = groundHeight(x, z, player.y);
       // vehicles can't go into the river; on foot you can wade in and swim
@@ -1348,6 +1421,7 @@ function updatePlayer(dt) {
     hud.classList.toggle('boost', boosting);
     hud.classList.toggle('empty', nitro.locked && !boat);
     hud.classList.toggle('boat', boat);
+    hud.classList.toggle('nonitro', !boat && !ride.nitro);
   }
   document.body.classList.toggle('nitro', boosting);
   const fov = (camMode >= 3 || (inside && ride && ride.four) ? camera.fov : 55) + (camMode >= 3 || (inside && ride && ride.four) ? 0 : boostFx * 12);
@@ -1907,7 +1981,16 @@ function insideCamera(dt) {
   o.root.updateWorldMatrix(true, false);
   if (ride.name === 'minibus') {
     if (inside === 1) { camIn.set(0.55, 2.2, -3.05); lookIn.set(0.4, 1.55, 2.6); }
-    else { camIn.set(0, S.y + 0.8, S.z - 0.05); lookIn.set(0, S.y + 0.0, S.z + 6); }
+    else { camIn.set(0, S.y + 0.88, S.z + 0.1); lookIn.set(0, S.y + 0.25, S.z + 6); }
+  } else if (ride.name === 'bus' && o.veh) {
+    // the big bus: from the back of the aisle past the passengers to the driver, or high behind the wheel
+    const d = o.veh.driverSeat, fy = o.veh.floorY ?? 1.42;
+    if (inside === 1) { camIn.set(0.15 - d.x, fy + 1.18, -3.9 - d.z); lookIn.set(-0.3 - d.x, fy + 0.9, 4.4 - d.z); }
+    else { camIn.set(0, d.y + 0.8, 0.14); lookIn.set(0, d.y + 0.35, 6); }
+  } else if (ride.name === 'auto') {
+    // on the passenger bench looking over the boy's shoulder, or the driver's own eyes above the handlebar
+    if (inside === 1) { camIn.set(0.3, 1.46, -0.62); lookIn.set(-0.05, 1.12, 3.0); }
+    else { camIn.set(0, 1.52, 0.36); lookIn.set(0, 1.3, 6); }
   } else if (ride.name === 'erick' && inside === 1) { camIn.set(0.3, 1.52, -1.22); lookIn.set(0.05, 1.05, 1.6); }
   else if (inside === 1) { camIn.set(0.25, S.y + 0.95, S.z - 1.0); lookIn.set(0, S.y + 0.55, S.z + 3); }
   else { camIn.set(0, S.y + 0.7, S.z + 0.02); lookIn.set(0, S.y + 0.1, S.z + 6); }
@@ -2119,7 +2202,15 @@ function updateStorm(dt) {
 }
 
 function loop(now) {
-  const dt = Math.min(0.05, (now - last) / 1000);
+  // schedule the next frame first: a bug in one frame must never freeze the whole game
+  requestAnimationFrame(loop);
+  try { frame(now); } catch (err) {
+    if (!loop.errors || loop.errors < 5) console.error('frame error (game keeps running):', err);
+    loop.errors = (loop.errors || 0) + 1;
+  }
+}
+function frame(now) {
+  const dt = Math.min(0.05, Math.max(0, (now - last) / 1000) || 0);
   last = now;
   time += dt;
 
@@ -2128,7 +2219,9 @@ function loop(now) {
   windUniforms.uWind.value = windBase * (0.55 + gust * 0.75);
 
   if (!started) yaw += dt * 0.04;
+  collectHittables();
   people.update(dt, player);
+  trafficHits();
   site.update(dt, player);
   kites.update(dt, player);
   mela?.update(dt, player);
@@ -2143,6 +2236,11 @@ function loop(now) {
   }
   animals.update(dt, player);
   train.update(time);
+  for (const X of train.crossings) {
+    if (!X.closed) continue;
+    X.bellT = (X.bellT ?? 0) - dt;
+    if (X.bellT <= 0) { X.bellT = 0.45; const d = Math.hypot(player.x - X.cx, player.z - X.cz); if (d < 90) audio.tink(clamp(1 - d / 90, 0.1, 1) * 0.8); }
+  }
   stations?.update(dt, player, !!PRESETS[presetIdx].night);
   updatePlayer(dt);
   crashCheck(dt);
@@ -2157,7 +2255,7 @@ function loop(now) {
   mu.uCenter.value.set(player.x, player.y, player.z);
   mu.uScale.value = renderer.getPixelRatio();
   village.update(time, dt, player);
-  waterfall.update(time, dt, Math.abs(player.x - WF.x) + Math.abs(player.z - WF.z) < 140);
+  waterfall.update(time, dt, Math.abs(player.x - WF.x) + Math.abs(player.z - WF.z) < 260);
   lanterns.update(player, time);
   farm.update(dt, time, player);
   fish.update(dt, time, player);
@@ -2169,6 +2267,8 @@ function loop(now) {
   flocks.update(time, dt, player);
   birds.update(dt, player, !!PRESETS[presetIdx].night);
   herds?.update(dt, player);
+  hamlets?.update(dt, player);
+  shrineLife?.update(dt, player);
   clouds.material.uniforms.uTime.value = time;
   clouds.position.x = camera.position.x;
   clouds.position.z = camera.position.z;
@@ -2223,7 +2323,6 @@ function loop(now) {
   }
 
   composer.render();
-  requestAnimationFrame(loop);
 }
 
 // the minibus: toasts, the conductor's bell, and what the passengers say
@@ -2270,6 +2369,9 @@ window.__gaon = {
   get heli() { return heliV; },
   get stations() { return stations; },
   get herds() { return herds; },
+  get hamlets() { return hamlets; },
+  get shrineLife() { return shrineLife; },
+  allPeople: ALL_PEOPLE,
   get birds() { return birds; },
   get drv() { return drv; },
   nearCab: () => nearCab(),

@@ -2,10 +2,11 @@
 // a level crossing with a gatekeeper's hut — and a passenger train that passes once a minute.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { TRACK, TRACK3, TRACKS, TRACK_Y, riverX, RIVER_HALF, WATER_Y, CROSSING, CROSSING3, heightAt, colliders } from './world.js';
+import { TRACK, TRACK3, TRACKS, RING, TRACK_Y, riverX, RIVER_HALF, WATER_Y, CROSSING, CROSSING3, heightAt, colliders, roadX } from './world.js';
 import { toTexture } from './textures.js';
 import { lathe, boulder } from './shapes.js';
 import { Puffs } from './particles.js';
+import { Person } from './people.js';
 
 const std = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.85, ...o });
 const RAIL_TOP = TRACK_Y + 0.42;
@@ -19,13 +20,38 @@ function trackPoint(x) {
 }
 const nearRiver = (x) => Math.abs(x - TK.xr) < RIVER_HALF + 9 && TK.open(TK.xr);
 
+// a cross-section profile swept along a stretch of a line's path (s0 → s1)
+function ribbonS(P, s0, s1, step, profile, mat) {
+  const pos = [], idx = [], uv = [];
+  const n = Math.max(1, Math.ceil((s1 - s0) / step));
+  const q = {};
+  for (let i = 0; i <= n; i++) {
+    const t = s0 + ((s1 - s0) * i) / n;
+    P.at(t, q);
+    const nx = -q.tz, nz = q.tx;
+    for (const [o, y] of profile) { pos.push(q.x + nx * o, y, q.z + nz * o); uv.push(o * 0.5, t * 0.5); }
+  }
+  const m = profile.length;
+  for (let i = 0; i < n; i++) for (let j = 0; j < m - 1; j++) { const a = i * m + j, b = a + m; idx.push(a, a + 1, b, a + 1, b + 1, b); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const mesh = new THREE.Mesh(g, mat);
+  mesh.castShadow = mesh.receiveShadow = true;
+  return mesh;
+}
 function ribbon(x0, x1, step, profile, mat) {
   // profile: array of [offset, y]; extruded along the track
-  const pos = [], idx = [];
+  const pos = [], idx = [], uv = [];
   const n = Math.ceil((x1 - x0) / step);
+  let along = 0, last = null;
   for (let i = 0; i <= n; i++) {
     const { p, n: nn } = trackPoint(x0 + (i * (x1 - x0)) / n);
-    for (const [o, y] of profile) pos.push(p.x + nn.x * o, y, p.z + nn.z * o);
+    if (last) along += p.distanceTo(last);
+    last = p;
+    for (const [o, y] of profile) { pos.push(p.x + nn.x * o, y, p.z + nn.z * o); uv.push(o * 0.5, along * 0.5); }
   }
   const m = profile.length;
   for (let i = 0; i < n; i++) for (let j = 0; j < m - 1; j++) {
@@ -34,6 +60,7 @@ function ribbon(x0, x1, step, profile, mat) {
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(idx);
   g.computeVertexNormals();
   const mesh = new THREE.Mesh(g, mat);
@@ -291,78 +318,198 @@ function buildLoco(mats) {
   return { g, L, wheels, animate, chimney: new THREE.Vector3(0, 4.8, 4.62), cylinders: [new THREE.Vector3(-1.2, 1.0, 3.3), new THREE.Vector3(1.2, 1.0, 3.3)] };
 }
 
+let BALLAST = null;
+function gravelTex() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#7a7268'; g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 2600; i++) {
+    const k = 70 + Math.random() * 90, r = 1.5 + Math.random() * 3.5;
+    g.fillStyle = `rgb(${k + 10},${k + 4},${k - 4})`;
+    g.beginPath(); g.ellipse(Math.random() * 256, Math.random() * 256, r, r * (0.6 + Math.random() * 0.4), Math.random() * 3, 0, 7); g.fill();
+  }
+  const t = toTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2, 1);
+  return t;
+}
 export function buildRailway(scene) {
   const group = new THREE.Group();
-  for (const T of TRACKS) buildLine(group, T, T === TRACK);
+  for (const T of TRACKS) buildLine(group, T);
   scene.add(group);
   const A = new Train(scene, TRACK, { name: 'Sonpur–Noorpur Passenger', first: 10, coaches: 5 });
-  const B = new Train(scene, TRACKS[1], { livery: { base: '#1d4a3c', line: '#ead9a6', dark: '#123228', door: '#183f33' }, end: '#1d4a3c', coaches: 6, first: 150, startDir: -1, boiler: '#1c2a22', layover: 45, name: 'Mail' });
+  const B = new Train(scene, TRACKS[1], { livery: { base: '#1d4a3c', line: '#ead9a6', dark: '#123228', door: '#183f33' }, end: '#1d4a3c', coaches: 5, first: 150, boiler: '#1c2a22', name: 'Mail' });
   const C = new Train(scene, TRACK3, { livery: { base: '#24407a', line: '#f0d070', dark: '#16284e', door: '#1d3566' }, end: '#24407a', coaches: 3, first: 22, boiler: '#1a1c24', name: 'Mariapur–Noorpur Local' });
-  return new Railway([A, B, C]);
+  // the ring train goes round and round the whole country, stopping at the junctions and the new villages
+  const D = new Train(scene, RING, { livery: { base: '#c46a1a', line: '#f6e2b0', dark: '#8a4410', door: '#9a4e14' }, end: '#c46a1a', coaches: 4, first: 30, boiler: '#202024', name: 'Gol Gaadi — the Ring Train' });
+  return new Railway([A, B, C, D]);
 }
 
-// a level crossing: barrier booms either side, and the gatekeeper's hut
-function levelCrossing(group, cx, cz, offs = [14, 6.5]) {
+// a level crossing: a plank-and-concrete deck across the line, striped barrier booms on both sides of the
+// road that come down when a train is near (red lamps flashing, the bell ringing), and the gateman's little
+// brick cabin, with the gateman himself — he winds the booms down, then sits on his bench till it's gone.
+const CROSSINGS = [];
+function levelCrossing(group, cx, cz, tracks) {
+  const T0 = tracks[0];
+  TK = T0;
   const { t } = trackPoint(cx);
+  // the deck: concrete panels between and either side of the rails, level with the railheads, on each line
+  const deckM = std('#8d877e', { roughness: 0.95 }), plankM = std('#5a4632', { roughness: 0.9 });
+  const rdir = new THREE.Vector3(roadX(cz + 1) - roadX(cz - 1), 0, 2).normalize();
+  for (const T of tracks) {
+    TK = T;
+    const tz = T.z(cx);
+    // the road crosses this line where its centre meets it
+    let z = tz; for (let i = 0; i < 6; i++) z = T.z(roadX(z));
+    const x = roadX(z);
+    const { t: tt } = trackPoint(x);
+    const rot = Math.atan2(tt.x, tt.z);
+    const d = new THREE.Group(); d.position.set(x, RAIL_TOP, z); d.rotation.y = rot; group.add(d);
+    for (const [o, w, m] of [[0, GAUGE * 2 - 0.16, deckM], [GAUGE + 0.55, 1.0, plankM], [-(GAUGE + 0.55), 1.0, plankM]]) {
+      const p = new THREE.Mesh(new THREE.BoxGeometry(w, 0.1, 7.2), m);
+      p.position.set(o, -0.07, 0); p.receiveShadow = true; d.add(p);
+    }
+  }
+  TK = T0;
+  // barrier booms either side of the line, pivoting on striped posts at the edge of the road
   const white = std('#efefe8'), red = std('#c22d22');
   const stripe = document.createElement('canvas');
   stripe.width = 128; stripe.height = 8;
   const sg = stripe.getContext('2d');
   for (let i = 0; i < 8; i++) { sg.fillStyle = i % 2 ? '#c22d22' : '#f2f2ec'; sg.fillRect(i * 16, 0, 16, 8); }
   const boomMat = std('#ffffff', { map: toTexture(stripe) });
+  const zs = tracks.map((T) => T.z(cx));
+  const zMin = Math.min(...zs), zMax = Math.max(...zs);
+  const booms = [], lamps = [], boxes = [];
   for (const side of [-1, 1]) {
-    const off = side < 0 ? offs[0] : offs[1];
-    const bx = cx - t.z * side * off + t.x * side * 4, bz = cz + t.x * side * off + t.z * side * 4;
+    // along the road (rdir), 6 m beyond the outermost rail on this side; post at the road's edge
+    const zEdge = side > 0 ? zMax + 6 : zMin - 6;
+    const roadAt = { x: roadX(zEdge), z: zEdge };
+    const across = new THREE.Vector3(rdir.z, 0, -rdir.x); // perpendicular to the road
+    const bx = roadAt.x + across.x * 3.6 * side, bz = roadAt.z + across.z * 3.6 * side;
     const by = heightAt(bx, bz);
-    const post = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.3, 0.35), white);
-    post.position.set(bx, by + 0.65, bz);
-    const boom = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 7), boomMat);
-    boom.geometry.translate(0, 0, 3.5);
-    boom.position.set(bx, by + 1.2, bz);
-    boom.rotation.y = Math.atan2(-t.x * side, -t.z * side);
-    boom.rotateX(-1.25);
-    post.castShadow = boom.castShadow = true;
-    group.add(post, boom);
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.32, 1.3, 0.32), white);
+    post.position.set(bx, by + 0.65, bz); post.castShadow = true; group.add(post);
+    const cw = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), std('#3a3a3a', { metalness: 0.4 })); // counterweight
+    const pivot = new THREE.Group();
+    pivot.position.set(bx, by + 1.2, bz);
+    pivot.rotation.y = Math.atan2(-across.x * side, -across.z * side); // pointing across the road
+    group.add(pivot);
+    const arm = new THREE.Group(); pivot.add(arm);
+    const boom = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.13, 7.6).translate(0, 0, 3.8), boomMat);
+    boom.castShadow = true; arm.add(boom);
+    cw.position.set(0, 0, -0.5); arm.add(cw);
+    for (const z of [2.5, 5, 7.3]) { const tag = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.32, 0.32), red); tag.position.set(0, -0.2, z); arm.add(tag); }
+    booms.push(arm);
+    // two red lamps on a little gantry by the post, flashing in turn
+    for (const k of [-1, 1]) {
+      const m = new THREE.MeshStandardMaterial({ color: '#5a0a08', emissive: '#ff2010', emissiveIntensity: 0 });
+      const l = new THREE.Mesh(new THREE.CircleGeometry(0.12, 14), m);
+      const lp = new THREE.Vector3(bx + across.x * side * 0.6 + rdir.x * k * 0.18 * side, by + 2.1, bz + across.z * side * 0.6 + rdir.z * k * 0.18 * side);
+      l.position.copy(lp);
+      l.lookAt(lp.x - rdir.x * side * 5, lp.y, lp.z - rdir.z * side * 5);
+      group.add(l); lamps.push(m);
+    }
+    const lampPost = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.2, 6), std('#2a2a2a'));
+    lampPost.position.set(bx + across.x * side * 0.6, by + 1.1, bz + across.z * side * 0.6); group.add(lampPost);
     colliders.push({ kind: 'c', x: bx, z: bz, r: 0.3 });
+    // the box a lowered boom blocks
+    boxes.push({ kind: 'b', x: roadAt.x, z: roadAt.z, rot: Math.atan2(rdir.x, rdir.z), hw: 3.8, hd: 0.25 });
   }
-  const hx = cx - t.z * 9 + t.x * 8, hz = cz + t.x * 9 + t.z * 8;
-  const hy = heightAt(hx, hz);
+  // the gateman's cabin: whitewashed brick on a red plinth, a tiled roof, a window onto the line, the sign
+  const across = new THREE.Vector3(rdir.z, 0, -rdir.x);
+  const hz = zMax + 9, hx = roadX(hz) + across.x * 8 + 2 * across.x, hzz = hz + across.z * 10;
+  const hy = heightAt(hx, hzz);
   const hut = new THREE.Group();
-  hut.position.set(hx, hy, hz);
-  hut.rotation.y = Math.atan2(t.x, t.z);
-  const yellow = std('#d9b45a');
-  const addH = (geo, m, x, y, z) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = o.receiveShadow = true; hut.add(o); };
-  addH(new THREE.BoxGeometry(2.6, 2.4, 2.4), yellow, 0, 1.2, 0);
-  addH(new THREE.BoxGeometry(3.2, 0.2, 3.0), red, 0, 2.5, 0);
-  addH(new THREE.BoxGeometry(0.9, 1.8, 0.05), std('#3a4a5a'), -0.6, 0.95, 1.22);
-  addH(new THREE.BoxGeometry(0.7, 0.6, 0.05), std('#1c1612'), 0.6, 1.5, 1.22);
+  hut.position.set(hx, hy, hzz);
+  hut.rotation.y = Math.atan2(-across.x, -across.z); // its front faces the road
+  const addH = (geo, m, x, y, z, parent = hut) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = o.receiveShadow = true; parent.add(o); return o; };
+  addH(new THREE.BoxGeometry(3.0, 2.5, 2.6), std('#ece6d8', { roughness: 0.9 }), 0, 1.25, 0);
+  addH(new THREE.BoxGeometry(3.06, 0.5, 2.66), std('#9a3a26'), 0, 0.25, 0);
+  const roof = addH(new THREE.ConeGeometry(1, 1, 4, 1).rotateY(Math.PI / 4), std('#a8442c', { roughness: 0.8 }), 0, 3.0, 0);
+  roof.scale.set(2.6, 1.0, 2.3);
+  addH(new THREE.BoxGeometry(0.9, 1.8, 0.06), std('#2f5a7a'), -0.7, 0.95, 1.31); // door
+  addH(new THREE.BoxGeometry(0.8, 0.7, 0.06), std('#1c1612'), 0.75, 1.55, 1.31); // window
+  for (let i = 0; i < 4; i++) addH(new THREE.BoxGeometry(0.03, 0.7, 0.07), std('#5a5a5a', { metalness: 0.5 }), 0.47 + i * 0.19, 1.55, 1.33);
+  const sign = document.createElement('canvas'); sign.width = 512; sign.height = 128;
+  const sx = sign.getContext('2d');
+  sx.fillStyle = '#f2c418'; sx.fillRect(0, 0, 512, 128); sx.strokeStyle = '#141414'; sx.lineWidth = 8; sx.strokeRect(4, 4, 504, 120);
+  sx.fillStyle = '#141414'; sx.textAlign = 'center'; sx.font = 'bold 50px "Noto Sans Devanagari", Arial'; sx.fillText('रेलवे फाटक', 256, 56); sx.font = 'bold 34px Arial'; sx.fillText('LEVEL CROSSING · GATE No. 12', 256, 104);
+  addH(new THREE.PlaneGeometry(2.6, 0.65), new THREE.MeshStandardMaterial({ map: toTexture(sign) }), 0, 2.3, 1.34);
+  // a bench outside, and the winch the gateman turns
+  addH(new THREE.BoxGeometry(1.4, 0.08, 0.4), std('#6a4a2c'), 0.3, 0.45, 1.9);
+  for (const dx of [-0.35, 0.95]) addH(new THREE.BoxGeometry(0.06, 0.45, 0.35), std('#4a3420'), dx, 0.22, 1.9);
   group.add(hut);
-  colliders.push({ kind: 'b', x: hx, z: hz, rot: hut.rotation.y, hw: 1.3, hd: 1.2 });
+  colliders.push({ kind: 'b', x: hx, z: hzz, rot: hut.rotation.y, hw: 1.5, hd: 1.3 });
+  const winch = new THREE.Group();
+  const wpos = { x: hx - across.x * 2.6, z: hzz - across.z * 2.6 };
+  winch.position.set(wpos.x, heightAt(wpos.x, wpos.z), wpos.z); winch.rotation.y = hut.rotation.y; group.add(winch);
+  addH(new THREE.BoxGeometry(0.25, 0.9, 0.25), std('#2a4a6a', { metalness: 0.3 }), 0, 0.45, 0, winch);
+  const wheel = addH(new THREE.TorusGeometry(0.28, 0.03, 6, 16), std('#c22d22'), 0, 0.95, 0.15, winch);
+  // the gateman: blue uniform, white cap
+  const man = new Person({ dress: 'pants', top: '#3a5a8a', bottom: '#2a2a32', skin: '#6e4530', mustache: true, headwear: 'cap', turban: '#f2efe6', sleeves: 'short' });
+  group.add(man.root);
+  const benchAt = { x: hx + Math.sin(hut.rotation.y) * 1.9 + Math.cos(hut.rotation.y) * 0.3, z: hzz + Math.cos(hut.rotation.y) * 1.9 - Math.sin(hut.rotation.y) * 0.3 };
+  const winchFront = { x: wpos.x + Math.sin(hut.rotation.y) * 0.65, z: wpos.z + Math.cos(hut.rotation.y) * 0.65 };
+  const X = { cx, cz, booms, lamps, boxes, man, wheel, benchAt, winchFront, hutRot: hut.rotation.y, angle: -1.3, closed: false, t: 0, manP: { ...benchAt }, tracks };
+  CROSSINGS.push(X);
+  return X;
+}
+function updateCrossing(X, dt, trains) {
+  // close when any train on these lines is within ~80 m of the road; open once it's clear
+  let near = false;
+  for (const tr of trains) {
+    if (!X.tracks.includes(tr.tk)) continue;
+    for (const b of tr.boxes) if (Math.hypot(b.x - X.cx, b.z - X.cz) - b.hd < 80) near = true;
+  }
+  if (near !== X.closed) { X.closed = near; X.t = 0; if (X.onBell) X.onBell(X, near); }
+  X.t += dt;
+  // the booms come down after the lamps have flashed a few seconds; go up a moment after it's clear
+  const want = X.closed && X.t > 2.5 ? 0 : X.closed ? -1.3 : X.t > 1.5 ? -1.3 : 0;
+  const moving = Math.abs(want - X.angle) > 0.01;
+  X.angle += Math.sign(want - X.angle) * Math.min(Math.abs(want - X.angle), dt * 0.55);
+  for (const a of X.booms) a.rotation.x = X.angle;
+  const flash = X.closed || X.angle > -1.2;
+  for (let i = 0; i < X.lamps.length; i++) X.lamps[i].emissiveIntensity = flash && (Math.floor(X.t * 2.2) + i) % 2 === 0 ? 4 : 0;
+  // the gateman: at the winch while it's moving or a train is coming, on his bench otherwise
+  const target = X.closed || moving ? X.winchFront : X.benchAt;
+  const m = X.man, dx = target.x - X.manP.x, dz = target.z - X.manP.z, d = Math.hypot(dx, dz);
+  let sp = 0;
+  if (d > 0.1) { sp = 1.3; const k = Math.min(1, (sp * dt) / d); X.manP.x += dx * k; X.manP.z += dz * k; }
+  m.root.position.set(X.manP.x, heightAt(X.manP.x, X.manP.z), X.manP.z);
+  const face = d > 0.1 ? Math.atan2(dx, dz) : X.closed || moving ? X.hutRot + Math.PI : X.hutRot;
+  m.root.rotation.y += Math.atan2(Math.sin(face - m.root.rotation.y), Math.cos(face - m.root.rotation.y)) * Math.min(1, dt * 5);
+  m.update(dt, sp, sp > 0 ? 'walk' : moving ? 'stir' : X.closed ? 'idle' : 'sit');
+  if (moving) X.wheel.rotation.z += dt * 4;
 }
 
-function buildLine(group, T, main) {
-  TK = T;
+function buildLine(group, T) {
+  const P = T.path, q = {};
   const d = new THREE.Object3D();
-  const ballastMat = std('#7d746a', { roughness: 1 });
+  const ballastMat = BALLAST ?? (BALLAST = new THREE.MeshStandardMaterial({ map: gravelTex(), roughness: 1, color: '#c8c0b4' }));
   const prof = [[-2.4, TRACK_Y - 0.1], [-1.6, TRACK_Y + 0.25], [1.6, TRACK_Y + 0.25], [2.4, TRACK_Y - 0.1]];
-  const bx0 = T.xr - RIVER_HALF - 9, bx1 = T.xr + RIVER_HALF + 9;
-  const hasBridge = T.open(T.xr);
-  const railMat = std('#9aa0a6', { metalness: 0.85, roughness: 0.3 });
-  const xs = [];
-  // every open stretch gets ballast, sleepers and rails (running a little way into the tunnel mouths)
-  for (const [a, b] of T.segs) {
-    const x0 = T.termini ? a : a - 4, x1 = T.termini ? b : b + 4;
-    if (hasBridge && T.xr > a && T.xr < b) group.add(ribbon(x0, bx0, 2, prof, ballastMat), ribbon(bx1, x1, 2, prof, ballastMat));
-    else group.add(ribbon(x0, x1, 2, prof, ballastMat));
-    // keep the sleepers evenly spaced along the line, not along x, so the curving line stays tidy
-    for (let x = x0; x < x1; x += 0.62 / Math.sqrt(1 + T.slope(x) ** 2)) xs.push(x);
-    for (const sx of [-GAUGE, GAUGE]) group.add(ribbon(x0, x1, 1, [[sx - 0.04, RAIL_TOP - 0.16], [sx - 0.035, RAIL_TOP], [sx + 0.035, RAIL_TOP], [sx + 0.04, RAIL_TOP - 0.16]], railMat));
+  const onBridge = (t) => T.bridges.some(([a, b]) => t > a && t < b);
+  const railMat = std('#6a5a4c', { metalness: 0.6, roughness: 0.55, side: THREE.DoubleSide }), railTop = std('#c8ccd0', { metalness: 0.95, roughness: 0.18, side: THREE.DoubleSide });
+  const ss = [];
+  for (const [a0, b0] of T.segs) {
+    const a = T.closed ? a0 : Math.max(0, a0 - 4), b = T.closed ? b0 : Math.min(P.L, b0 + 4);
+    // ballast everywhere but the bridges
+    let cuts = [[a, b]];
+    for (const [b1, b2] of T.bridges) cuts = cuts.flatMap(([u, v]) => (b2 <= u || b1 >= v ? [[u, v]] : [[u, Math.max(u, b1)], [Math.min(v, b2), v]].filter(([x0, x1]) => x1 - x0 > 1)));
+    for (const [u, v] of cuts) group.add(ribbonS(P, u, v, 2, prof, ballastMat));
+    // flat-bottomed rails: foot, web and a rounded head
+    for (const sx of [-GAUGE, GAUGE]) {
+      group.add(ribbonS(P, a, b, 2, [[sx - 0.075, RAIL_TOP - 0.16], [sx - 0.075, RAIL_TOP - 0.14], [sx - 0.012, RAIL_TOP - 0.13], [sx - 0.012, RAIL_TOP - 0.05], [sx - 0.036, RAIL_TOP - 0.04], [sx - 0.036, RAIL_TOP - 0.008], [sx - 0.028, RAIL_TOP]], railMat));
+      group.add(ribbonS(P, a, b, 2, [[sx + 0.028, RAIL_TOP], [sx + 0.036, RAIL_TOP - 0.008], [sx + 0.036, RAIL_TOP - 0.04], [sx + 0.012, RAIL_TOP - 0.05], [sx + 0.012, RAIL_TOP - 0.13], [sx + 0.075, RAIL_TOP - 0.14], [sx + 0.075, RAIL_TOP - 0.16]], railMat));
+      group.add(ribbonS(P, a, b, 2, [[sx - 0.028, RAIL_TOP], [sx + 0.028, RAIL_TOP]], railTop));
+    }
+    for (let t = a; t < b; t += 0.62) ss.push(t);
   }
-  const sleepers = new THREE.InstancedMesh(new THREE.BoxGeometry(0.25, 0.14, 2.5), std('#8a857c'), xs.length);
-  xs.forEach((x, i) => {
-    const { p, t } = trackPoint(x);
-    d.position.set(p.x, nearRiver(x) ? RAIL_TOP - 0.2 : TRACK_Y + 0.3, p.z);
-    d.rotation.set(0, Math.atan2(t.x, t.z) - Math.PI / 2, 0);
+  // concrete sleepers with dark rail pads and clips
+  const slG = mergeGeometries([new THREE.BoxGeometry(0.26, 0.15, 2.6), ...[-GAUGE, GAUGE].flatMap((s2) => [new THREE.BoxGeometry(0.2, 0.03, 0.22).translate(0, 0.085, s2), new THREE.BoxGeometry(0.06, 0.06, 0.06).translate(0.09, 0.1, s2 + 0.1), new THREE.BoxGeometry(0.06, 0.06, 0.06).translate(-0.09, 0.1, s2 - 0.1)])]);
+  const sleepers = new THREE.InstancedMesh(slG, std('#a39d92', { roughness: 0.9 }), Math.max(1, ss.length));
+  ss.forEach((t, i) => {
+    P.at(t, q);
+    d.position.set(q.x, onBridge(t) ? RAIL_TOP - 0.2 : TRACK_Y + 0.3, q.z);
+    d.rotation.set(0, Math.atan2(q.tx, q.tz) - Math.PI / 2, 0);
     d.updateMatrix();
     sleepers.setMatrixAt(i, d.matrix);
   });
@@ -370,64 +517,45 @@ function buildLine(group, T, main) {
   sleepers.computeBoundingSphere();
   group.add(sleepers);
 
-  // girder bridge over the river
-  if (hasBridge) {
-    const steel = std('#56606a', { metalness: 0.4, roughness: 0.6 });
-    const concrete = std('#9c968c');
-    const bL = bx1 - bx0;
-    const { p: bc, t: bt } = trackPoint(T.xr);
-    const blen = bL * Math.sqrt(1 + T.slope(T.xr) ** 2);
-    const bridge = new THREE.Group();
-    bridge.position.set(bc.x, 0, bc.z);
-    bridge.rotation.y = Math.atan2(bt.x, bt.z);
-    const addB = (geo, m, x, y, z) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = o.receiveShadow = true; bridge.add(o); return o; };
-    addB(new THREE.BoxGeometry(3.6, 0.35, blen), concrete, 0, RAIL_TOP - 0.45, 0);
-    for (const sx of [-1, 1]) {
-      addB(new THREE.BoxGeometry(0.25, 0.3, blen), steel, sx * 2.0, RAIL_TOP + 2.6, 0);
-      addB(new THREE.BoxGeometry(0.25, 0.5, blen), steel, sx * 2.0, RAIL_TOP - 0.2, 0);
-      const n = 12;
-      for (let i = 0; i <= n; i++) {
-        const z = -blen / 2 + (i * blen) / n;
-        addB(new THREE.BoxGeometry(0.18, 2.8, 0.18), steel, sx * 2.0, RAIL_TOP + 1.2, z);
-        if (i < n) {
-          const diag = addB(new THREE.BoxGeometry(0.14, Math.hypot(2.8, blen / n), 0.14), steel, sx * 2.0, RAIL_TOP + 1.2, z + blen / n / 2);
-          diag.rotation.x = Math.atan2(blen / n, 2.8) * (i % 2 ? 1 : -1);
-        }
-      }
+  // girder bridges over the river: a concrete deck, steel trusses either side, piers in the water
+  const steel = std('#56606a', { metalness: 0.4, roughness: 0.6 }), concrete = std('#9c968c');
+  for (const [b0, b1] of T.bridges) {
+    if (!T.openS((b0 + b1) / 2)) continue;
+    group.add(ribbonS(P, b0, b1, 1.5, [[-1.8, RAIL_TOP - 0.62], [-1.8, RAIL_TOP - 0.28], [1.8, RAIL_TOP - 0.28], [1.8, RAIL_TOP - 0.62], [-1.8, RAIL_TOP - 0.62]], concrete));
+    for (const sx of [-2.0, 2.0]) {
+      group.add(ribbonS(P, b0, b1, 1.5, [[sx - 0.12, RAIL_TOP + 2.45], [sx - 0.12, RAIL_TOP + 2.75], [sx + 0.12, RAIL_TOP + 2.75], [sx + 0.12, RAIL_TOP + 2.45], [sx - 0.12, RAIL_TOP + 2.45]], steel));
+      group.add(ribbonS(P, b0, b1, 1.5, [[sx - 0.12, RAIL_TOP - 0.45], [sx - 0.12, RAIL_TOP + 0.05], [sx + 0.12, RAIL_TOP + 0.05], [sx + 0.12, RAIL_TOP - 0.45], [sx - 0.12, RAIL_TOP - 0.45]], steel));
     }
-    for (const z of [-blen / 3, 0, blen / 3]) addB(new THREE.CylinderGeometry(0.7, 0.9, RAIL_TOP - WATER_Y + 2.5, 12), concrete, 0, (RAIL_TOP + WATER_Y - 2.5) / 2 - 0.4, z);
-    for (const sx of [-1, 1]) for (let i = 0; i < 3; i++) colliders.push({ kind: 'c', x: bc.x + bt.x * (-blen / 2 + i * blen / 2) + sx * bt.z * 2.0, z: bc.z + bt.z * (-blen / 2 + i * blen / 2) - sx * bt.x * 2.0, r: 0.2 });
-    group.add(bridge);
+    const n = Math.max(4, Math.round((b1 - b0) / 3.4));
+    for (let i = 0; i <= n; i++) {
+      const t = b0 + ((b1 - b0) * i) / n;
+      P.at(t, q);
+      const rot = Math.atan2(q.tx, q.tz);
+      for (const sx of [-2.0, 2.0]) {
+        const px = q.x - q.tz * sx, pz = q.z + q.tx * sx;
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.18, 2.8, 0.18), steel); post.position.set(px, RAIL_TOP + 1.2, pz); post.rotation.y = rot; post.castShadow = true; group.add(post);
+        if (i < n) {
+          const tn = b0 + ((b1 - b0) * (i + 0.5)) / n, qq = P.at(tn);
+          const diag = new THREE.Mesh(new THREE.BoxGeometry(0.14, Math.hypot(2.8, (b1 - b0) / n), 0.14), steel);
+          diag.position.set(qq.x - qq.tz * sx, RAIL_TOP + 1.2, qq.z + qq.tx * sx);
+          diag.rotation.set(Math.atan2((b1 - b0) / n, 2.8) * (i % 2 ? 1 : -1), Math.atan2(qq.tx, qq.tz), 0, 'YXZ');
+          diag.castShadow = true; group.add(diag);
+        }
+        if (i % 3 === 0) colliders.push({ kind: 'c', x: px, z: pz, r: 0.2 });
+      }
+      if (i % 4 === 2) { const pier = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.9, RAIL_TOP - WATER_Y + 2.5, 12), concrete); pier.position.set(q.x, (RAIL_TOP + WATER_Y - 2.5) / 2 - 0.4, q.z); group.add(pier); }
+    }
   }
 
-  // the station lines end at buffer stops beyond their last platforms
-  if (T.termini) {
-    const red = std('#b8261c', { roughness: 0.6 }), white = std('#efefe8'), iron = std('#3a3836', { roughness: 0.6 });
-    for (const [x, dir] of [[T.xW + 0.5, 1], [T.xE - 0.5, -1]]) {
-      const { p, t } = trackPoint(x);
-      const g = new THREE.Group();
-      g.position.set(p.x, RAIL_TOP, p.z);
-      g.rotation.y = Math.atan2(t.x * dir, t.z * dir); // facing along the line, toward the trains
-      const add = (geo, m, x2, y, z) => { const o = new THREE.Mesh(geo, m); o.position.set(x2, y, z); o.castShadow = true; g.add(o); return o; };
-      add(new THREE.BoxGeometry(2.6, 0.5, 0.35), red, 0, 0.75, 0);
-      add(new THREE.BoxGeometry(2.6, 0.12, 0.37), white, 0, 0.75, 0);
-      for (const sx of [-0.85, 0.85]) {
-        add(new THREE.CylinderGeometry(0.16, 0.16, 0.4, 12).rotateX(Math.PI / 2), iron, sx, 0.75, 0.35);
-        const leg = add(new THREE.BoxGeometry(0.12, 0.12, 2.2), iron, sx, 0.35, -0.9); leg.rotation.x = -0.35;
-      }
-      add(new THREE.CylinderGeometry(0.09, 0.09, 0.05, 12).rotateX(Math.PI / 2), std('#ff3a1a', { emissive: '#ff2a10', emissiveIntensity: 1.5 }), 0, 1.15, 0.2);
-      group.add(g);
-      colliders.push({ kind: 'b', x: p.x, z: p.z, rot: g.rotation.y, hw: 1.4, hd: 0.4, height: RAIL_TOP + 1.2 });
-    }
-  }
-  // tunnel portals wherever a stretch meets a hill (the old Mail line)
+  // tunnel portals where the Mail line meets a hill
   const stone = std('#8f877b', { roughness: 1 });
   const dark = new THREE.MeshBasicMaterial({ color: '#050505' });
-  if (!T.termini) for (const [a, b] of T.segs) for (const [x, dir] of [[a, 1], [b, -1]]) {
-    const { p, t } = trackPoint(x);
+  if (!T.closed) for (const [a, b] of T.segs) for (const [t, dir] of [[a, 1], [b, -1]]) {
+    if (t < 1 || t > P.L - 1) continue; // the ends of a line run on into the ring, not into a hill
+    P.at(t, q);
     const portal = new THREE.Group();
-    portal.position.set(p.x, TRACK_Y - 1, p.z);
-    portal.rotation.y = Math.atan2(t.x * dir, t.z * dir);
+    portal.position.set(q.x, TRACK_Y - 1, q.z);
+    portal.rotation.y = Math.atan2(q.tx * dir, q.tz * dir);
     const shape = new THREE.Shape();
     shape.moveTo(-8, -0.6); shape.lineTo(8, -0.6); shape.lineTo(8, 11); shape.lineTo(-8, 11); shape.lineTo(-8, -0.6);
     const hole = new THREE.Path();
@@ -445,24 +573,26 @@ function buildLine(group, T, main) {
     group.add(portal);
   }
 
-  // level crossings: the old one on the main line (its booms span both lines), and the new line's on the north road
-  if (main) levelCrossing(group, CROSSING.x, CROSSING.z);
-  if (T === TRACK3) levelCrossing(group, CROSSING3.x, CROSSING3.z, [6.5, 6.5]);
+  // level crossings on the main road (the old one, spanning the main and Mail lines; the Mariapur line's)
+  if (T === TRACK) { TK = TRACK; levelCrossing(group, CROSSING.x, CROSSING.z, [TRACK, TRACKS[1]]); }
+  if (T === TRACK3) { TK = TRACK3; levelCrossing(group, CROSSING3.x, CROSSING3.z, [TRACK3]); }
 
-  // telegraph poles along the line
-  const poleGeo = new THREE.CylinderGeometry(0.07, 0.09, 6, 6).translate(0, 3, 0);
-  const armGeo = new THREE.BoxGeometry(1.0, 0.08, 0.08).translate(0, 5.6, 0);
-  const pg = mergeGeometries([poleGeo, armGeo]);
-  const poleXs = [];
-  if (main || T === TRACK3) for (const [a, b] of T.segs) for (let x = a + 10; x < b - 10; x += 45 / Math.sqrt(1 + T.slope(x) ** 2)) if (!nearRiver(x) && Math.abs(x - CROSSING.x) > 10 && Math.abs(x - CROSSING3.x) > 10) poleXs.push(x);
-  const poles = new THREE.InstancedMesh(pg, std('#5a5048'), Math.max(1, poleXs.length));
+  // telegraph poles along the station lines and the ring
+  if (T.name === 'mail') return;
+  const pg = mergeGeometries([new THREE.CylinderGeometry(0.07, 0.09, 6, 6).translate(0, 3, 0), new THREE.BoxGeometry(1.0, 0.08, 0.08).translate(0, 5.6, 0)]);
+  const poleTs = [];
+  for (const [a, b] of T.segs) for (let t = a + 10; t < b - 10; t += 45) {
+    P.at(t, q);
+    if (onBridge(t) || Math.hypot(q.x - CROSSING.x, q.z - CROSSING.z) < 14 || Math.hypot(q.x - CROSSING3.x, q.z - CROSSING3.z) < 14) continue;
+    poleTs.push(t);
+  }
+  const poles = new THREE.InstancedMesh(pg, std('#5a5048'), Math.max(1, poleTs.length));
   const wirePts = [];
-  poleXs.forEach((x, i) => {
-    const { p, n } = trackPoint(x);
-    const px = p.x + n.x * 5, pz = p.z + n.z * 5;
-    const py = heightAt(px, pz);
+  poleTs.forEach((t, i) => {
+    P.at(t, q);
+    const px = q.x - q.tz * 5, pz = q.z + q.tx * 5, py = heightAt(px, pz);
     d.position.set(px, py, pz);
-    d.rotation.set(0, Math.atan2(n.x, n.z), 0);
+    d.rotation.set(0, Math.atan2(-q.tz, q.tx), 0);
     d.updateMatrix();
     poles.setMatrixAt(i, d.matrix);
     wirePts.push(new THREE.Vector3(px, py + 5.65, pz));
@@ -473,18 +603,14 @@ function buildLine(group, T, main) {
   const wv = [];
   for (let i = 0; i < wirePts.length - 1; i++) {
     const a = wirePts[i], b = wirePts[i + 1];
-    if (a.distanceTo(b) > 60) continue; // no wire over a tunnel
+    if (a.distanceTo(b) > 60) continue;
     for (let k = 0; k < 8; k++) {
-      const t0 = k / 8, t1 = (k + 1) / 8;
-      const sag = (t) => -Math.sin(t * Math.PI) * 0.6;
-      wv.push(a.x + (b.x - a.x) * t0, a.y + (b.y - a.y) * t0 + sag(t0), a.z + (b.z - a.z) * t0);
-      wv.push(a.x + (b.x - a.x) * t1, a.y + (b.y - a.y) * t1 + sag(t1), a.z + (b.z - a.z) * t1);
+      const t0 = k / 8, t1 = (k + 1) / 8, sag = (t) => -Math.sin(t * Math.PI) * 0.6;
+      wv.push(a.x + (b.x - a.x) * t0, a.y + (b.y - a.y) * t0 + sag(t0), a.z + (b.z - a.z) * t0, a.x + (b.x - a.x) * t1, a.y + (b.y - a.y) * t1 + sag(t1), a.z + (b.z - a.z) * t1);
     }
   }
-  const wg = new THREE.BufferGeometry();
-  wg.setAttribute('position', new THREE.Float32BufferAttribute(wv, 3));
-  if (wv.length) group.add(new THREE.LineSegments(wg, new THREE.LineBasicMaterial({ color: '#2a2622' })));
-  if (!poleXs.length) poles.visible = false;
+  if (wv.length) { const wg = new THREE.BufferGeometry(); wg.setAttribute('position', new THREE.Float32BufferAttribute(wv, 3)); group.add(new THREE.LineSegments(wg, new THREE.LineBasicMaterial({ color: '#2a2622' }))); }
+  if (!poleTs.length) poles.visible = false;
 }
 
 // All the trains behind one interface for the rest of the game.
@@ -494,7 +620,11 @@ class Railway {
     this.boxes = [];
     this.main = trains[0];
     this.lastT = null;
+    this.crossings = CROSSINGS;
   }
+  set onCrossingBell(f) { for (const X of CROSSINGS) X.onBell = f; }
+  // the lowered booms: anything trying to cross the road there is stopped
+  closedBoxes() { const o = []; for (const X of CROSSINGS) if (X.angle > -0.6) o.push(...X.boxes); return o; }
   set onEmerge(f) { for (const t of this.trains) t.onEmerge = f; }
   set onChuff(f) { for (const t of this.trains) t.onChuff = f; }
   set onStation(f) { for (const t of this.trains) t.onStation = f; }
@@ -504,6 +634,7 @@ class Railway {
     this.lastT = time;
     this.boxes.length = 0;
     for (const t of this.trains) { t.update(dt); this.boxes.push(...t.boxes); }
+    for (const X of CROSSINGS) updateCrossing(X, dt, this.trains);
   }
   distanceTo(x, z) { return Math.min(...this.trains.map((t) => t.distanceTo(x, z))); }
   setNight(v) { for (const t of this.trains) t.setNight(v); }
@@ -515,7 +646,7 @@ class Railway {
 // A little timetable runs it: out of the tunnel at one end, along the line, a stop at each station (the
 // doors open, people get on and off), into the tunnel at the far end, a wait, and back again. The boy can
 // climb into the cab while it's standing at a station and drive it himself.
-const CRUISE = 15, ACCEL = 0.55, BRAKE = 0.75;
+const CRUISE = 22, ACCEL = 0.7, BRAKE = 0.9, TOP = 120 / 3.6; // timetable cruise ~80 km/h; the boy can take her up to 120
 class Train {
   constructor(scene, track, o) {
     this.tk = track;
@@ -559,21 +690,16 @@ class Train {
       scene.add(c.g);
     }
     this.length = off;
-    // arc-length table
-    this.xs = [];
-    this.ss = [];
-    const tz = track.z;
-    let s = 0, px = track.xW - 300, pz = tz(px);
-    for (let x = track.xW - 300; x <= track.xE + 300; x += 1) {
-      const z = tz(x);
-      s += Math.hypot(x - px, z - pz);
-      this.xs.push(x); this.ss.push(s);
-      px = x; pz = z;
-    }
-    this.sW = this.sAt(track.xW);
-    this.sE = this.sAt(track.xE);
-    // stations along the line, by distance along it
-    this.halts = (track.halts ?? []).map((h) => ({ ...h, s: this.sAt(h.x) }));
+    // the line it runs on, and its stations by distance along it
+    this.path = track.path;
+    this.sOff = 0;
+    // the station lines run on their drive route (their line plus the ring beyond each junction), so a driven
+    // train can carry on through the junction onto the ring; their halts sit at s + sOff on it
+    if (track.termini && track.drive) { this.path = track.drive.path; this.sOff = track.drive.off; }
+    this.sW = 0;
+    this.sE = this.path.L;
+    this.loopLine = !!track.loop;
+    this.halts = (track.halts ?? []).map((h) => ({ ...h }));
     this.layover = o.layover ?? 25;
     this.startDir = o.startDir ?? 1;
     this.dir = this.startDir;
@@ -591,6 +717,7 @@ class Train {
     this.drive = { throttle: 0, brake: 0 };
     this.at = null; // the halt it's standing at
     this.cabSign = 1;
+    if (this.loopLine) { this.termini = false; this.dir = 1; this.m = 1; this.head = this.stopFor(this.halts[0]); this.mode = 'dwell'; this.timer = o.first ?? 12; this.at = this.halts[0]; }
     if (this.termini) {
       // starts standing at the western terminus, facing east
       this.dir = 1; this.m = 1;
@@ -604,21 +731,14 @@ class Train {
     this.steamAcc = 0;
     this._v = new THREE.Vector3();
   }
-  sAt(x) { return this.ss[Math.max(0, Math.min(this.ss.length - 1, Math.round(x - this.xs[0])))]; }
-  xAt(s) {
-    let lo = 0, hi = this.ss.length - 1;
-    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (this.ss[m] < s) lo = m; else hi = m; }
-    const t = (s - this.ss[lo]) / (this.ss[hi] - this.ss[lo] || 1);
-    return this.xs[lo] + (this.xs[hi] - this.xs[lo]) * t;
-  }
   point(s) {
-    const x = this.xAt(s);
-    return new THREE.Vector3(x, RAIL_TOP, this.tk.z(x));
+    const q = this.path.at(s);
+    return new THREE.Vector3(q.x, RAIL_TOP, q.z);
   }
-  openAt(s) { return this.tk.open(this.xAt(s)); }
+  openAt(s) { const q = s - this.sOff; return q < 0 || q > this.tk.path.L ? true : this.tk.openS(q); }
   get tail() { return this.head - this.dir * this.length; }
   // where the head stops so the train stands centred on a platform
-  stopFor(h) { return this.termini ? h.s + this.length / 2 : h.s + this.dir * this.length / 2 - this.dir * 6; }
+  stopFor(h) { const s = h.s + this.sOff; return this.termini || this.loopLine ? s + this.length / 2 : s + this.dir * this.length / 2 - this.dir * 6; }
   setNight(v) {
     this.mats.side.emissiveIntensity = v * 1.6;
     this.mats.fire.emissiveIntensity = 1.2 + v * 2.5;
@@ -641,6 +761,7 @@ class Train {
   // the boy takes over (only while it's standing at a station) and hands back
   takeControl() { this.mode = 'driven'; this.drive.throttle = 0; this.drive.brake = 0; }
   release() {
+    if (this.loopLine) { this.mode = this.v === 0 && this.at ? 'dwell' : 'run'; this.timer = 8; return; }
     if (this.termini) {
       if (this.v !== 0) this.m = Math.sign(this.v);
       else if (!this.nextStop(this.m)) this.m = -this.m;
@@ -679,13 +800,13 @@ class Train {
       this.head += this.v * dt;
       if (nh && nh.d < 0.6 && nsp < 1.2) {
         this.v = 0; this.head = this.stopFor(nh.h); this.at = nh.h;
-        this.mode = 'dwell'; this.timer = nh.h.big || !this.nextStop(this.m) ? 30 : 22;
+        this.mode = 'dwell'; this.timer = nh.h.noStation ? 12 : nh.h.big || !this.nextStop(this.m) ? 30 : 22;
         if (this.onStation) this.onStation('arrive', this, nh.h);
       }
     } else if (this.mode === 'driven') {
       const { throttle, brake } = this.drive;
       if (brake > 0) { const dv = (BRAKE * 2.2) * dt; this.v = Math.abs(this.v) <= dv ? 0 : this.v - Math.sign(this.v) * dv; }
-      else if (throttle !== 0) this.v = THREE.MathUtils.clamp(this.v + throttle * this.cabSign * ACCEL * 1.2 * dt, -22, 22);
+      else if (throttle !== 0) this.v = THREE.MathUtils.clamp(this.v + throttle * this.cabSign * ACCEL * 1.5 * dt, -TOP, TOP);
       else { const dv = 0.08 * dt; this.v = Math.abs(this.v) <= dv ? 0 : this.v - Math.sign(this.v) * dv; }
       this.head += this.v * dt;
       // buffer stops beyond the end platforms
@@ -695,10 +816,43 @@ class Train {
       if (this.v === 0) for (const h of this.halts) if (Math.abs(this.head - this.stopFor(h)) < 22) this.at = h;
     }
   }
+  // the ring: round and round, always forward, stopping at every station
+  nextLoopStop() {
+    const L = this.path.L;
+    let best = null, bd = Infinity;
+    for (const h of this.halts) { let d = (((this.stopFor(h) - this.head) % L) + L) % L; if (d < 0.5) d += L; if (d < bd) { bd = d; best = h; } }
+    return best ? { h: best, d: bd } : null;
+  }
+  updateLoop(dt) {
+    const L = this.path.L;
+    if (this.mode === 'dwell') {
+      this.v = 0; this.timer -= dt;
+      if (this.timer <= 0) { this.mode = 'run'; if (this.at && this.onStation) this.onStation('depart', this, this.at); this.at = null; }
+    } else if (this.mode === 'run') {
+      const nh = this.nextLoopStop();
+      const target = nh ? Math.min(CRUISE, Math.sqrt(Math.max(0, 2 * BRAKE * Math.max(0, nh.d - 0.5)))) : CRUISE;
+      this.v = this.v < target ? Math.min(target, this.v + ACCEL * dt) : Math.max(target, this.v - BRAKE * 1.6 * dt);
+      const step = this.v * dt;
+      if (nh && nh.d - step < 0.6 && this.v < 1.2) {
+        this.head += nh.d; this.v = 0; this.at = nh.h; this.mode = 'dwell'; this.timer = 22;
+        if (this.onStation) this.onStation('arrive', this, nh.h);
+      } else this.head += step;
+    } else if (this.mode === 'driven') {
+      const { throttle, brake } = this.drive;
+      if (brake > 0) { const dv = BRAKE * 2.2 * dt; this.v = Math.abs(this.v) <= dv ? 0 : this.v - Math.sign(this.v) * dv; }
+      else if (throttle !== 0) this.v = THREE.MathUtils.clamp(this.v + throttle * ACCEL * 1.5 * dt, -6, TOP);
+      else { const dv = 0.08 * dt; this.v = Math.abs(this.v) <= dv ? 0 : this.v - Math.sign(this.v) * dv; }
+      this.head += this.v * dt;
+      this.at = null;
+      if (this.v === 0) for (const h of this.halts) { const d = (((this.head - this.stopFor(h)) % L) + L) % L; if (d < 22 || d > L - 22) this.at = h; }
+    }
+    if (this.head > 4 * L) this.head -= 2 * L; // keep the number small; positions wrap round the ring anyway
+  }
   update(dt) {
     this.boxes.length = 0;
     const prevHead = this.head;
-    if (this.termini) this.updateTermini(dt);
+    if (this.loopLine) this.updateLoop(dt);
+    else if (this.termini) this.updateTermini(dt);
     else if (this.mode === 'wait') {
       // hidden in the tunnel at one end of the line, waiting to come back
       this.v = 0;
@@ -740,7 +894,7 @@ class Train {
       // v is signed along the direction the engine faces
       const { throttle, brake } = this.drive;
       if (brake > 0) { const dv = (BRAKE * 2.2) * dt; this.v = Math.abs(this.v) <= dv ? 0 : this.v - Math.sign(this.v) * dv; }
-      else if (throttle !== 0) this.v = THREE.MathUtils.clamp(this.v + throttle * ACCEL * 1.2 * dt, -6, 22);
+      else if (throttle !== 0) this.v = THREE.MathUtils.clamp(this.v + throttle * ACCEL * 1.5 * dt, -6, TOP);
       else { const dv = 0.08 * dt; this.v = Math.abs(this.v) <= dv ? 0 : this.v - Math.sign(this.v) * dv; }
       this.head += this.dir * this.v * dt;
       // the ends of the line: buffers inside the tunnels
@@ -754,7 +908,7 @@ class Train {
       if (this.v === 0) for (const h of this.halts) if (Math.abs(this.head - this.stopFor(h)) < 22) this.at = h;
     }
     const ds = this.head - prevHead;
-    this.travel += this.termini ? ds : ds * this.dir;
+    this.travel += this.termini || this.loopLine ? ds : ds * this.dir;
     // cars along the line
     let anyVis = false;
     const speed = Math.abs(this.v);

@@ -3,14 +3,14 @@
 import * as THREE from 'three';
 import { fbm, noise2, smoothstep } from './noise.js';
 import {
-  INNER_HALF, OUTER_HALF, MID_HALF, DATA_HALF, WATER_Y, RIVER_HALF, heightAt, riverX, dirtMask, fieldType, isBund, trackDist, waterfallMask, GARDEN, desertMask,
+  INNER_HALF, OUTER_HALF, MID_HALF, DATA_HALF, WATER_Y, RIVER_HALF, heightAt, riverX, dirtMask, fieldType, isBund, trackDist, waterfallMask, fallsRock, roadX, GARDEN, desertMask,
 } from './world.js';
 import { detailCanvas, toTexture } from './textures.js';
 
 const C = {
   g1: [78, 112, 46], g2: [108, 136, 58], dry: [158, 148, 88], dirt: [178, 134, 90], dirt2: [150, 108, 72],
   sand: [194, 174, 134], mud: [84, 78, 56], soil: [104, 104, 54], crop: [96, 116, 52], hill: [66, 94, 44],
-  rock: [118, 112, 98], ballast: [122, 112, 100],
+  rock: [118, 112, 98], ballast: [122, 112, 100], rut: [128, 92, 62],
   desert: [214, 176, 122], desert2: [196, 150, 98], paddy: [74, 88, 62], cane: [92, 88, 58], sunsoil: [98, 110, 56], plough1: [92, 62, 40], plough2: [128, 92, 60],
 };
 const mix = (a, b, t, o) => { o[0] = a[0] + (b[0] - a[0]) * t; o[1] = a[1] + (b[1] - a[1]) * t; o[2] = a[2] + (b[2] - a[2]) * t; return o; };
@@ -43,9 +43,17 @@ export function terrainColor(x, z, out) {
   if (td < 4.5) mix(c, C.ballast, (1 - smoothstep(2.6, 4.5, td)) * 0.85, c);
   const dm = dirtMask(x, z);
   if (dm > 0) mix(c, mix(C.dirt, C.dirt2, noise2(x * 0.5, z * 0.5) * 0.5 + 0.5, [0, 0, 0]), dm, c);
+  // the main road: packed brown earth, a little darker in the two wheel ruts worn by carts and buses
+  if (z > -700 && z < 840) {
+    const dx = Math.abs(x - roadX(z)) + noise2(x * 0.7, z * 0.7) * 0.15;
+    if (dx < 2.4) {
+      const rut = Math.exp(-((dx - 0.95) ** 2) / 0.05) * (0.6 + 0.4 * noise2(x * 2, z * 0.4));
+      mix(c, C.rut, rut * 0.45, c);
+    }
+  }
   mix(c, C.sand, (1 - smoothstep(RIVER_HALF + 1.5, RIVER_HALF + 5, dr)) * 0.9, c);
   if (h < WATER_Y + 0.1) mix(c, C.mud, smoothstep(WATER_Y + 0.1, WATER_Y - 1.0, h), c);
-  if (d < 140) { const wm = waterfallMask(x, z); if (wm > 0) mix(c, C.mud, wm * 0.85, c); }
+  { const wm = waterfallMask(x, z); if (wm > 0) mix(c, C.mud, wm * 0.85, c); const fr = fallsRock(x, z); if (fr > 0) mix(c, C.rock, fr, c); }
   { const dm2 = desertMask(x, z); if (dm2 > 0) mix(c, mix(C.desert, C.desert2, noise2(x * 0.08, z * 0.08) * 0.5 + 0.5, [0, 0, 0]), dm2 * 0.9, c); }
   const k = 0.92 + noise2(x * 0.9, z * 0.9) * 0.08;
   out[0] = c[0] * k; out[1] = c[1] * k; out[2] = c[2] * k;
@@ -73,6 +81,12 @@ function detailMaterial(params) {
   return mat;
 }
 
+// big static meshes: once the GPU has them, the JavaScript copies are just dead weight
+function freeAfterUpload(geo) {
+  const drop = function () { this.array = new this.array.constructor(0); };
+  for (const a of Object.values(geo.attributes)) a.onUpload(drop);
+  if (geo.index) geo.index.onUpload(drop);
+}
 export function buildTerrain() {
   const group = new THREE.Group();
   // --- inner: baked color map ---
@@ -96,11 +110,13 @@ export function buildTerrain() {
   map.wrapS = map.wrapT = THREE.ClampToEdgeWrapping;
   map.anisotropy = 16;
 
-  const geo = new THREE.PlaneGeometry(INNER_HALF * 2, INNER_HALF * 2, 1120, 1120);
+  const geo = new THREE.PlaneGeometry(INNER_HALF * 2, INNER_HALF * 2, 1440, 1440);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) pos.setY(i, heightAt(pos.getX(i), pos.getZ(i)));
   geo.computeVertexNormals();
+  geo.computeBoundingSphere();
+  freeAfterUpload(geo);
   const inner = new THREE.Mesh(geo, detailMaterial({ map }));
   inner.receiveShadow = true;
   group.add(inner);
@@ -127,12 +143,14 @@ export function buildTerrain() {
     og.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
     og.setIndex(idx);
     og.computeVertexNormals();
+    og.computeBoundingSphere();
+    freeAfterUpload(og);
     const m = new THREE.Mesh(og, detailMaterial({ vertexColors: true }));
     m.receiveShadow = true;
     group.add(m);
   };
-  ring(MID_HALF, 4, INNER_HALF, -0.03);
-  ring(OUTER_HALF, 16, MID_HALF - 16, -0.2);
+  ring(MID_HALF, 6, INNER_HALF, -0.03);
+  ring(OUTER_HALF, 24, MID_HALF - 24, -0.2);
   return group;
 }
 
@@ -150,7 +168,7 @@ export function buildGrassData() {
       let dens = 1 - dirtMask(x, z) * 1.15;
       dens *= smoothstep(RIVER_HALF + 1.5, RIVER_HALF + 4.5, dr);
       dens *= smoothstep(3.0, 5.0, trackDist(x, z));
-      if (Math.hypot(x, z) < 140) dens *= 1 - waterfallMask(x, z);
+      dens *= (1 - waterfallMask(x, z)) * (1 - fallsRock(x, z));
       if (Math.abs(x - GARDEN.x) < GARDEN.hw && Math.abs(z - GARDEN.z) < GARDEN.hd) dens *= 0.08;
       { const dm2 = desertMask(x, z); if (dm2 > 0) dens *= 1 - dm2 * 0.85; }
       let type = 0;
@@ -175,5 +193,7 @@ export function buildGrassData() {
   tex.minFilter = tex.magFilter = THREE.LinearFilter;
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
   tex.needsUpdate = true;
+  // nothing reads it back on the CPU: let the 50 MB array go once it's uploaded
+  tex.onUpdate = () => { tex.image = { data: null, width: N, height: N }; tex.onUpdate = null; };
   return tex;
 }

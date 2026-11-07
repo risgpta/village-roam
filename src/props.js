@@ -1,6 +1,7 @@
 // Village buildings and props. Static pieces are merged per material to keep draw calls low;
 // moving pieces (cows, flags, cloth, boat, kite) are flagged dynamic and kept separate.
 import * as THREE from 'three';
+import { streetLight, setStreetLights } from './lights.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { rng } from './noise.js';
 import { applyClothWave } from './wind.js';
@@ -16,6 +17,7 @@ const std = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness
 export let M;
 let teaLantern = null;
 export function setNightGlow(v) {
+  setStreetLights(v);
   M.dark.emissive.set('#ffb35c');
   M.dark.emissiveIntensity = v * 2.2;
   if (teaLantern) {
@@ -1285,13 +1287,13 @@ function roadSigns() {
   const p = (arr) => arr.map(([x, z]) => P2(x, z));
   // each village's road, from the main-road junction onward
   const toNV = p([[roadX(178) - 2, 178], [NV.x + 12, NV.z]]);
-  const toRV = p([[roadX(150) + 2, 150], [40, 152], [B1.w.x, B1.w.z], [B1.e.x, B1.e.z], [150, 158], [210, 145], [292, 167], [RV.x - 16, RV.z]]);
+  const toRV = p([[roadX(150) + 2, 150], [40, 152], [B1.w.x, B1.w.z], [B1.e.x, B1.e.z], [150, 158], [210, 145], [313, 179], [RV.x - 16, RV.z]]);
   const toEH = p([[roadX(150) + 2, 150], [40, 152], [B1.w.x, B1.w.z], [B1.e.x, B1.e.z], [150, 156], [142, 120], [EH.x + 4, EH.z + 8]]);
-  const toTV = p([[roadX(250) + 2, 250], [33, 310], [B3.w.x, B3.w.z], [B3.e.x, B3.e.z], [138, 357], [198, 408], [TV.x - 16, TV.z]]);
-  const toBV = p([[roadX(-150) + 2, -150], [20, -175], [B2.w.x, B2.w.z], [B2.e.x, B2.e.z], [130, -228], [206, -267], [BV.x - 16, BV.z]]);
-  const toNE = [...toBV, ...p([[BV.x + 4, BV.z - 14], [306, -392], [304, -536], [NE.x, NE.z + 16]])];
-  const westRing = p([[roadX(-62) - 2, -62], [-60, -64], [-130, -80], [-222, -60], [-238, 10]]);
-  const toMH = [...westRing, ...p([[-333, 0], [-457, -36], [-551, -69], [MH.x + 16, MH.z]])];
+  const toTV = p([[roadX(250) + 2, 250], [35, 328], [B3.w.x, B3.w.z], [B3.e.x, B3.e.z], [151, 390], [221, 456], [TV.x - 16, TV.z]]);
+  const toBV = p([[roadX(-150) + 2, -150], [20, -175], [B2.w.x, B2.w.z], [B2.e.x, B2.e.z], [130, -228], [221, -286], [BV.x - 16, BV.z]]);
+  const toNE = [...toBV, ...p([[BV.x + 4, BV.z - 14], [346, -443], [350, -618], [NE.x, NE.z + 16]])];
+  const westRing = p([[roadX(-62) - 2, -62], [-60, -64], [-130, -80], [-222, -79], [-238, 10]]);
+  const toMH = [...westRing, ...p([[-356, 0], [-511, -40], [-629, -79], [MH.x + 16, MH.z]])];
   const toHill = main(-150, HILLTOP.z);
   const V = {
     NV: ['छोटा गाँव', 'Chhota Gaon'], RV: ['मारुधर', 'Marudhar'], EH: ['पार गाँव', 'Paar Gaon'], TV: ['तेन्नूर', 'Thennoor'], BV: ['बांग्लाग्राम', 'Banglagram'],
@@ -1306,23 +1308,23 @@ function roadSigns() {
   add(roadX(-58) + 3.2, -58, [E('MH', toMH), E('BV', [...main(-62, -150), ...toBV]), E('NE', [...main(-62, -150), ...toNE]), E('G', main(-62, 10))]);
   add(roadX(-146) + 3.2, -146, [E('BV', toBV), E('NE', toNE), E('HILL', toHill), E('G', main(-150, 10))]);
   add(roadX(146) + 3.2, 146, [E('RV', toRV), E('EH', toEH), E('NV', [...main(150, 178), ...toNV]), E('TV', [...main(150, 250), ...toTV]), E('G', main(150, 10))]);
-  add(roadX(182) - 3.2, 182, [E('NV', toNV), E('MH', [...toNV, ...p([[NV.x - 14, NV.z - 2], [-206, 160], [-232, 95], [-238, 10], [-333, 0], [-457, -36], [-551, -69], [MH.x + 16, MH.z]])]), E('TV', [...main(178, 250), ...toTV]), E('G', main(178, 10))]);
+  add(roadX(182) - 3.2, 182, [E('NV', toNV), E('MH', [...toNV, ...p([[NV.x - 14, NV.z - 2], [-206, 160], [-232, 95], [-238, 10], [-356, 0], [-511, -40], [-629, -79], [MH.x + 16, MH.z]])]), E('TV', [...main(178, 250), ...toTV]), E('G', main(178, 10))]);
   add(roadX(246) + 3.2, 246, [E('TV', toTV), E('G', main(250, 10))]);
-  add(B1.e.x + 6, B1.e.z + 4, [E('RV', p([[150, 158], [210, 145], [292, 167], [RV.x - 16, RV.z]])), E('EH', p([[150, 156], [142, 120], [EH.x + 4, EH.z + 8]])), E('G', [...[...toRV].reverse().slice(4), ...main(150, 10)])]);
-  add(RV.x - 20, RV.z + 3, [E('BV', p([[RV.x - 6, RV.z - 16], [303, -168], [BV.x + 14, BV.z + 6]])), E('TV', p([[RV.x - 6, RV.z + 16], [310, 310], [TV.x + 28, TV.z + 8], [TV.x + 12, TV.z]])), E('G', [...toRV].reverse())]);
-  add(BV.x + 7, BV.z - 17, [E('NE', p([[306, -392], [304, -536], [NE.x, NE.z + 16]])), E('RV', p([[BV.x + 14, BV.z + 6], [303, -168], [RV.x - 6, RV.z - 16]])), E('G', [...toBV].reverse())]);
-  add(TV.x - 20, TV.z + 3, [E('RV', p([[TV.x + 12, TV.z], [TV.x + 28, TV.z + 8], [310, 310], [RV.x - 6, RV.z + 16]])), E('G', [...toTV].reverse())]);
-  add(NV.x - 17, NV.z + 2, [E('MH', p([[-206, 160], [-232, 95], [-238, 10], [-333, 0], [-457, -36], [-551, -69], [MH.x + 16, MH.z]])), E('G', [...toNV].reverse())]);
-  add(-238 + 3, 13, [E('MH', p([[-333, 0], [-457, -36], [-551, -69], [MH.x + 16, MH.z]])), E('NV', p([[-232, 95], [-206, 160], [NV.x - 14, NV.z - 2]])), E('G', [...westRing].reverse())]);
-  const toMP = p([[roadX(warpR(470)) - 2, warpR(470)], [-155, 647], [-305, 723], [MP.x + 18, MP.z]]);
-  const toPG = [...main(warpR(470), warpR(540)), ...p([[-18, 724], [PG.x + 14, PG.z]])];
+  add(B1.e.x + 6, B1.e.z + 4, [E('RV', p([[150, 158], [210, 145], [313, 179], [RV.x - 16, RV.z]])), E('EH', p([[150, 156], [142, 120], [EH.x + 4, EH.z + 8]])), E('G', [...[...toRV].reverse().slice(4), ...main(150, 10)])]);
+  add(RV.x - 20, RV.z + 3, [E('BV', p([[RV.x - 6, RV.z - 16], [326, -181], [BV.x + 14, BV.z + 6]])), E('TV', p([[RV.x - 6, RV.z + 16], [345, 345], [TV.x + 28, TV.z + 8], [TV.x + 12, TV.z]])), E('G', [...toRV].reverse())]);
+  add(BV.x + 7, BV.z - 17, [E('NE', p([[346, -443], [350, -618], [NE.x, NE.z + 16]])), E('RV', p([[BV.x + 14, BV.z + 6], [326, -181], [RV.x - 6, RV.z - 16]])), E('G', [...toBV].reverse())]);
+  add(TV.x - 20, TV.z + 3, [E('RV', p([[TV.x + 12, TV.z], [TV.x + 28, TV.z + 8], [345, 345], [RV.x - 6, RV.z + 16]])), E('G', [...toTV].reverse())]);
+  add(NV.x - 17, NV.z + 2, [E('MH', p([[-206, 160], [-232, 95], [-238, 10], [-356, 0], [-511, -40], [-629, -79], [MH.x + 16, MH.z]])), E('G', [...toNV].reverse())]);
+  add(-238 + 3, 13, [E('MH', p([[-356, 0], [-511, -40], [-629, -79], [MH.x + 16, MH.z]])), E('NV', p([[-232, 95], [-206, 160], [NV.x - 14, NV.z - 2]])), E('G', [...westRing].reverse())]);
+  const toMP = p([[roadX(warpR(470)) - 2, warpR(470)], [-180, 750], [-358, 848], [MP.x + 18, MP.z]]);
+  const toPG = [...main(warpR(470), warpR(540)), ...p([[-21, 845], [PG.x + 14, PG.z]])];
   add(roadX(warpR(462)) + 3.2, warpR(462), [E('MP', toMP), E('PG', toPG), E('G', main(warpR(462), 10))]);
-  add(RV.x + 27, RV.z, [E('NP', p([[RV.x + 14, RV.z + 10], [494, 158], [599, 115], [705, 39], [NP.x - 18, NP.z]])), E('RV', p([[RV.x + 6, RV.z], [RV.x, RV.z]]))]);
+  add(RV.x + 27, RV.z, [E('NP', p([[RV.x + 14, RV.z + 10], [560, 179], [690, 132], [821, 45], [NP.x - 18, NP.z]])), E('RV', p([[RV.x + 6, RV.z], [RV.x, RV.z]]))]);
   add(HILLTOP.x + 5, HILLTOP.z - 9, [E('PEAK', STAIRS.pts.map((q) => P2(q.x, q.z)))]);
   add(roadX(HILLTOP.z + 8) + 3.2, HILLTOP.z + 8, [E('PEAK', [P2(HILLTOP.x, HILLTOP.z), ...STAIRS.pts.map((q) => P2(q.x, q.z))]), E('G', main(HILLTOP.z + 8, 10))]);
   // warnings on the wild tracks
-  add(CROSSING.x - 9, CROSSING.z - 12, [{ hi: '⚠ बाघ क्षेत्र', en: 'Tiger country', path: p([[-90, -170]]), warn: true }]);
-  add(RV.x + 18, RV.z + 14, [{ hi: '⚠ भेड़िये', en: 'Wolf hills', path: p([[400, 255]]), warn: true }]);
+  add(CROSSING.x - 9, CROSSING.z - 12, [{ hi: '⚠ बाघ क्षेत्र', en: 'Tiger country', path: p([[-90, -142]]), warn: true }]);
+  add(RV.x + 18, RV.z + 14, [{ hi: '⚠ भेड़िये', en: 'Wolf hills', path: p([[449, 286]]), warn: true }]);
   for (const [x, z, entries] of signs) g.add(signPost(x, z, entries));
   // welcome boards at each village's entrance, facing the road in
   const welcome = (x, z, toward, key) => g.add(welcomeBoard(x, z, Math.atan2(toward.x - x, toward.z - z), ...V[key]));
@@ -1737,6 +1739,11 @@ function busShelter(stop) {
   const disc = mesh(new THREE.CircleGeometry(0.32, 24), new THREE.MeshStandardMaterial({ map: toTexture(c), roughness: 0.6, side: THREE.DoubleSide }), 1.9, 2.5, 0.65, g);
   disc.userData.dynamic = true;
   colliders.push({ kind: 'c', ...localToWorld(stop, 1.9, 0.6), r: 0.1 });
+  // a street light beside the shelter, its lamp out over the bench
+  const sl = streetLight({ height: 5.0, reach: 1.6 });
+  sl.position.set(-2.3, 0, -0.3);
+  g.add(sl);
+  colliders.push({ kind: 'c', ...localToWorld(stop, -2.3, -0.3), r: 0.22 });
   return g;
 }
 // ---------------- the mountain: the stone stairway and the summit shrine ----------------
@@ -1908,6 +1915,7 @@ function mergeStatic(root, out) {
   const buckets = new Map();
   const dynamic = [];
   root.traverse((o) => {
+    if (o.isSprite) { if (o.userData.dynamic) dynamic.push(o); return; }
     if (!o.isMesh) return;
     if (o.userData.dynamic) { dynamic.push(o); return; }
     let geo = o.geometry.clone().applyMatrix4(o.matrixWorld);

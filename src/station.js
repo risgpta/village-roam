@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Person } from './people.js';
+import { streetLight } from './lights.js';
 import { colliders, surfaces, heightAt, groundHeight, TRACK_Y } from './world.js';
 
 export const CAPACITY = 40;
@@ -24,6 +25,85 @@ function canvasTex(w, h, draw) {
   draw(c.getContext('2d'), w, h);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
   return t;
+}
+// platform paving: square stone tiles, slightly varied
+let _pave = null;
+function paveMat() {
+  if (_pave) return _pave;
+  const t = canvasTex(256, 256, (g, w, h) => {
+    g.fillStyle = '#9d968a'; g.fillRect(0, 0, w, h);
+    const n = 4, s = w / n;
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+      const k = Math.sin(i * 12.9898 + j * 78.233) * 43758.5453, r = k - Math.floor(k);
+      g.fillStyle = `rgb(${158 + r * 22},${151 + r * 20},${139 + r * 18})`;
+      g.fillRect(i * s + 2, j * s + 2, s - 4, s - 4);
+    }
+  });
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2, 2);
+  _pave = new THREE.MeshStandardMaterial({ map: t, roughness: 0.95 });
+  return _pave;
+}
+// the facing wall of the platform toward the track: old red brick
+let _brick = null;
+function brickMat() {
+  if (_brick) return _brick;
+  const t = canvasTex(256, 128, (g, w, h) => {
+    g.fillStyle = '#d2c6b4'; g.fillRect(0, 0, w, h);
+    const bh = h / 8, bw = w / 4;
+    for (let r = 0; r < 8; r++) for (let c = -1; c < 5; c++) {
+      const k = Math.sin(r * 31.7 + c * 11.3) * 9999, q = k - Math.floor(k);
+      g.fillStyle = `rgb(${150 + q * 30},${70 + q * 20},${52 + q * 14})`;
+      g.fillRect(c * bw + (r % 2) * bw / 2 + 2, r * bh + 2, bw - 4, bh - 3);
+    }
+  });
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2.5, 1);
+  _brick = new THREE.MeshStandardMaterial({ map: t, roughness: 0.92 });
+  return _brick;
+}
+// the shelter roof: corrugated tin, painted red
+let _tin = null;
+function tinTex(len) {
+  const t = canvasTex(64, 256, (g, w, h) => {
+    for (let y = 0; y < h; y++) { const v = 0.5 + 0.5 * Math.sin((y / h) * Math.PI * 2 * 16); g.fillStyle = `rgb(${120 + v * 40},${38 + v * 14},${30 + v * 10})`; g.fillRect(0, y, w, 1); }
+  });
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1, len / 2.4);
+  return t;
+}
+// the fretted wooden valance along the front of the roof, white with a zig-zag edge
+let _val = null;
+function valanceTex() {
+  if (_val) return _val;
+  _val = canvasTex(128, 64, (g, w, h) => {
+    g.clearRect(0, 0, w, h);
+    g.fillStyle = '#f4efe2'; g.fillRect(0, 0, w, h * 0.45);
+    g.fillStyle = '#2f6b4a'; g.fillRect(0, h * 0.12, w, h * 0.08);
+    g.fillStyle = '#f4efe2';
+    for (let i = 0; i < 4; i++) { g.beginPath(); g.moveTo(i * 32, h * 0.44); g.lineTo(i * 32 + 16, h * 0.95); g.lineTo(i * 32 + 32, h * 0.44); g.fill(); }
+    g.fillStyle = '#c4241c'; for (let i = 0; i < 4; i++) { g.beginPath(); g.arc(i * 32 + 16, h * 0.55, 3.5, 0, 7); g.fill(); }
+  });
+  _val.wrapS = THREE.RepeatWrapping;
+  return _val;
+}
+function clockTex() {
+  return canvasTex(128, 128, (g, w) => {
+    g.fillStyle = '#fbf8ef'; g.beginPath(); g.arc(64, 64, 62, 0, 7); g.fill();
+    g.strokeStyle = '#1a1a1a'; g.lineWidth = 5; g.stroke();
+    for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; g.lineWidth = i % 3 ? 2 : 4; g.beginPath(); g.moveTo(64 + Math.sin(a) * 50, 64 - Math.cos(a) * 50); g.lineTo(64 + Math.sin(a) * 58, 64 - Math.cos(a) * 58); g.stroke(); }
+    g.lineCap = 'round';
+    g.lineWidth = 6; g.beginPath(); g.moveTo(64, 64); g.lineTo(64 + Math.sin(0.3 * 6.28) * 30, 64 - Math.cos(0.3 * 6.28) * 30); g.stroke();
+    g.lineWidth = 4; g.beginPath(); g.moveTo(64, 64); g.lineTo(64 + Math.sin(0.83 * 6.28) * 46, 64 - Math.cos(0.83 * 6.28) * 46); g.stroke();
+    g.fillStyle = '#c4241c'; g.beginPath(); g.arc(64, 64, 4, 0, 7); g.fill();
+  });
+}
+function timetableTex(name) {
+  return canvasTex(256, 320, (g, w, h) => {
+    g.fillStyle = '#f6f3ea'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#1d4f8a'; g.fillRect(0, 0, w, 56);
+    g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = `bold 24px ${DEVA}`; g.fillText('समय सारणी', w / 2, 26); g.font = 'bold 16px Arial'; g.fillText('TIME TABLE · ' + name.toUpperCase(), w / 2, 47);
+    g.fillStyle = '#222'; g.font = '15px Arial'; g.textAlign = 'left';
+    const rows = [['Passenger', '06:40'], ['Local', '08:15'], ['Gol Gaadi', '09:30'], ['Mail', '11:05'], ['Passenger', '13:20'], ['Local', '15:45'], ['Gol Gaadi', '17:10'], ['Passenger', '19:30']];
+    rows.forEach(([n, t], i) => { const y = 84 + i * 29; g.fillText(n, 20, y); g.textAlign = 'right'; g.fillText(t, w - 20, y); g.textAlign = 'left'; g.strokeStyle = '#ccc'; g.beginPath(); g.moveTo(14, y + 9); g.lineTo(w - 14, y + 9); g.stroke(); });
+  });
 }
 const DEVA = '"Tiro Devanagari Hindi", "Kohinoor Devanagari", "Noto Sans Devanagari", sans-serif';
 // the classic yellow station board: Hindi above, English below, in black
@@ -55,16 +135,14 @@ function buildStation(scene, train, h, hooks) {
   const L = h.L ?? (big ? 170 : 100), W = h.W ?? (big ? 6.5 : 4.2);
   const side = h.side;
   // the station's frame: u along the track (from the platform centre), v out from the track centre
-  const sl0 = T.slope(h.x), cosA = 1 / Math.hypot(1, sl0);
   const frame = (u) => {
-    const x = h.x + u * cosA, z = T.z(x), sl = T.slope(x), l = Math.hypot(1, sl);
-    const tx = 1 / l, tz = sl / l;
-    return { x, z, tx, tz, nx: -tz * side, nz: tx * side, rot: Math.atan2(tx, tz) };
+    const q = T.path.at(h.s + u);
+    return { x: q.x, z: q.z, tx: q.tx, tz: q.tz, nx: -q.tz * side, nz: q.tx * side, rot: Math.atan2(q.tx, q.tz) };
   };
   const at = (u, v) => { const f = frame(u); return { x: f.x + f.nx * v, z: f.z + f.nz * v }; };
   const group = new THREE.Group();
   scene.add(group);
-  const parts = { plat: [], edge: [], step: [] };
+  const parts = { plat: [], edge: [], step: [], cope: [], face: [] };
   const box = (list, w, hgt, d, x, y, z, rot) => list.push(new THREE.BoxGeometry(w, hgt, d).rotateY(rot).translate(x, y, z));
   let benches = [], lampMats = [];
   // (the junction's island platform is built once, by the Mariapur line's halt; the main line's shares it)
@@ -77,8 +155,12 @@ function buildStation(scene, train, h, hooks) {
     const gB = heightAt(back.x, back.z), gF = Math.min(heightAt(c.x, c.z), TRACK_Y);
     const base = Math.min(gB, gF) - 0.3;
     box(parts.plat, W, TOP - base, 5.06, c.x, (TOP + base) / 2, c.z, f.rot);
-    const e = at(um, EDGE + 0.25);
-    box(parts.edge, 0.5, 0.03, 5.06, e.x, TOP + 0.015, e.z, f.rot);
+    const e = at(um, EDGE + 0.95);
+    box(parts.edge, 0.14, 0.02, 5.06, e.x, TOP + 0.01, e.z, f.rot); // the yellow line to stand behind
+    const cp = at(um, EDGE + 0.3);
+    box(parts.cope, 0.72, 0.14, 5.06, cp.x, TOP - 0.06, cp.z, f.rot); // stone coping with a lip over the track
+    const fc = at(um, EDGE + 0.04);
+    box(parts.face, 0.12, TOP - 0.13 - base, 5.06, fc.x, (TOP - 0.13 + base) / 2, fc.z, f.rot); // brick face
     surfaces.push({ kind: 'b', x: c.x, z: c.z, rot: f.rot, hw: W / 2, hd: 2.55, top: TOP });
     // a step along the back so you can walk up from the ground
     const rise = TOP - gB;
@@ -94,8 +176,10 @@ function buildStation(scene, train, h, hooks) {
     }
   }
   const mesh = (geos, m, shadow = true) => { const o = new THREE.Mesh(mergeGeometries(geos), m); o.castShadow = shadow; o.receiveShadow = true; group.add(o); return o; };
-  mesh(parts.plat, mat('#a59e92', 0.95));
+  mesh(parts.plat, paveMat());
   mesh(parts.edge, mat('#f0d23a', 0.7), false);
+  mesh(parts.cope, mat('#d6cfbf', 0.9));
+  mesh(parts.face, brickMat());
   if (parts.step.length) mesh(parts.step, mat('#938b7f', 0.95));
   const add = (geo, m, x, y, z, ry = 0, parent = group) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.rotation.y = ry; o.castShadow = true; o.receiveShadow = true; parent.add(o); return o; };
   const placed = (u, v, y = TOP) => { const f = frame(u), p = at(u, v); const g = new THREE.Group(); g.position.set(p.x, y, p.z); g.rotation.y = f.rot; group.add(g); return g; };
@@ -114,17 +198,40 @@ function buildStation(scene, train, h, hooks) {
   // the tin shelter: posts along the back, a roof sloping toward the track, benches beneath
   const SL = big ? 42 : 12;
   const roofM = mat('#8a2a22', 0.55, { side: THREE.DoubleSide }), postM = mat('#4a5560', 0.5, { metalness: 0.4 });
+  const greenM = mat('#2f6b4a', 0.6), creamM = mat('#f2efe6', 0.6);
   for (let u = -SL / 2; u <= SL / 2 + 0.1; u += 6) {
-    const p = at(u, EDGE + W - 0.6);
-    add(new THREE.CylinderGeometry(0.08, 0.1, 3.4, 8), postM, p.x, TOP + 1.7, p.z);
-    colliders.push({ kind: 'c', ...p, r: 0.16, height: TOP + 3.5 });
+    // cast-iron posts, painted: a plinth at the foot, a collar and a curved bracket up under the roof
+    const g = placed(u, EDGE + W - 0.6);
+    add(new THREE.CylinderGeometry(0.08, 0.1, 3.3, 10), postM, 0, 1.65, 0, 0, g);
+    add(new THREE.CylinderGeometry(0.17, 0.2, 0.35, 10), greenM, 0, 0.17, 0, 0, g);
+    add(new THREE.CylinderGeometry(0.13, 0.13, 0.12, 10), greenM, 0, 2.9, 0, 0, g);
+    // a beam across under the roof, from the back post out toward the track
+    const beam = add(new THREE.BoxGeometry(W - 0.4, 0.16, 0.12), greenM, -sx * (W - 0.6) / 2 + sx * 0.3, 3.2 + 0.09 * (W - 0.6) / 2, 0, 0, g);
+    beam.rotation.z = -0.09 * side * sx * -1;
+    const br = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.03, 5, 10, Math.PI / 2), greenM);
+    br.position.set(-sx * 0.5, 2.7, 0); br.rotation.y = sx > 0 ? 0 : Math.PI; g.add(br);
+    colliders.push({ kind: 'c', ...at(u, EDGE + W - 0.6), r: 0.18, height: TOP + 3.5 });
   }
   {
     const f = frame(0), c = at(0, EDGE + W / 2 + 0.4);
-    const roof = add(new THREE.BoxGeometry(W + 0.6, 0.06, SL + 1.5), roofM, c.x, TOP + 3.35, c.z, f.rot);
+    const tin = new THREE.MeshStandardMaterial({ map: tinTex(SL + 1.5), roughness: 0.5, metalness: 0.3, side: THREE.DoubleSide });
+    const roof = add(new THREE.BoxGeometry(W + 0.6, 0.06, SL + 1.5), tin, c.x, TOP + 3.35, c.z, f.rot);
     roof.rotateZ(0.09 * side);
-    const fascia = at(0, EDGE + 0.6);
-    add(new THREE.BoxGeometry(0.06, 0.32, SL + 1.5), mat('#f2efe6', 0.6), fascia.x, TOP + 3.15, fascia.z, f.rot);
+    // the fretted valance hanging along the front, toward the track
+    const vg = placed(0, EDGE + 0.62);
+    const vt = valanceTex().clone(); vt.needsUpdate = true; vt.repeat.set((SL + 1.5) / 1.2, 1);
+    const vm = new THREE.MeshStandardMaterial({ map: vt, alphaTest: 0.5, transparent: false, side: THREE.DoubleSide, roughness: 0.7 });
+    const val = add(new THREE.PlaneGeometry(SL + 1.5, 0.55), vm, 0, 2.95 + 0.09 * 0.1, 0, Math.PI / 2, vg); val.castShadow = false;
+    // and a gutter along the back
+    const gb = at(0, EDGE + W + 0.6);
+    add(new THREE.CylinderGeometry(0.07, 0.07, SL + 1.5, 8).rotateX(Math.PI / 2), postM, gb.x, TOP + 3.08, gb.z, f.rot);
+    // the station clock, hung from the roof, with a face on each side
+    const cg = placed(0, EDGE + 1.6);
+    const cm = new THREE.MeshStandardMaterial({ map: clockTex(), roughness: 0.4 });
+    add(new THREE.CylinderGeometry(0.42, 0.42, 0.14, 24).rotateZ(Math.PI / 2).rotateY(Math.PI / 2), mat('#1a1a1a', 0.4), 0, 2.45, 0, Math.PI / 2, cg);
+    for (const d of [-1, 1]) add(new THREE.CircleGeometry(0.38, 24), cm, d * 0.075, 2.45, 0, d * Math.PI / 2, cg);
+    add(new THREE.CylinderGeometry(0.02, 0.02, 0.5, 6), postM, 0, 2.95, 0, 0, cg);
+    void creamM;
   }
   for (let u = -SL / 2 + 3; u < SL / 2 - 2; u += big ? 7 : 6) {
     const g = placed(u, EDGE + W - 1.4);
@@ -133,15 +240,58 @@ function buildStation(scene, train, h, hooks) {
     for (const dz of [-0.85, 0.85]) add(new THREE.BoxGeometry(0.45, 0.46, 0.06), mat('#3a3a3a', 0.6), 0, 0.23, dz, 0, g);
     for (const dz of [-0.5, 0.5]) benches.push({ u: u + dz, v: EDGE + W - 1.45 });
   }
-  // lamp posts
-  for (let u = -L / 2 + 15; u < L / 2 - 10; u += big ? 24 : 30) {
-    const p = at(u, EDGE + W - 0.5);
-    add(new THREE.CylinderGeometry(0.05, 0.07, 4.2, 6), postM, p.x, TOP + 2.1, p.z);
-    const lm = new THREE.MeshStandardMaterial({ color: '#fff4d8', emissive: '#ffd890', emissiveIntensity: 0.1 });
-    lampMats.push(lm);
-    const q = at(u, EDGE + W - 1.1);
-    add(new THREE.SphereGeometry(0.18, 10, 8), lm, q.x, TOP + 4.1, q.z);
-    colliders.push({ kind: 'c', ...p, r: 0.12, height: TOP + 4 });
+  // three street lights along the platform, their lamps reaching out over the edge
+  for (const u of [-L * 0.38, SL / 2 + 9, L * 0.38]) {
+    const g = placed(u, EDGE + W - 0.45);
+    const sl = streetLight({ height: 5.4, reach: 1.9, base: false });
+    sl.rotation.y = sx > 0 ? Math.PI : 0; // the arm toward the track
+    sl.userData.pool.scale.setScalar(0.85);
+    g.add(sl);
+    colliders.push({ kind: 'c', ...at(u, EDGE + W - 0.45), r: 0.14, height: TOP + 5 });
+  }
+  // the little things on every platform: fire buckets, a timetable, dustbins, potted plants
+  {
+    const fg = placed(-SL / 2 - 4, EDGE + W - 0.5);
+    add(new THREE.BoxGeometry(0.12, 1.5, 1.7), mat('#b8241c', 0.6), sx * 0.1, 0.75, 0, 0, fg);
+    add(new THREE.BoxGeometry(0.3, 0.06, 1.7), mat('#b8241c', 0.6), -sx * 0.05, 1.3, 0, 0, fg);
+    const bucketGeo = new THREE.CylinderGeometry(0.15, 0.11, 0.28, 10, 1, true);
+    const sandM = mat('#d9c39a', 1);
+    for (let i = 0; i < 4; i++) {
+      const z = -0.6 + i * 0.4;
+      add(bucketGeo, mat('#d42a1e', 0.5, { side: THREE.DoubleSide }), -sx * 0.12, 1.14, z, 0, fg);
+      add(new THREE.CircleGeometry(0.14, 10).rotateX(-Math.PI / 2), sandM, -sx * 0.12, 1.24, z, 0, fg);
+    }
+    colliders.push({ kind: 'c', ...at(-SL / 2 - 4, EDGE + W - 0.5), r: 0.5, height: TOP + 1.5 });
+    const tg = placed(-SL / 2 - 8, EDGE + W - 0.4);
+    for (const dz of [-0.55, 0.55]) add(new THREE.CylinderGeometry(0.04, 0.04, 2.3, 6), postM, 0, 1.15, dz, 0, tg);
+    add(new THREE.BoxGeometry(0.06, 1.25, 1.3), mat('#1d4f8a', 0.6), 0, 1.65, 0, 0, tg);
+    add(new THREE.PlaneGeometry(1.0, 1.25), new THREE.MeshStandardMaterial({ map: timetableTex(h.name), roughness: 0.6 }), -sx * 0.035, 1.65, 0, -sx * Math.PI / 2, tg);
+    colliders.push({ kind: 'c', ...at(-SL / 2 - 8, EDGE + W - 0.4), r: 0.6, height: TOP + 2.3 });
+    for (const u of [-SL / 2 - 1.5, SL / 2 + 1.5]) {
+      const bg = placed(u, EDGE + W - 0.7);
+      add(new THREE.CylinderGeometry(0.22, 0.19, 0.7, 12), mat('#2f6b4a', 0.6), 0, 0.35, 0, 0, bg);
+      add(new THREE.CylinderGeometry(0.235, 0.235, 0.06, 12), mat('#1e4a32', 0.6), 0, 0.72, 0, 0, bg);
+      colliders.push({ kind: 'c', ...at(u, EDGE + W - 0.7), r: 0.25, height: TOP + 0.8 });
+    }
+    const potM = mat('#b0582e', 0.85), leafM = mat('#3f7a2e', 0.9), flowerM = mat('#e0412b', 0.8);
+    for (let u = -L / 2 + 14; u < L / 2 - 12; u += big ? 14 : 18) {
+      if (Math.abs(u) < SL / 2 + 10) continue;
+      const pg = placed(u, EDGE + W - 0.45);
+      add(new THREE.CylinderGeometry(0.28, 0.2, 0.5, 10), potM, 0, 0.25, 0, 0, pg);
+      add(new THREE.IcosahedronGeometry(0.42, 1), leafM, 0, 0.75, 0, 0, pg).scale.set(1, 0.8, 1);
+      for (let k = 0; k < 3; k++) add(new THREE.SphereGeometry(0.07, 6, 5), flowerM, Math.cos(k * 2.1) * 0.25, 0.95, Math.sin(k * 2.1) * 0.25, 0, pg);
+    }
+    // the halts get a little brick booking office on the platform
+    if (!big) {
+      const og = placed(SL / 2 + 4.5, EDGE + W - 1.3);
+      add(new THREE.BoxGeometry(2.2, 2.5, 2.6), mat('#e3c48a', 0.9), 0, 1.25, 0, 0, og);
+      add(new THREE.BoxGeometry(2.24, 0.35, 2.64), mat('#7a2a1e', 0.7), 0, 0.17, 0, 0, og);
+      const r = add(new THREE.ConeGeometry(1, 1, 4, 1).rotateY(Math.PI / 4), mat('#9a3a26', 0.7), 0, 2.85, 0, 0, og); r.scale.set(2.0, 0.8, 2.3);
+      add(new THREE.BoxGeometry(0.05, 0.6, 0.7), mat('#2a2a2a', 0.5), -sx * 1.11, 1.35, 0.3, 0, og);
+      add(new THREE.BoxGeometry(0.05, 1.9, 0.8), mat('#3a5a48', 0.7), -sx * 1.11, 0.95, -0.75, 0, og);
+      add(new THREE.PlaneGeometry(1.3, 0.3), new THREE.MeshStandardMaterial({ map: canvasTex(256, 60, (x, w, hh) => { x.fillStyle = '#1d4f8a'; x.fillRect(0, 0, w, hh); x.fillStyle = '#fff'; x.font = `bold 26px ${DEVA}`; x.textAlign = 'center'; x.fillText('टिकट · TICKETS', w / 2, 38); }) }), -sx * 1.14, 1.85, 0.3, -sx * Math.PI / 2, og);
+      colliders.push({ kind: 'b', ...at(SL / 2 + 4.5, EDGE + W - 1.3), rot: frame(SL / 2 + 4.5).rot, hw: 1.15, hd: 1.35, height: TOP + 3 });
+    }
   }
   // Sonpur: the station house behind the platform, the chai stall and a water tap
   if (big) {
@@ -187,7 +337,7 @@ function buildStation(scene, train, h, hooks) {
 
   }
   // ---- the people ----
-  const nPool = big ? 40 : h.W ? 18 : 12;
+  const nPool = big ? 40 : h.W ? 18 : h.village ? 12 : 8; // the junction halts out on the ring stay quiet
   const pool = [];
   for (let i = 0; i < nPool; i++) {
     const p = new Person(outfit(i + (big ? 0 : 50)));
@@ -199,7 +349,9 @@ function buildStation(scene, train, h, hooks) {
   }
   const yard = h.yard;
   const home = big ? hooks.sonpur ?? yard : hooks.villageFor?.(h) ?? yard;
-  const spot = () => ({ u: (Math.random() - 0.5) * (L - 30), v: EDGE + 1.0 + Math.random() * (W - 2.4) });
+  const SLb = big ? 42 : 12;
+  const blocked = (u) => [-SLb / 2 - 4, -SLb / 2 - 8, SLb / 2 + 1.5, -SLb / 2 - 1.5, ...(big ? [] : [SLb / 2 + 4.5])].some((b) => Math.abs(u - b) < 2.2);
+  const spot = () => { let u; do u = (Math.random() - 0.5) * (L - 30); while (blocked(u)); return { u, v: EDGE + 1.0 + Math.random() * (W - 2.4) }; };
   const setAt = (q, u, v) => { const p = at(u, v); q.x = p.x; q.z = p.z; };
   const goTo = (q, x, z) => { q.tx = x; q.tz = z; };
   // start with some waiting
@@ -213,7 +365,7 @@ function buildStation(scene, train, h, hooks) {
     { const f = frame(sp.u); q.face = Math.atan2(-f.nx, -f.nz); } // facing the track, ready for the train
     q.p.root.rotation.y = q.face;
   };
-  const startWaiting = big ? 22 : 5;
+  const startWaiting = big ? 22 : nPool <= 8 ? 3 : 5;
   pool.slice(0, startWaiting).forEach(wait);
   let respawn = 6;
   const serve = { train: null, t: 0, alight: 0, boardSide: 1, doors: [] };
@@ -284,7 +436,7 @@ function buildStation(scene, train, h, hooks) {
       respawn -= dt;
       if (respawn <= 0) {
         respawn = big ? 4 + Math.random() * 6 : 12 + Math.random() * 14;
-        if (this.waiting() < (big ? 26 : 7)) { const q = pool.find((o) => o.state === 'hidden'); if (q && !standing) wait(q); }
+        if (this.waiting() < (big ? 26 : Math.min(7, nPool - 3))) { const q = pool.find((o) => o.state === 'hidden'); if (q && !standing) wait(q); }
       }
       // move everyone
       const vis = dP < 330;
@@ -332,7 +484,7 @@ export function buildStations(scene, railway, hooks = {}) {
   const stations = [];
   for (const tr of railway.trains) {
     tr.aboard = 12 + Math.floor(Math.random() * 14);
-    for (const h of tr.halts) stations.push(buildStation(scene, tr, h, hooks));
+    for (const h of tr.halts) if (!h.noStation) stations.push(buildStation(scene, tr, h, hooks));
   }
   return {
     stations,

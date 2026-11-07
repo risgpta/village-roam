@@ -347,7 +347,7 @@ export function buildConstruction(scene, site, hooks = {}) {
 
   // ----- jobs -----
   const S = {
-    mason: { t: 0, x: -3.6, phase: 0 },
+    mason: { t: 0, x: -3.6, z: 0.42, phase: 0 },
     carrier: { s: 'load', t: 0, x: -5.75, z: 3.8 },
     woman: { s: 'fill', t: 0, x: 1.0, z: 3.1 },
     mixT: 0,

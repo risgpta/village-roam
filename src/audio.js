@@ -446,7 +446,7 @@ export class Ambience {
   }
   // a crash: a low thump, a crunch of noise and, for metal, a clang; v 0..1 loudness, metal 0..1
   crash(v = 1, metal = 1) {
-    if (!this.ctx || v <= 0.02) return;
+    if (!this.ctx || !(v > 0.02) || !Number.isFinite(metal)) return;
     const ctx = this.ctx, t = ctx.currentTime;
     const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.25);
     const g = ctx.createGain(); this.env(g, 0.35 * v, 0.003, 0.3, t);
@@ -795,6 +795,8 @@ export class Ambience {
   }
 
   env(node, peak, a, d, t0) {
+    if (!Number.isFinite(peak) || !Number.isFinite(t0) || !Number.isFinite(a) || !Number.isFinite(d)) { peak = 0; a = Number.isFinite(a) ? a : 0.01; d = Number.isFinite(d) ? d : 0.1; }
+    peak = Math.max(0, peak);
     node.gain.setValueAtTime(0, t0);
     node.gain.linearRampToValueAtTime(peak, t0 + a);
     node.gain.exponentialRampToValueAtTime(0.0001, t0 + a + d);

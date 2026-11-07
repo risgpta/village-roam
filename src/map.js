@@ -2,11 +2,11 @@
 // a painted picture of the whole area baked once at load, with places, rides and the boy marked on it.
 import {
   heightAt, riverDist, fieldType, dirtMask, trackDist, layout, WATER_Y, RIVER_HALF, PLAY_RADIUS,
-  WILD, STATION, TRACK3, SQUARE, TEA, GHAT, WF, FOOT, EH, NV, SCHOOL, GARDEN, MARKET, CRICKET, PUMP, TANK, CROSSING, HILLTOP, TRACKS, riverX, RBRIDGE, BRIDGES, desertMask, NP, MP, PEAK,
+  WILD, STATION, TRACK3, NEW_VILLAGES, SQUARE, TEA, GHAT, WF, FOOT, EH, NV, SCHOOL, GARDEN, MARKET, CRICKET, PUMP, TANK, CROSSING, HILLTOP, TRACKS, riverX, RBRIDGE, BRIDGES, desertMask, NP, MP, PEAK,
 } from './world.js';
 
-const E = 1500; // half extent of the map, metres
-const N = 1700; // baked image size, px
+const E = 1950; // half extent of the map, metres
+const N = 2048; // baked image size, px
 const toU = (x) => ((x + E) / (2 * E)) * N;
 const toV = (z) => ((z + E) / (2 * E)) * N; // north (-z) at the top
 
@@ -64,7 +64,8 @@ function bake() {
   // railway lines with sleepers
   for (const T of TRACKS) {
     g.strokeStyle = '#3a3532'; g.lineWidth = 1.6; g.beginPath();
-    for (const [a, b] of T.segs) for (let x = a; x <= b; x += 4) { const u = toU(x), v = toV(T.z(x)); if (x === a) g.moveTo(u, v); else g.lineTo(u, v); }
+    const q = {};
+    for (const [a, b] of T.segs) for (let t = a; t <= b + 0.1; t += 5) { T.path.at(Math.min(t, b), q); const u = toU(q.x), v = toV(q.z); if (t === a) g.moveTo(u, v); else g.lineTo(u, v); }
     g.stroke();
     g.setLineDash([1, 3]); g.strokeStyle = '#e6dccb'; g.lineWidth = 0.8; g.stroke(); g.setLineDash([]);
   }
@@ -87,7 +88,7 @@ function places() {
     ['Marudhar', L.rv, '🐪', 1], ...BRIDGES.map((b) => ['Road bridge', b, '🌉', 0]),
     ['Banglagram', L.bv, '🪷', 1], ['Thennoor', L.tv, '🛕', 1], ['Pond', L.bv?.pond, '', 0],
     ['Vitthalwadi', L.mh, '🪔', 1], ['Bamboo hill', L.ne, '🎋', 1], ['Tea garden', L.ne && { x: (L.ne.tea.x0 + L.ne.tea.x1) / 2, z: (L.ne.tea.z0 + L.ne.tea.z1) / 2 }, '🍃', 0],
-    ['Tiger country', WILD.tiger, '🐅', 1], ['Wolf hills', WILD.wolf, '🐺', 1], ['Elephant forest', WILD.elephant, '🐘', 1], ...WILD.leopards.map((l) => ['Leopard rocks', l, '🐆', 1]), ...WILD.deer.map((d) => ['Deer meadow', d, '🦌', 0]), ['Sonpur station', STATION, '🚉', 1], ['Noorpur Junction', { x: TRACK3.halts[0].x, z: TRACK3.z(TRACK3.halts[0].x) }, '🚉', 1], ['Mariapur halt', { x: TRACK3.halts[1].x, z: TRACK3.z(TRACK3.halts[1].x) }, '🚉', 0], ['Pahadi Gaon', L.pg, '🏔', 1],
+    ['Tiger country', WILD.tiger, '🐅', 1], ['Wolf hills', WILD.wolf, '🐺', 1], ['Elephant forest', WILD.elephant, '🐘', 1], ...WILD.leopards.map((l) => ['Leopard rocks', l, '🐆', 1]), ...WILD.deer.map((d) => ['Deer meadow', d, '🦌', 0]), ...[...new Map(TRACKS.flatMap((T) => T.halts.filter((h) => !h.noStation && !h.island).map((h) => [h.name, [h.big ? `${h.name} station` : h.name, h.yard ?? h, '🚉', h.big || h.W ? 1 : 0]]))).values()], ...NEW_VILLAGES.map((v) => [v.name, v, v.style === 'kutch' ? '🛖' : '🌾', 1]), ['Pahadi Gaon', L.pg, '🏔', 1],
     ['Noorpur', NP, '🕌', 1], ['Kabristan', NP.kab, '⚱', 0], ['Mariapur', MP, '⛪', 1], ['Cemetery', MP.cem, '✝', 0], ['Shikhar summit', PEAK, '🗻', 1],
     ...(L.busStops || []).map((b) => ['', b, '🚏', 0]),
     ['Crocodiles', { x: riverX(380) + 18, z: 380 }, '🐊', 1], ['Crocodiles', { x: riverX(-400) + 18, z: -400 }, '🐊', 1],

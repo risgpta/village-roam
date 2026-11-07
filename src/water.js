@@ -1,6 +1,6 @@
 // Flowing river: a ribbon along the river curve with a procedural normal-mapped water shader.
 import * as THREE from 'three';
-import { WATER_Y, RIVER_HALF, riverX, heightAt, WF } from './world.js';
+import { WATER_Y, RIVER_HALF, riverX, heightAt, WF, fallsMeander, fallsFloor } from './world.js';
 import { boulder } from './shapes.js';
 import { Puffs } from './particles.js';
 const layoutWF = () => WF;
@@ -178,141 +178,146 @@ function waterMat(fragBody, extra = {}) {
 }
 
 export function buildWaterfall() {
-  const WFp = layoutWF();
-  const { x: px, z: pz, lipX, y: y0 } = WFp;
+  const W = layoutWF();
+  const wx = (u) => W.x - u; // u: downstream distance → world x
   const group = new THREE.Group();
-  const rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82 });
-  const wetMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, color: '#9a9a9a' });
-  const top = y0 + 4.3;
-  const rocks = [
-    // base layer
-    [lipX - 2.4, 0, 2.1, 0.6, 1], [lipX - 1.0, 2.6, 1.7, 0.7, 0], [lipX - 1.0, -2.6, 1.75, 0.7, 0],
-    [lipX - 4.0, 2.3, 2.0, 0.9, 0], [lipX - 4.0, -2.3, 1.9, 0.8, 0], [lipX - 0.9, 4.3, 1.1, 0.4, 0], [lipX - 1.1, -4.3, 1.2, 0.4, 0],
-    [lipX - 5.6, 0, 1.8, 0.8, 0],
-    // middle
-    [lipX - 1.9, 0, 1.55, 2.4, 1], [lipX - 1.7, 1.7, 1.3, 2.2, 0], [lipX - 1.7, -1.8, 1.35, 2.1, 0], [lipX - 3.6, 0.6, 1.6, 2.9, 0],
-    [lipX - 0.95, 0, 0.8, 3.4, 1],
-    // top: two boulders flank the notch, one behind
-    [lipX - 0.9, 1.35, 0.95, 4.0, 0], [lipX - 0.9, -1.35, 1.0, 3.95, 0], [lipX - 2.4, 0.1, 1.2, 4.1, 0], [lipX - 3.8, -0.8, 1.0, 4.4, 0],
-  ];
-  rocks.forEach(([x, dz, r, y, wet], i) => {
-    const g = boulder(r, i * 3.7 + 1, { moss: 0.8, base: wet ? '#8a7f6e' : '#b0a28a', detail: 3 });
+  const rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
+  const wetMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, color: '#b4b0a8' });
+  // the cliff: tiers of big weathered rocks along the face, darker and wet near the falls; the notch the
+  // water pours through is left open
+  let seed = 1;
+  const rock = (u, v, y, r, sx, wet, detail = 2) => {
+    const g = boulder(r, seed++ * 3.7, { moss: wet ? 0.9 : 0.55, base: wet ? '#857b6c' : '#9a8e7a', mossCol: '#4f6033', detail });
     const m = new THREE.Mesh(g, wet ? wetMat : rockMat);
-    m.position.set(x, (y < 1 ? heightAt(x, pz + dz) - 0.25 * r : y0 + y - 0.3) + (y < 1 ? r * 0.55 : 0), pz + dz);
-    m.rotation.set(i * 0.7, i * 1.3, i * 0.4);
+    m.position.set(wx(u), y, W.z + v);
+    m.scale.set(sx, 1, 1);
+    m.rotation.set(seed * 0.7, seed * 1.3, seed * 0.4);
     m.castShadow = m.receiveShadow = true;
     group.add(m);
-  });
-  // stones round the pool, leaving a gap where it spills into the stream
-  for (let i = 0; i < 16; i++) {
-    const a = (i / 16) * Math.PI * 2;
-    if (Math.abs(a) < 0.35 || Math.abs(a - Math.PI * 2) < 0.35) continue; // outflow (+x)
-    if (Math.abs(a - Math.PI) < 0.9) continue; // under the falls
-    const r = 0.35 + ((i * 7) % 5) * 0.06;
-    const x = px + Math.cos(a) * 2.75, z = pz + Math.sin(a) * 2.75;
-    const m = new THREE.Mesh(boulder(r, i + 40, { moss: 0.4, detail: 1 }), rockMat);
-    m.position.set(x, heightAt(x, z) + r * 0.25, z);
-    m.rotation.set(i, i * 2.1, 0);
-    m.castShadow = m.receiveShadow = true;
-    group.add(m);
+  };
+  for (let v = -28; v <= 28; v += 4.6) {
+    const av = Math.abs(v);
+    for (let y = 1.5; y < W.lipY + 1; y += 4.2) {
+      const jit = Math.sin(v * 1.7 + y) * 0.6;
+      if (av < 3.6) { rock(-6.2, v + jit * 0.5, y, 2.6, 0.7, true, 2); continue; } // behind the curtain
+      const u = -3.2 + (y / W.lipY) * -0.9 + jit; // the face leans back a little toward the top
+      rock(u, v + jit, y + jit, 2.6 + Math.abs(jit) * 1.6 + (av < 12 ? 0 : 0.8), 0.62, av < 9, 2);
+    }
+    // the rim along the top edge
+    if (av > 3.2) rock(-4.6, v, W.lipY - 0.2, 1.6 + (av % 3) * 0.3, 0.9, av < 7, 1);
+  }
+  // boulders tumbled at the foot, round the pool, and along the gorge
+  for (let i = 0; i < 26; i++) {
+    const a = (i / 26) * Math.PI * 2;
+    if (Math.abs(Math.atan2(Math.sin(a), Math.cos(a))) < 0.5) continue; // the outlet, downstream (+u)
+    const r = 0.5 + ((i * 7) % 5) * 0.22, u = 5 + Math.cos(a) * 8.6, v = Math.sin(a) * 8.6;
+    rock(u, v, heightAt(wx(u), W.z + v) + r * 0.2, r, 1, i % 3 === 0, 1);
+  }
+  for (let u = 14; u < W.Lr - 4; u += 7) for (const sd of [-1, 1]) {
+    const v = fallsMeander(u) + sd * (3.4 + Math.sin(u) * 0.6), r = 0.5 + Math.abs(Math.sin(u * 1.3 + sd)) * 0.9;
+    rock(u, v, heightAt(wx(u), W.z + v) + r * 0.15, r, 1, false, 1);
   }
 
-  // pool surface: above the highest bit of ground under it
-  let wy = -Infinity;
-  for (let i = -3; i <= 3; i++) for (let j = -3; j <= 3; j++) if (i * i + j * j <= 9) wy = Math.max(wy, heightAt(px + i * 0.85, pz + j * 0.85));
-  wy += 0.07;
-  const impact = new THREE.Vector2(lipX + 0.7, pz);
+  // the pool
+  const yP = W.yPool;
+  const impact = new THREE.Vector2(wx(2.6), W.z);
   const poolMat = waterMat(/* glsl */ `
     vec2 d = vWorld.xz - uImpact;
     float r = length(d);
-    float rip = sin(r * 9.0 - uTime * 7.0) * 0.5 + 0.5;
-    float n = vnoise(vWorld.xz * 2.2 + uTime * 0.4) * 0.6 + vnoise(vWorld.xz * 5.0 - uTime * 0.7) * 0.4;
-    vec3 deep = vec3(0.1, 0.26, 0.24), shallow = vec3(0.28, 0.42, 0.36);
-    float edge = smoothstep(2.75, 1.6, length(vWorld.xz - vec2(${px.toFixed(3)}, ${pz.toFixed(3)})));
+    float rip = sin(r * 6.0 - uTime * 6.0) * 0.5 + 0.5;
+    float n = vnoise(vWorld.xz * 1.6 + uTime * 0.5) * 0.6 + vnoise(vWorld.xz * 4.0 - uTime * 0.9) * 0.4;
+    vec3 deep = vec3(0.06, 0.2, 0.2), shallow = vec3(0.24, 0.4, 0.34);
+    float edge = smoothstep(8.5, 4.5, length(vWorld.xz - vec2(${wx(5).toFixed(3)}, ${W.z.toFixed(3)})));
     vec3 col = mix(shallow, deep, edge);
-    col = mix(col, uSky, 0.25 + 0.15 * n);
-    float foam = smoothstep(1.6, 0.0, r) * (0.5 + 0.5 * n) + smoothstep(0.85, 1.0, rip * n) * smoothstep(2.4, 0.5, r) * 0.6;
-    col = mix(col, vec3(0.92, 0.95, 0.95), clamp(foam, 0.0, 1.0) * 0.85);
+    col = mix(col, uSky, 0.22 + 0.15 * n);
+    float foam = smoothstep(4.5, 0.0, r) * (0.55 + 0.45 * n) + smoothstep(0.8, 1.0, rip * n) * smoothstep(7.0, 1.5, r) * 0.6;
+    col = mix(col, vec3(0.93, 0.96, 0.96), clamp(foam, 0.0, 1.0) * 0.9);
     col += uSun * pow(n, 6.0) * 0.4;
-    outC = vec4(col, mix(0.55, 0.9, edge) + foam * 0.1);
+    outC = vec4(col, mix(0.6, 0.92, edge) + foam * 0.08);
   `);
   poolMat.uniforms.uImpact.value.copy(impact);
-  const pool = new THREE.Mesh(new THREE.CircleGeometry(2.8, 40).rotateX(-Math.PI / 2), poolMat);
-  pool.position.set(px, wy, pz);
+  const pool = new THREE.Mesh(new THREE.CircleGeometry(8.8, 48).rotateX(-Math.PI / 2), poolMat);
+  pool.position.set(wx(5), yP, W.z);
   pool.renderOrder = 2;
   group.add(pool);
 
-  // outflow stream down the bank to the river
-  {
-    const x0 = px + 2.2, x1 = riverX(pz) - RIVER_HALF + 2.5;
-    const n = 24, half = 0.6;
+  // a stream ribbon along a path; y(u) gives the water level
+  const ribbon = (u0, u1, n, center, half, yAt, flip) => {
     const pos = [], uv = [], idx = [];
     for (let i = 0; i <= n; i++) {
-      const t = i / n;
-      const x = x0 + (x1 - x0) * t;
-      const z = pz + Math.sin(t * 5) * 0.25;
-      const y = Math.max(WATER_Y + 0.03, Math.min(wy, heightAt(x, z) + 0.05));
-      const w = half * (1 + t * 0.6) * (0.8 + 0.25 * Math.sin(t * 17 + 1) + 0.1 * Math.sin(t * 41));
-      pos.push(x, y, z - w, x, y, z + w);
-      uv.push(t * (x1 - x0), 0, t * (x1 - x0), 1);
+      const t = i / n, u = u0 + (u1 - u0) * t, v = center(u), w = half(u, t), y = yAt(u, v);
+      pos.push(wx(u), y, W.z + v - w, wx(u), y, W.z + v + w);
+      const along = flip ? (u1 - u) : u;
+      uv.push(along, 0, along, 1);
     }
     for (let i = 0; i < n; i++) { const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     g.setIndex(idx);
-    const m = waterMat(/* glsl */ `
-      float n = vnoise(vec2(vUv.x * 2.0 - uTime * 2.2, vUv.y * 4.0)) * 0.6 + vnoise(vec2(vUv.x * 6.0 - uTime * 3.5, vUv.y * 9.0)) * 0.4;
-      float side = 1.0 - abs(vUv.y * 2.0 - 1.0);
-      vec3 col = mix(vec3(0.26, 0.4, 0.32), vec3(0.09, 0.25, 0.24), smoothstep(0.1, 0.8, side));
-      col = mix(col, uSky * 0.6, 0.12 * n);
-      col = mix(col, vec3(0.82, 0.88, 0.86), smoothstep(0.72, 0.95, n) * 0.5);
-      col += uSun * pow(n, 8.0) * 0.5;
-      outC = vec4(col, smoothstep(0.0, 0.45, side + (n - 0.5) * 0.2) * 0.82);
-    `);
-    const s = new THREE.Mesh(g, m);
-    s.renderOrder = 2;
-    group.add(s);
-    group.userData.stream = m;
+    return g;
+  };
+  const streamMat = waterMat(/* glsl */ `
+    float n = vnoise(vec2(vUv.x * 0.5 - uTime * 2.4, vUv.y * 4.0)) * 0.6 + vnoise(vec2(vUv.x * 1.6 - uTime * 3.6, vUv.y * 9.0)) * 0.4;
+    float side = 1.0 - abs(vUv.y * 2.0 - 1.0);
+    vec3 col = mix(vec3(0.26, 0.4, 0.32), vec3(0.08, 0.24, 0.23), smoothstep(0.1, 0.8, side));
+    col = mix(col, uSky * 0.6, 0.12 * n);
+    col = mix(col, vec3(0.85, 0.9, 0.88), smoothstep(0.7, 0.95, n) * 0.55);
+    col += uSun * pow(n, 8.0) * 0.5;
+    outC = vec4(col, smoothstep(0.0, 0.35, side + (n - 0.5) * 0.2) * 0.85);
+  `);
+  // down the gorge to the river (it leaves the pool through the gap in the rocks)
+  {
+    const g = ribbon(7.5, W.Lr + 8, 70, (u) => fallsMeander(u), (u, t) => (1.5 + t * 1.1) * (0.85 + 0.2 * Math.sin(u * 0.5)),
+      (u) => Math.max(WATER_Y + 0.03, Math.min(yP - 0.02, fallsFloor(u) - 0.5)), false);
+    const m = new THREE.Mesh(g, streamMat); m.renderOrder = 2; group.add(m);
+  }
+  // across the shelf to the edge, a little faster as it nears the drop
+  let lipWater = W.lipY - 0.7;
+  {
+    let last = Infinity;
+    const level = (u) => { const y = Math.min(last, heightAt(wx(u), W.z) + 0.45); last = y; return y; };
+    const g = ribbon(-78, -4.4, 50, () => 0, (u) => 1.5 + Math.max(0, -u - 60) * 0.05, level, false);
+    lipWater = last;
+    const m = new THREE.Mesh(g, streamMat); m.renderOrder = 2; group.add(m);
   }
 
-  // the falling sheet: leaves the lip, arcs out and drops into the pool
+  // the falls: three layered curtains leaving the lip, arcing out and plunging into the pool
   const sheetMat = waterMat(/* glsl */ `
     float u = vUv.x, v = 1.0 - vUv.y;
-    float n = vnoise(vec2(u * 14.0, v * 3.0 - uTime * 3.2)) * 0.55 + vnoise(vec2(u * 31.0, v * 7.0 - uTime * 5.0)) * 0.3 + vnoise(vec2(u * 60.0, v * 2.0 - uTime * 6.0)) * 0.15;
+    float n = vnoise(vec2(u * 12.0, v * 9.0 - uTime * 5.5)) * 0.55 + vnoise(vec2(u * 28.0, v * 18.0 - uTime * 8.0)) * 0.3 + vnoise(vec2(u * 55.0, v * 5.0 - uTime * 9.0)) * 0.15;
     float side = 1.0 - abs(u * 2.0 - 1.0);
-    float body = smoothstep(0.0, 0.35, side + (n - 0.5) * 0.4);
-    vec3 col = mix(vec3(0.52, 0.66, 0.66), vec3(0.95, 0.97, 0.97), smoothstep(0.35, 0.8, n) * 0.85 + v * 0.25);
-    col = mix(col, uSky, 0.12);
-    float a = body * (0.55 + n * 0.45) * smoothstep(0.0, 0.05, v);
+    float body = smoothstep(0.0, 0.3, side + (n - 0.5) * 0.5);
+    vec3 col = mix(vec3(0.55, 0.68, 0.68), vec3(0.96, 0.98, 0.98), smoothstep(0.3, 0.75, n) * 0.85 + v * 0.3);
+    col = mix(col, uSky, 0.1);
+    float a = body * (0.5 + n * 0.5) * smoothstep(0.0, 0.03, v);
     outC = vec4(col, clamp(a, 0.0, 0.95));
   `);
-  const sheets = [];
-  for (const [off, wscale] of [[0, 1], [0.12, 0.8]]) {
-    const geo = new THREE.PlaneGeometry(1, 1, 8, 28);
+  const H = lipWater - yP;
+  for (const [off, wscale, lag] of [[0, 1, 0], [0.35, 0.82, 0.15], [-0.25, 0.6, 0.3]]) {
+    const geo = new THREE.PlaneGeometry(1, 1, 10, 60);
     const p = geo.attributes.position;
     for (let i = 0; i < p.count; i++) {
-      const u = p.getX(i) + 0.5, v = 0.5 - p.getY(i); // v: 0 at the lip, 1 at the pool
-      const y = top - v * (top - wy);
-      const x = lipX + 0.08 + off + 0.62 * Math.sqrt(v) + Math.sin(u * 9 + v * 3) * 0.03;
-      const z = pz + (u - 0.5) * (1.0 + v * 0.7) * wscale;
-      p.setXYZ(i, x, y, z);
+      const uu = p.getX(i) + 0.5, vv = 0.5 - p.getY(i); // vv: 0 at the lip, 1 at the pool
+      const y = lipWater - vv * H;
+      const u = -4.4 + off + 1.6 * Math.sqrt(vv) + 4.6 * vv * vv + lag + Math.sin(uu * 7 + vv * 9) * 0.06;
+      const v = (uu - 0.5) * (5.2 + vv * 2.6) * wscale;
+      p.setXYZ(i, wx(u), y, W.z + v);
     }
     geo.computeVertexNormals();
     const m = new THREE.Mesh(geo, sheetMat);
-    m.renderOrder = 3;
-    m.frustumCulled = false;
+    m.renderOrder = 3; m.frustumCulled = false;
     group.add(m);
-    sheets.push(m);
   }
 
-  const mist = new Puffs({ max: 90, color: '#f2f6f6', opacity: 0.32, buoyancy: 0.6, drag: 1.2 });
+  // mist billowing off the pool, and a fine spray drifting down the gorge
+  const mist = new Puffs({ max: 260, color: '#f2f6f6', opacity: 0.35, buoyancy: 0.9, drag: 1.0 });
   group.add(mist.mesh);
   let acc = 0;
-  const mats = [poolMat, sheetMat, group.userData.stream];
+  const mats = [poolMat, sheetMat, streamMat];
   return {
     group,
-    pos: { x: lipX + 0.7, z: pz },
+    pos: { x: impact.x, z: impact.y },
     setTheme({ night, rain, sky, sun }) {
       for (const m of mats) {
         m.uniforms.uNight.value = night ? 0.8 : 0;
@@ -326,12 +331,12 @@ export function buildWaterfall() {
     update(t, dt, near) {
       for (const m of mats) m.uniforms.uTime.value = t;
       if (near) {
-        acc += dt * 22;
+        acc += dt * 40;
         while (acc > 1) {
           acc -= 1;
-          const a = Math.random() * Math.PI * 2, sp = 0.4 + Math.random() * 1.2;
-          mist.emit(impact.x + (Math.random() - 0.3) * 0.6, wy + 0.1, impact.y + (Math.random() - 0.5) * 1.2,
-            Math.cos(a) * sp + 0.3, 0.3 + Math.random() * 0.8, Math.sin(a) * sp, 1.4 + Math.random(), 0.5, 1.9 + Math.random(), 0.9);
+          const a = Math.random() * Math.PI * 2, sp = 0.8 + Math.random() * 2.4;
+          mist.emit(impact.x + (Math.random() - 0.5) * 2.5, yP + 0.2, impact.y + (Math.random() - 0.5) * 5,
+            Math.cos(a) * sp - 0.8, 0.6 + Math.random() * 1.6, Math.sin(a) * sp, 2.5 + Math.random() * 1.5, 1.2, 4.5 + Math.random() * 2, 0.85);
         }
       }
       mist.update(dt);

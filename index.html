@@ -73,6 +73,7 @@
       #bm-canvas { display: block; width: min(78vh, 86vw); height: min(78vh, 86vw); border-radius: 12px; }
       #ridehud { position: absolute; right: 18px; bottom: 60px; width: 190px; padding: 12px 16px 14px; border-radius: 16px; background: rgba(18, 14, 10, 0.5); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.12); opacity: 0; transform: translateY(8px); transition: opacity .35s, transform .35s; }
       #ridehud.show { opacity: 1; transform: none; }
+      #ridehud.nonitro .rh-nitro { display: none; }
       #tunnel { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 55%, rgba(30,22,14,0.82), rgba(4,3,2,0.97) 70%); opacity: 0; transition: opacity .5s; display: grid; place-items: center; color: rgba(255,230,190,0.6); font: 600 14px Inter, sans-serif; letter-spacing: .3em; }
       #tunnel.show { opacity: 1; }
       #flyhud { position: absolute; right: 18px; bottom: 60px; width: 252px; padding: 12px 14px; border-radius: 16px; background: rgba(12, 18, 28, 0.55); backdrop-filter: blur(10px); border: 1px solid rgba(160, 200, 255, 0.18); opacity: 0; transform: translateY(8px); transition: opacity .35s, transform .35s; pointer-events: none; }
@@ -171,7 +172,7 @@
         <button id="start" disabled>Preparing the village…</button>
         <div class="keys">
           <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk &nbsp;·&nbsp; <kbd>Shift</kbd> run &nbsp;·&nbsp; <kbd>Space</kbd> jump &nbsp;·&nbsp; mouse to look &nbsp;·&nbsp; scroll to zoom<br />
-          <kbd>E</kbd> ride any vehicle — even take a bike, bus or jeep off the road — or fly the little plane or the helicopter from the airstrip &nbsp;·&nbsp; <kbd>H</kbd> all controls &nbsp;·&nbsp; <kbd>B</kbd> bell / horn &nbsp;·&nbsp; <kbd>N</kbd> nitro while riding &nbsp;·&nbsp; walk into the river to swim &nbsp;·&nbsp; <kbd>Tab</kbd> map &nbsp;·&nbsp; <kbd>C</kbd> camera &nbsp;·&nbsp; <kbd>Y</kbd> season &nbsp;·&nbsp; <kbd>T</kbd> time &amp; weather &nbsp;·&nbsp; <kbd>M</kbd> sound &nbsp;·&nbsp; <kbd>Esc</kbd> free the cursor
+          <kbd>E</kbd> ride any vehicle — even take a bike, bus or jeep off the road — or fly the little plane or the helicopter from the airstrip &nbsp;·&nbsp; <kbd>H</kbd> all controls &nbsp;·&nbsp; <kbd>B</kbd> bell / horn &nbsp;·&nbsp; <kbd>N</kbd> nitro on the motorbike, scooter and car &nbsp;·&nbsp; walk into the river to swim &nbsp;·&nbsp; <kbd>Tab</kbd> map &nbsp;·&nbsp; <kbd>C</kbd> camera &nbsp;·&nbsp; <kbd>Y</kbd> season &nbsp;·&nbsp; <kbd>T</kbd> time &amp; weather &nbsp;·&nbsp; <kbd>M</kbd> sound &nbsp;·&nbsp; <kbd>U</kbd> full screen &nbsp;·&nbsp; <kbd>Esc</kbd> free the cursor
         </div>
       </div>
     </div>
@@ -247,9 +248,9 @@
         <div class="row"><span>platform</span><span>stop alongside it and people get on and off (40 aboard max)</span></div>
         <h3>World</h3>
         <div class="row"><span><kbd>Tab</kbd> map</span><span><kbd>C</kbd> camera · <kbd>H</kbd> this help</span></div>
-        <div class="row"><span><kbd>Y</kbd> season</span><span><kbd>T</kbd> time &amp; weather · <kbd>M</kbd> sound</span></div>
+        <div class="row"><span><kbd>Y</kbd> season</span><span><kbd>T</kbd> time &amp; weather · <kbd>M</kbd> sound · <kbd>U</kbd> full screen</span></div>
       </div>
-      <div class="btns"><label title="Season">🍃<select id="season"></select></label><label title="Time &amp; weather">🌤<select id="atmo"></select></label><label title="Sound theme">🎵<select id="sound"></select></label><button id="mute">Sound on</button></div>
+      <div class="btns"><label title="Season">🍃<select id="season"></select></label><label title="Time &amp; weather">🌤<select id="atmo"></select></label><label title="Sound theme">🎵<select id="sound"></select></label><button id="mute">Sound on</button><button id="fullscreen" title="Full screen (U)">⛶ Full screen</button></div>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>

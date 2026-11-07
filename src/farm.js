@@ -288,7 +288,7 @@ class Tractor {
     scene.add(this.g);
     // the farmer at the wheel
     this.driver = new Person({ dress: 'dhoti', top: '#e4ddc8', bottom: '#efe9dc', headwear: 'turban', turban: '#f0c419', mustache: true, skin: '#76492f', sleeves: 'short' });
-    this.driver.seatH = 0;
+    this.driver.seatH = 0; this.driver.noHit = true;
     this.driver.root.position.set(0, 1.22, -0.6);
     this.g.add(this.driver.root);
     // boustrophedon path over the field, with U-turns at the headlands

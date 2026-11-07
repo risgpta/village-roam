@@ -1,16 +1,16 @@
 // World definition: terrain height, river, railway, paths, and the deterministic village layout.
 import { fbm, noise2, rng, smoothstep, lerp } from './noise.js';
 
-export const INNER_HALF = 1120; // detailed terrain half-size (m)
-export const OUTER_HALF = 3200; // far hills / mountains
-export const MID_HALF = 1640; // a mid-detail ring round the inner terrain
-export const DATA_HALF = 1120; // grass data texture half-size (m)
+export const INNER_HALF = 1800; // detailed terrain half-size (m)
+export const OUTER_HALF = 4600; // far hills / mountains
+export const MID_HALF = 2500; // a mid-detail ring round the inner terrain
+export const DATA_HALF = 1800; // grass data texture half-size (m)
 export const WATER_Y = -0.4;
 // the season can lower the river (summer): physics and swimmers use WATER_Y + WATER.off
 export const WATER = { off: 0 };
 export const RIVER_HALF = 10;
 export const SQUARE = { x: -2, z: 2, r: 12 };
-export const PLAY_RADIUS = 1480;
+export const PLAY_RADIUS = 1900;
 export const TRACK_Y = 1.3;
 
 export const riverX = (z) => 72 + 22 * Math.sin(z * 0.011) + 8 * Math.sin(z * 0.027 + 1.3);
@@ -20,7 +20,7 @@ export const pathZ = (x) => 3 + 4 * Math.sin(x * 0.05 + 0.5);
 export const riverDist = (x, z) => Math.abs(x - riverX(z));
 // The world was spread out: the home village stays as it was, but everything beyond ~240 m now sits further
 // away, so there's more open country between villages. warp() maps the old positions to the new ones.
-const W_R0 = 240, W_K = 1.55;
+const W_R0 = 240, W_K = 1.9375;
 export const warpR = (r) => (r <= W_R0 ? r : W_R0 + (r - W_R0) * W_K);
 export function warp(x, z) { const r = Math.hypot(x, z); if (r <= W_R0) return { x, z }; const f = warpR(r) / r; return { x: x * f, z: z * f }; }
 export const trackZ = (x) => -118 + 12 * Math.sin(x * 0.006 + 0.4);
@@ -77,27 +77,64 @@ export const WILD = {
   deer: [warp(-200, -470), warp(360, 420)],
 };
 // the railway station in its own valley beyond the western tunnel, and the Noorpur–Mariapur line's halts
-export const STATION = { x: -770, z: 0, name: 'Sonpur', hi: 'सोनपुर' };
+export const STATION = { x: -902, z: 0, name: 'Sonpur', hi: 'सोनपुर' };
 NE.tea = { x0: NE.x - 70, x1: NE.x - 22, z0: NE.z - 40, z1: NE.z + 30 };
 // a hand pump (chapakal) on a little concrete apron, and the overhead water tank
 export const PUMP = { x: 8, z: 47, rot: -0.4 };
-export const TANK = { x: -30, z: -66 };
+export const TANK = { x: -32, z: -86 };
 // an open patch where the village kids play cricket
 export const CRICKET = { x: -24, z: 48, rot: 0.3 };
 // the little chai stall by the road, facing the road (local +z points west, toward the road)
 export const TEA = { z: -20, rot: -Math.PI / 2 };
 TEA.x = roadX(TEA.z) + 5.8;
-// a small boulder waterfall on the west bank, south of the ghat; pool drains east into the river
-export const WF = { z: -10 };
-WF.x = riverX(WF.z) - RIVER_HALF - 8.5;
-WF.lipX = WF.x - 2.7;
+// The waterfall: out in the hills east of the river, ~520 m south of the village. A stream runs across a
+// high rock shelf, pours off its edge and drops ~20 m into a deep plunge pool, then runs west down its own
+// gorge to the river. The terrain is shaped here (heightAt → fallsHeight); water.js builds the rock and water.
+// u = distance downstream (toward the river, -x), v = across (+z).
+export const WF = (() => {
+  const z = -600, rx = riverX(z);
+  const F = { x: rx + 110, z, H: 20, yPool: 2.4 };
+  F.lipX = F.x + 4.5;
+  F.lipY = F.yPool + F.H;
+  F.Lr = F.x - (rx + RIVER_HALF + 1); // the run of the stream from the pool to the river
+  return F;
+})();
+export const fallsMeander = (u) => Math.sin(u * 0.06) * 4 * smoothstep(8, 30, u);
+export const fallsFloor = (u, av = 0) => WF.yPool + 0.5 + (WATER_Y + 0.6 - WF.yPool - 0.5) * Math.max(0, Math.min(1, u / WF.Lr)) + Math.max(0, av - 6) * 0.16;
+function fallsHeight(x, z, h) {
+  if (x < WF.x - WF.Lr - 5 || x > WF.x + 105 || z < WF.z - 80 || z > WF.z + 80) return h;
+  const u = WF.x - x, v = z - WF.z, av = Math.abs(v);
+  // the rock shelf above the falls, with a sheer edge
+  const hp = WF.lipY + noise2(x * 0.05, z * 0.05) * 0.8 + Math.max(0, -u - 20) * 0.08;
+  const wP = (1 - smoothstep(28, 58, av)) * smoothstep(-1.2, -4.5, u) * (1 - smoothstep(-70, -100, u));
+  h = lerp(h, Math.max(h, hp), wP);
+  // the gorge: a floor falling gently toward the river, its walls rising to the hills on either side
+  const fl = fallsFloor(u, av) + noise2(x * 0.08, z * 0.08) * 0.35;
+  const wF = (1 - smoothstep(30, 62, av)) * smoothstep(-1.0, 1.0, u);
+  h = lerp(h, Math.min(h, fl), wF);
+  // the plunge pool
+  const dp = Math.hypot(u - 5, v);
+  if (dp < 9) h = Math.min(h, lerp(WF.yPool - 1.8, h, smoothstep(5, 9, dp)));
+  // the stream bed below, and the channel across the shelf leading to the edge
+  if (u > 9) { const dv = Math.abs(v - fallsMeander(u)); if (dv < 3.2) h -= 0.8 * (1 - smoothstep(1.3, 3.2, dv)) * smoothstep(9, 14, u); }
+  if (u < -3 && u > -78 && av < 3.2) h -= 1.1 * (1 - smoothstep(1.5, 3.2, av)) * smoothstep(-78, -62, u);
+  return h;
+}
+// bare rock: the cliff face either side of the falls and the steep walls of the gorge just below them
+export function fallsRock(x, z) {
+  if (x < WF.x - 40 || x > WF.x + 12 || z < WF.z - 50 || z > WF.z + 50) return 0;
+  const u = WF.x - x, av = Math.abs(z - WF.z);
+  const face = smoothstep(-8, -5.5, u) * (1 - smoothstep(0.5, 3, u)) * (1 - smoothstep(26, 40, av));
+  const walls = smoothstep(9, 15, av) * (1 - smoothstep(30, 44, av)) * smoothstep(-6, -2, u) * (1 - smoothstep(14, 32, u));
+  return Math.max(face, walls * 0.85) * (0.75 + 0.25 * noise2(x * 0.3, z * 0.3));
+}
+// wet rock, mud and spray-darkened ground round the falls, the pool and the stream (for the terrain colours)
 export function waterfallMask(x, z) {
-  const dp = Math.hypot(x - WF.x, z - WF.z);
-  let m = 1 - smoothstep(2.6, 3.6, dp); // pool
-  const dr = Math.hypot((x - (WF.lipX - 2.8)) * 0.8, z - WF.z);
-  m = Math.max(m, 1 - smoothstep(4.2, 6.2, dr)); // rocks
-  const rx = riverX(z) - RIVER_HALF;
-  if (x > WF.x && x < rx + 1) m = Math.max(m, 1 - smoothstep(0.6, 1.4, Math.abs(z - WF.z))); // outflow stream
+  if (x < WF.x - WF.Lr - 5 || x > WF.x + 85 || z < WF.z - 40 || z > WF.z + 40) return 0;
+  const u = WF.x - x, v = z - WF.z, av = Math.abs(v);
+  let m = 1 - smoothstep(8, 12, Math.hypot(u - 5, v)); // pool and spray
+  if (u > 6) m = Math.max(m, 1 - smoothstep(2.5, 4.5, Math.abs(v - fallsMeander(u)))); // stream banks
+  if (u < -3 && u > -78) m = Math.max(m, 1 - smoothstep(2.5, 4.5, av)); // the channel on the shelf
   return m;
 }
 export const FOOT = { z: 56 };
@@ -123,25 +160,127 @@ function knotLine(K) {
   };
   return f;
 }
-// The station railway: two lines that meet at Noorpur Junction. The main line runs from Sonpur (its western
-// terminus, in the valley past the village) through the village and over the river to the junction; the
-// Mariapur line runs from the junction round the west of Noorpur, across the plain and the river to Mariapur.
-// Both run in the open the whole way — the hills along them are lowered into wide valleys — and end at
-// buffer stops beyond their last platforms.
-export const XJ = 900; // Noorpur Junction
-const K3 = knotLine([[-1150, 760], [-760, 750], [-447, 735], [-250, 610], [0, 535], [200, 385], [450, 232], [620, 118], [740, -30], [820, -100], [1000, -106]]);
-// near the junction the Mariapur line runs alongside the main line, 12 m north of it
-export const trackZ3 = (x) => { const k = ss01(770, 850, x); return K3(x) * (1 - k) + (trackZ(x) + 12) * k; };
-export const trackSlope3 = (x) => trackZ3(x + 0.5) - trackZ3(x - 0.5);
-export const LINE_MAIN = [-770 - 100, XJ + 90], LINE_3 = [-447 - 70, XJ + 90];
-// how much a point is inside the open valley either station line runs along
-function lineFlat(x, z, zf, [a, b], steep) {
-  if (x < a - 80 || x > b + 80) return 0;
-  const cx = Math.max(a, Math.min(b, x));
-  let dz = Math.abs(z - zf(cx));
-  if (steep) { const sl = zf(cx + 1) - zf(cx); dz /= Math.sqrt(1 + sl * sl); }
-  return 1 - smoothstep(36, 78, Math.hypot(x - cx, dz));
+// ---------- the railway network ----------
+// Every line is a polyline (points a couple of metres apart); s is the distance along it. A ring line circles
+// the whole country near its edge (swinging wide round the great mountain). The main line (Sonpur — the
+// village — Noorpur Junction), the Mariapur line and the old Mail line run across it and curve into it at
+// junctions at both ends, so every line joins another and nothing dead-ends.
+const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
+const PEAK_ANG = Math.atan2(PEAK.z, PEAK.x);
+export const ringR = (th) => 1450 + 45 * Math.sin(3 * th + 0.7) + 25 * Math.sin(5 * th + 2.1) + 200 * Math.exp(-((angDiff(th, PEAK_ANG) / 0.42) ** 2));
+const ringPt = (th) => { const r = ringR(th); return { x: Math.cos(th) * r, z: Math.sin(th) * r }; };
+const ringTan = (th, dir) => { const a = ringPt(th - 0.001), b = ringPt(th + 0.001), l = Math.hypot(b.x - a.x, b.z - a.z); return { x: (dir * (b.x - a.x)) / l, z: (dir * (b.z - a.z)) / l }; };
+function makePath(raw, closed = false, lite = false) {
+  const pts = closed ? [...raw, raw[0]] : raw.slice();
+  const S = [0];
+  for (let i = 1; i < pts.length; i++) S.push(S[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
+  const L = S[S.length - 1];
+  // each segment is listed in the 16 m cells within 36 m of it: quick nearest-point lookups from heightAt
+  const G = 16, E = 36, grid = new Map();
+  for (let i = 0; i < (lite ? 0 : pts.length - 1); i++) {
+    const a = pts[i], b = pts[i + 1];
+    for (let gx = Math.floor((Math.min(a.x, b.x) - E) / G); gx <= Math.floor((Math.max(a.x, b.x) + E) / G); gx++)
+      for (let gz = Math.floor((Math.min(a.z, b.z) - E) / G); gz <= Math.floor((Math.max(a.z, b.z) + E) / G); gz++) {
+        const k = gx * 65536 + gz; let l = grid.get(k); if (!l) grid.set(k, (l = [])); l.push(i);
+      }
+  }
+  const wrap = (q) => (closed ? ((q % L) + L) % L : Math.max(0, Math.min(L, q)));
+  const at = (q, out = {}) => {
+    q = wrap(q);
+    let lo = 0, hi = S.length - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (S[m] <= q) lo = m; else hi = m; }
+    const a = pts[lo], b = pts[hi], l = S[hi] - S[lo] || 1, t = (q - S[lo]) / l;
+    out.x = a.x + (b.x - a.x) * t; out.z = a.z + (b.z - a.z) * t; out.tx = (b.x - a.x) / l; out.tz = (b.z - a.z) / l;
+    return out;
+  };
+  const nr = { d: 0, s: 0 };
+  const near = (x, z) => {
+    const list = grid.get(Math.floor(x / G) * 65536 + Math.floor(z / G));
+    if (!list) return null;
+    let best = Infinity, bs = 0;
+    for (const i of list) {
+      const a = pts[i], b = pts[i + 1], dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz || 1;
+      const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / l2));
+      const ex = x - a.x - dx * t, ez = z - a.z - dz * t, d2 = ex * ex + ez * ez;
+      if (d2 < best) { best = d2; bs = S[i] + t * (S[i + 1] - S[i]); }
+    }
+    nr.d = Math.sqrt(best); nr.s = bs;
+    return nr;
+  };
+  const sOf = (x, z) => { let best = Infinity, bs = 0; for (let i = 0; i < pts.length; i++) { const d = (pts[i].x - x) ** 2 + (pts[i].z - z) ** 2; if (d < best) { best = d; bs = S[i]; } } return bs; };
+  return { pts, S, L, closed, at, near, sOf, wrap };
 }
+// a gentle curve from p0 (heading t0) to p1 (heading t1)
+function bez(p0, t0, p1, t1, step = 3) {
+  const d = Math.hypot(p1.x - p0.x, p1.z - p0.z), k = d * 0.42;
+  const c0 = { x: p0.x + t0.x * k, z: p0.z + t0.z * k }, c1 = { x: p1.x - t1.x * k, z: p1.z - t1.z * k };
+  const n = Math.max(4, Math.ceil((d * 1.2) / step)), out = [];
+  for (let i = 1; i <= n; i++) {
+    const t = i / n, u = 1 - t;
+    out.push({ x: u * u * u * p0.x + 3 * u * u * t * c0.x + 3 * u * t * t * c1.x + t * t * t * p1.x, z: u * u * u * p0.z + 3 * u * u * t * c0.z + 3 * u * t * t * c1.z + t * t * t * p1.z });
+  }
+  return out;
+}
+const unit = (x, z) => { const l = Math.hypot(x, z) || 1; return { x: x / l, z: z / l }; };
+// how far a line z = f(x) runs (from xIn, west or east) before it nears the ring
+function chordEnd(f, xIn, dir) { let x = xIn; while (Math.hypot(x, f(x)) < ringR(Math.atan2(f(x), x)) - 150) x += dir * 2; return x; }
+// curve from a line's end into the ring, joining it heading `sense` (+1 anticlockwise, −1 clockwise)
+function joinRing(E, tE, sense) {
+  const thE = Math.atan2(E.z, E.x), th = thE + (sense * 165) / ringR(thE);
+  return { pts: bez(E, tE, ringPt(th), ringTan(th, sense)), th };
+}
+// a line along z = f(x) between two x's, every 2 m
+const along = (f, x0, x1) => { const o = []; for (let x = x0; x <= x1 + 1e-6; x += 2) o.push({ x, z: f(x) }); return o; };
+// the two new villages out by the ring line, just inside it
+const NEWV = [
+  { th: 0.785, name: 'Khetpura', hi: 'खेतपुरा', style: 'punjab' },
+  { th: 3.93, name: 'Rannvas', hi: 'रणवास', style: 'kutch' },
+];
+for (const v of NEWV) { const r = ringR(v.th) - 112; v.x = Math.cos(v.th) * r; v.z = Math.sin(v.th) * r; }
+export const NEW_VILLAGES = NEWV;
+// the ring
+const RING_PTS = [];
+for (let th = 0; th < Math.PI * 2 - 2 / 1450; ) { RING_PTS.push(ringPt(th)); th += 3 / ringR(th); }
+// the main line
+const xMW = chordEnd(trackZ, -900, -1), xME = chordEnd(trackZ, 1100, 1);
+const J_MW = joinRing({ x: xMW, z: trackZ(xMW) }, unit(-1, -trackSlope(xMW)), 1);
+const J_ME = joinRing({ x: xME, z: trackZ(xME) }, unit(1, trackSlope(xME)), 1);
+const MAIN_PTS = [...J_MW.pts.slice().reverse(), ...along(trackZ, xMW, xME), ...J_ME.pts];
+// the old Mail line: alongside the main line through the village, then away into its own tunnels, and on to
+// the ring (joining it on the far side of the main line's junctions)
+const x2W = chordEnd(trackZ2, -900, -1), x2E = chordEnd(trackZ2, 1100, 1);
+const J_2W = joinRing({ x: x2W, z: trackZ2(x2W) }, unit(-1, -trackSlope2(x2W)), 1);
+const J_2E = joinRing({ x: x2E, z: trackZ2(x2E) }, unit(1, trackSlope2(x2E)), -1);
+const MAIL_PTS = [...J_2W.pts.slice().reverse(), ...along(trackZ2, x2W, x2E), ...J_2E.pts];
+// the Mariapur line: from the ring past Mariapur, across the plain and the river, alongside the main line
+// through Noorpur Junction, and into the main line just beyond it
+export const XJ = 1065; // Noorpur Junction
+const grow = (x, z) => { const r = Math.hypot(x, z); if (r <= 240) return [x, z]; const f = (240 + (r - 240) * 1.25) / r; return [x * f, z * f]; };
+const K3 = knotLine([[-1150, 760], [-760, 750], [-447, 735], [-250, 610], [0, 535], [200, 385], [450, 232], [620, 118], [740, -30], [820, -100], [1000, -106]].map(([x, z]) => grow(x, z)));
+export const trackZ3 = (x) => { const k = ss01(XJ - 195, XJ - 75, x); return K3(x) * (1 - k) + (trackZ(x) + 12) * k; };
+export const trackSlope3 = (x) => trackZ3(x + 0.5) - trackZ3(x - 0.5);
+const x3W = chordEnd(trackZ3, MP.x - 100, -1), x3E = XJ + 90;
+const J_3W = joinRing({ x: x3W, z: trackZ3(x3W) }, unit(-1, -trackSlope3(x3W)), 1);
+const LINE3_PTS = [...J_3W.pts.slice().reverse(), ...along(trackZ3, x3W, x3E), ...bez({ x: x3E, z: trackZ3(x3E) }, unit(1, trackSlope3(x3E)), { x: XJ + 172, z: trackZ(XJ + 172) }, unit(1, trackSlope(XJ + 172)), 2)];
+const P_MAIN = makePath(MAIN_PTS), P_MAIL = makePath(MAIL_PTS), P_LINE3 = makePath(LINE3_PTS), P_RING = makePath(RING_PTS, true);
+// the valleys the station lines and the ring run along: a coarse distance field, stamped once
+const FLATD = (() => {
+  const C = 8, H = INNER_HALF + 80, n = Math.ceil((2 * H) / C) + 1, R = 140, rc = Math.ceil(R / C);
+  const d = new Float32Array(n * n).fill(999);
+  const stamp = (p) => {
+    const ci = Math.round((p.x + H) / C), cj = Math.round((p.z + H) / C);
+    for (let j = Math.max(0, cj - rc); j <= Math.min(n - 1, cj + rc); j++) for (let i = Math.max(0, ci - rc); i <= Math.min(n - 1, ci + rc); i++) {
+      const dd = Math.hypot(i * C - H - p.x, j * C - H - p.z); if (dd < d[j * n + i]) d[j * n + i] = dd;
+    }
+  };
+  for (const P of [MAIN_PTS, LINE3_PTS, RING_PTS]) for (let k = 0; k < P.length; k += 2) stamp(P[k]);
+  return (x, z) => {
+    const fx = (x + H) / C, fz = (z + H) / C, i = Math.floor(fx), j = Math.floor(fz);
+    if (i < 0 || j < 0 || i >= n - 1 || j >= n - 1) return 999;
+    const tx = fx - i, tz = fz - j, a = d[j * n + i], b = d[j * n + i + 1], c = d[(j + 1) * n + i], e = d[(j + 1) * n + i + 1];
+    return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + e * tx) * tz;
+  };
+})();
 
 // ---------- height ----------
 // distance to the station valley's spine: a stretch of the main line between two x's
@@ -152,23 +291,24 @@ function segD(x, z, xa, xb) {
 function rawHeight(x, z) {
   const d = Math.hypot(x, z);
   let h = fbm(x * 0.006, z * 0.006, 4) * 4 + fbm(x * 0.03 + 7, z * 0.03 - 3, 2) * 0.6;
-  const hill = smoothstep(400, 720, d);
+  const hill = smoothstep(440, 840, d);
   h += hill * (0.55 + 0.45 * fbm(x * 0.009 + 11, z * 0.009 + 5, 3)) * 55;
-  h += smoothstep(1520, 2250, d) * (0.6 + 0.4 * fbm(x * 0.0025 + 3, z * 0.0025, 3)) * 160;
+  h += smoothstep(1950, 2900, d) * (0.6 + 0.4 * fbm(x * 0.0025 + 3, z * 0.0025, 3)) * 160;
   // the big mountain: a broad cone with craggy flanks
   { const dp2 = (x - PEAK.x) ** 2 + (z - PEAK.z) ** 2; h += Math.exp(-dp2 / (2 * 105 * 105)) * (140 + fbm(x * 0.02, z * 0.02, 3) * 10 * Math.min(1, Math.sqrt(dp2) / 40)); }
-  const flat = Math.max(1 - smoothstep(160, 360, d), 1 - smoothstep(25, 55, Math.hypot(x - EH.x, z - EH.z)), 1 - smoothstep(35, 70, Math.hypot(x - NV.x, z - NV.z)), 1 - smoothstep(55, 105, Math.hypot(x - RV.x, z - RV.z)),
+  const flat = Math.max(1 - smoothstep(160, 420, d), 1 - smoothstep(25, 55, Math.hypot(x - EH.x, z - EH.z)), 1 - smoothstep(35, 70, Math.hypot(x - NV.x, z - NV.z)), 1 - smoothstep(55, 105, Math.hypot(x - RV.x, z - RV.z)),
     1 - smoothstep(60, 110, Math.hypot(x - BV.x, z - BV.z)), 1 - smoothstep(60, 110, Math.hypot(x - TV.x, z - TV.z)),
     1 - smoothstep(65, 120, Math.hypot(x - MH.x, z - MH.z)), (1 - smoothstep(30, 70, Math.hypot(x - NE.x, z - NE.z))) * 0.9,
-    (1 - smoothstep(35, 75, Math.hypot(x - PG.x, z - PG.z))) * 0.92);
+    (1 - smoothstep(35, 75, Math.hypot(x - PG.x, z - PG.z))) * 0.92,
+    1 - smoothstep(70, 140, Math.hypot(x - NEWV[0].x, z - NEWV[0].z)), 1 - smoothstep(70, 140, Math.hypot(x - NEWV[1].x, z - NEWV[1].z)));
   // the station valley beyond the western tunnel
   // Noorpur and Mariapur sit in broad, low valleys now rather than up on the hills
-  const valley = Math.max(1 - smoothstep(90, 260, Math.hypot(x - NP.x, z - NP.z)), 1 - smoothstep(90, 260, Math.hypot(x - MP.x, z - MP.z)));
-  const sv = 1 - smoothstep(60, 125, segD(x, z, -610, -880));
-  const cor = Math.max(lineFlat(x, z, trackZ, LINE_MAIN, false), lineFlat(x, z, trackZ3, LINE_3, true));
+  const valley = Math.max(1 - smoothstep(100, 300, Math.hypot(x - NP.x, z - NP.z)), 1 - smoothstep(100, 300, Math.hypot(x - MP.x, z - MP.z)));
+  const sv = 1 - smoothstep(60, 125, segD(x, z, STATION.x + 160, STATION.x - 150));
+  const cor = 1 - smoothstep(38, 100, FLATD(x, z));
   h = lerp(h, 0.35 + fbm(x * 0.03, z * 0.03, 2) * 0.35, Math.max(flat * 0.85, valley * 0.97, sv * 0.98, cor * 0.97));
   // a wooded ridge over the old Mail line west of the village: its train still vanishes into a tunnel there
-  h += 30 * Math.exp(-(((x + 525) / 34) ** 2)) * (1 - smoothstep(12, 26, Math.abs(z - trackZ2(x))));
+  h += 30 * Math.exp(-(((x + 620) / 34) ** 2)) * (1 - smoothstep(12, 26, Math.abs(z - trackZ2(x))));
   return h;
 }
 const HILLTOP_H = rawHeight(HILLTOP.x, HILLTOP.z);
@@ -228,43 +368,134 @@ export function stairAt(x, z) {
 export const stairLine = (s) => STAIRS.h0 + (STAIRS.h1 - STAIRS.h0) * Math.max(0, Math.min(1, s / STAIRS.L));
 export const stepTop = (s) => STAIRS.h0 + STAIRS.rise * Math.min(STAIRS.N, Math.floor(Math.max(0, s) / STAIRS.run) + 1);
 
-// Railway: walk along each line and find its open stretches; where the ground rises above the line it
-// goes into a tunnel, and comes out again wherever the land drops (a valley beyond a hill)
-function makeTrack(z, slope, forced = null, centralOnly = false) {
-  const lim = TRACK_Y + 8, X = INNER_HALF - 30;
-  const raw = [];
-  if (forced) raw.push([...forced]);
-  else {
-  let a = null;
-  for (let x = -X; x <= X; x += 0.5) {
-    const o = baseHeight(x, z(x)) <= lim;
-    if (o && a === null) a = x;
-    else if (!o && a !== null) { raw.push([a, x - 0.5]); a = null; }
+// ---------- the hill road to the summit shrine ----------
+// A winding road with hairpin bends up the mountain's western flank, away from the stone steps: from the old
+// hilltop shrine where the main road ends, back and forth across the slope, to the summit. Its level rises
+// steadily (never steeper than ~10%), and the ground is cut and filled to carry it.
+export const SHRINE_ROAD = (() => {
+  const cx = PEAK.x, cz = PEAK.z;
+  const r0 = Math.hypot(HILLTOP.x - cx, HILLTOP.z - cz), th0 = Math.atan2(HILLTOP.z - cz, HILLTOP.x - cx);
+  const A = th0 + 0.5, B = th0 + 2.3;
+  const at = (th, r) => ({ x: cx + Math.cos(th) * r, z: cz + Math.sin(th) * r });
+  const pts = [at(th0 + 0.06, r0 - 9)];
+  const radii = [r0 - 9, 230, 150, 118, 94, 74, 56, 40, 26];
+  let from = th0 + 0.06;
+  for (let i = 0; i < radii.length - 1; i++) {
+    const to = i % 2 === 0 ? B : A, dir = Math.sign(to - from);
+    const rA = radii[i], rB = radii[i + 1] + 14;
+    const len = Math.abs(to - from) * (rA + rB) / 2, n = Math.max(4, Math.round(len / 8));
+    for (let k = 1; k <= n; k++) { const t = k / n; pts.push(at(from + (to - from) * t, rA + (rB - rA) * t)); }
+    // the hairpin: swing out a little past the end of the leg while dropping 14 m in toward the summit
+    if (i < radii.length - 2) for (let k = 1; k <= 7; k++) { const f = (k / 7) * Math.PI, r = rB - 14 * (1 - Math.cos(f)) / 2; pts.push(at(to + dir * Math.sin(f) * (9 / r), r)); }
+    from = to;
   }
-  if (a !== null) raw.push([a, X]);
+  pts.push(at(from + 0.2, 20));
+  // levels: follow the ground but always climbing, and never steeper than 10%
+  const L = [0];
+  for (let i = 1; i < pts.length; i++) L.push(L[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
+  const raw = pts.map((p) => baseHeight(p.x, p.z));
+  // the road's level follows the ground, but is eased so no stretch is steeper than 12% (both ways), and it
+  // starts at the hilltop shrine and ends on the summit
+  const g = 0.17, n = pts.length - 1;
+  const y = raw.slice(); y[0] = HILLTOP_H; y[n] = PEAK_H - 0.3;
+  for (let pass = 0; pass < 40; pass++) {
+    for (let i = 1; i < n; i++) { const l = L[i] - L[i - 1]; y[i] = Math.min(y[i - 1] + g * l, Math.max(y[i - 1] - g * l, y[i])); }
+    for (let i = n - 1; i > 0; i--) { const l = L[i + 1] - L[i]; y[i] = Math.min(y[i + 1] + g * l, Math.max(y[i + 1] - g * l, y[i])); }
   }
-  // little humps are cut through rather than tunnelled; slivers of open ground between tunnels are dropped
-  const segs = [];
-  for (const g of raw) { const last = segs[segs.length - 1]; if (last && g[0] - last[1] < 14) last[1] = g[1]; else segs.push([...g]); }
-  let S = segs.filter((g) => g[1] - g[0] > 30);
-  if (centralOnly) S = S.filter((g) => g[0] < 0 && g[1] > 0);
-  // river crossing
-  let xr = 40;
-  for (let i = 0; i < 8; i++) xr = riverX(z(xr));
-  const xW = S[0][0], xE = S[S.length - 1][1];
-  return { segs: S, xW, xE, xr, zr: z(xr), z, slope, open: (x, m = 0) => x > xW - m && x < xE + m && S.some((g) => x > g[0] - m && x < g[1] + m) };
+  pts.forEach((p, i) => (p.y = y[i]));
+  // segments in a coarse grid, for quick lookups from heightAt
+  const segs = [], grid = new Map(), G = 24;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    const sg = { ax: a.x, az: a.z, bx: b.x, bz: b.z, ay: a.y, by: b.y, l: Math.hypot(b.x - a.x, b.z - a.z) };
+    segs.push(sg);
+    for (let gx = Math.floor((Math.min(a.x, b.x) - 12) / G); gx <= Math.floor((Math.max(a.x, b.x) + 12) / G); gx++)
+      for (let gz = Math.floor((Math.min(a.z, b.z) - 12) / G); gz <= Math.floor((Math.max(a.z, b.z) + 12) / G); gz++) {
+        const k = gx * 10007 + gz; if (!grid.has(k)) grid.set(k, []); grid.get(k).push(sg);
+      }
+  }
+  return { pts, segs, grid, G, length: L[L.length - 1], rise: y[y.length - 1] - y[0] };
+})();
+// nearest point of the hill road: distance and the road's level there
+const _sr = { d: 0, y: 0 };
+function shrineRoadAt(x, z) {
+  const R = SHRINE_ROAD, list = R.grid.get(Math.floor(x / R.G) * 10007 + Math.floor(z / R.G));
+  if (!list) return null;
+  let best = Infinity;
+  for (const s of list) {
+    const dx = s.bx - s.ax, dz = s.bz - s.az;
+    const t = Math.max(0, Math.min(1, ((x - s.ax) * dx + (z - s.az) * dz) / (s.l * s.l || 1)));
+    const d = Math.hypot(x - (s.ax + dx * t), z - (s.az + dz * t));
+    if (d < best) { best = d; _sr.y = s.ay + (s.by - s.ay) * t; }
+  }
+  _sr.d = best;
+  return best < 12 ? _sr : null;
 }
-export const TRACK = makeTrack(trackZ, trackSlope, LINE_MAIN);
-export const TRACK2 = makeTrack(trackZ2, trackSlope2, null, true);
-export const TRACK3 = makeTrack(trackZ3, trackSlope3, LINE_3);
-TRACK.termini = TRACK3.termini = true;
-export const TRACKS = [TRACK, TRACK2, TRACK3];
+
+// Each line's open stretches: the station lines and the ring are open all the way (their valleys are carved);
+// the Mail line goes into a tunnel wherever the hills rise over it.
+function makeTrack(path, forced = false) {
+  const lim = TRACK_Y + 8;
+  let segs = [];
+  if (forced) segs = [[0, path.L]];
+  else {
+    const raw = []; let a = null; const q = {};
+    for (let t = 0; t <= path.L; t += 1) {
+      path.at(t, q);
+      const o = baseHeight(q.x, q.z) <= lim;
+      if (o && a === null) a = t;
+      else if (!o && a !== null) { raw.push([a, t - 1]); a = null; }
+    }
+    if (a !== null) raw.push([a, path.L]);
+    for (const g of raw) { const last = segs[segs.length - 1]; if (last && g[0] - last[1] < 14) last[1] = g[1]; else segs.push([...g]); }
+    segs = segs.filter((g) => g[1] - g[0] > 30);
+  }
+  // where it crosses the river: bridges
+  const bridges = []; { let b0 = null; const q = {};
+    for (let t = 0; t <= path.L; t += 1) { path.at(t, q); const w = riverDist(q.x, q.z) < RIVER_HALF + 9; if (w && b0 === null) b0 = t; else if (!w && b0 !== null) { bridges.push([b0 - 2, t + 1]); b0 = null; } } }
+  return { path, segs, bridges, L: path.L, closed: path.closed, openS: (t, m = 0) => { t = path.wrap(t); return segs.some((g) => t > g[0] - m && t < g[1] + m); } };
+}
+export const TRACK = Object.assign(makeTrack(P_MAIN, true), { z: trackZ, slope: trackSlope, termini: true, name: 'main' });
+export const TRACK2 = Object.assign(makeTrack(P_MAIL, false), { z: trackZ2, slope: trackSlope2, termini: true, name: 'mail' });
+export const TRACK3 = Object.assign(makeTrack(P_LINE3, true), { z: trackZ3, slope: trackSlope3, termini: true, name: 'line3' });
+export const RING = Object.assign(makeTrack(P_RING, true), { loop: true, name: 'ring' });
+export const TRACKS = [TRACK, TRACK2, TRACK3, RING];
+// The route a driven train can take: its own line, and at each end on round the ring through the junction
+// (a whole loop each way), so the boy can run through onto the ring line and on to its stations. The line's
+// own stretch sits at s = off .. off + its length.
+function ringArc(th0, th1) { const o = [], d = Math.sign(th1 - th0); for (let th = th0; d * (th1 - th) > 1e-9; th += (d * 3) / ringR(th)) o.push(ringPt(th)); return o; }
+function driveRoute(Jw, chord, Je) {
+  const pre = ringArc(Jw.th + Math.PI * 2 - 0.01, Jw.th + 0.5 / ringR(Jw.th));
+  const post = ringArc(Je.th + 3 / ringR(Je.th), Je.th + Math.PI * 2 - 0.01);
+  const path = makePath([...pre, ...chord, ...post], false, true);
+  return { path, off: path.S[pre.length] };
+}
+TRACK.drive = driveRoute(J_MW, MAIN_PTS, J_ME);
+// the Mariapur line runs into the main line east of Noorpur Junction: on along it to Purab Junction
+TRACK3.drive = driveRoute(J_3W, [...LINE3_PTS, ...MAIN_PTS.slice(MAIN_PTS.findIndex((q) => q.x >= XJ + 174))], J_ME);
 STATION.z = trackZ(STATION.x);
-// halts on the new line, on the village side of the track
-// Noorpur Junction: one island platform between the two lines, built with the Mariapur line's halt
-TRACK3.halts = [{ x: XJ, name: 'Noorpur Junction', hi: 'नूरपुर जंक्शन', side: -1, W: 8.5, L: 150 }, { x: -447, name: 'Mariapur', hi: 'मरियापुर', side: 1, L: 110 }];
-TRACK.halts = [{ x: STATION.x, name: STATION.name, hi: STATION.hi, side: 1, big: true, L: 170 }, { x: XJ, name: 'Noorpur Junction', hi: 'नूरपुर जंक्शन', side: 1, W: 8.5, L: 150, island: true }];
-TRACK2.halts = [];
+const sX = (T, x) => T.path.sOf(x, T.z(x));
+const sTh = (th) => P_RING.sOf(ringPt(th).x, ringPt(th).z);
+TRACK.halts = [
+  { s: sX(TRACK, xMW + 75), name: 'Paschim Junction', hi: 'पश्चिम जंक्शन', side: 1, L: 110 },
+  { s: sX(TRACK, STATION.x), name: STATION.name, hi: STATION.hi, side: 1, big: true, L: 170 },
+  { s: sX(TRACK, XJ), name: 'Noorpur Junction', hi: 'नूरपुर जंक्शन', side: 1, W: 8.5, L: 150, island: true },
+];
+TRACK3.halts = [
+  { s: sX(TRACK3, x3W + 70), name: 'Mariapur Road', hi: 'मरियापुर रोड', side: 1, L: 100 },
+  { s: sX(TRACK3, MP.x), name: 'Mariapur', hi: 'मरियापुर', side: 1, L: 110 },
+  { s: sX(TRACK3, XJ), name: 'Noorpur Junction', hi: 'नूरपुर जंक्शन', side: -1, W: 8.5, L: 150 },
+];
+TRACK2.halts = [{ s: sX(TRACK2, x2W + 45), name: 'Mail west loop', noStation: true }, { s: sX(TRACK2, x2E - 45), name: 'Mail east loop', noStation: true }];
+RING.halts = [
+  { s: sTh(J_ME.th + 0.08), name: 'Purab Junction', hi: 'पूरब जंक्शन', side: -1, L: 100 },
+  { s: sTh(NEWV[0].th), name: NEWV[0].name, hi: NEWV[0].hi, side: 1, L: 110, village: NEWV[0] },
+  { s: sTh(J_3W.th + 0.08), name: 'Mariapur Road', hi: 'मरियापुर रोड', side: -1, L: 100 },
+  { s: sTh(J_MW.th + 0.08), name: 'Paschim Junction', hi: 'पश्चिम जंक्शन', side: -1, L: 100 },
+  { s: sTh(NEWV[1].th), name: NEWV[1].name, hi: NEWV[1].hi, side: 1, L: 110, village: NEWV[1] },
+].sort((a, b) => a.s - b.s);
+// both level crossings of the main road: the old one over the two lines south of the village, and the new one
+const LEVEL_X = [];
 // where the new line crosses the main road north of the village
 export const CROSSING3 = (() => {
   let z = 535;
@@ -277,20 +508,21 @@ export const CROSSING = (() => {
   for (let i = 0; i < 8; i++) z = trackZ(roadX(z));
   return { x: roadX(z), z };
 })();
+LEVEL_X.push({ z: CROSSING.z, zc: (x) => (trackZ(x) + trackZ2(x)) / 2, half: 7.5 }, { z: CROSSING3.z, zc: (x) => trackZ3(x), half: 4 });
 
-function trackDist1(T, x, z) {
-  if (!T.open(x, 1)) return Infinity;
-  return Math.abs(z - T.z(x)) / Math.sqrt(1 + T.slope(x) ** 2);
-}
 export function trackDist(x, z) {
-  return Math.min(trackDist1(TRACK, x, z), trackDist1(TRACK2, x, z), trackDist1(TRACK3, x, z));
+  let m = Infinity;
+  for (const T of TRACKS) { const n = T.path.near(x, z); if (n && n.d < m && T.openS(n.s, 1)) m = n.d; }
+  return m;
 }
 
 export function heightAt(x, z) {
   let h = baseHeight(x, z);
   for (const T of TRACKS) {
-    const dz = Math.abs(z - T.z(x));
-    if (dz < 34 && T.open(x)) {
+    const n = T.path.near(x, z);
+    if (!n || n.d >= 34 || !T.openS(n.s)) continue;
+    const dz = n.d;
+    {
       const fill = TRACK_Y - Math.max(0, dz - 3.5) * 0.55;
       const cut = TRACK_Y + Math.max(0, dz - 4) * 0.8;
       if (h < fill) h = fill;
@@ -298,13 +530,33 @@ export function heightAt(x, z) {
     }
   }
   { const st = stairAt(x, z); if (st) h = lerp(h, stairLine(st.s) - 0.15, 1 - smoothstep(2.2, 8.5, st.d)); }
+  { const sr = shrineRoadAt(x, z); if (sr) h = lerp(h, sr.y, 1 - smoothstep(3.4, 10, sr.d)); }
+  h = fallsHeight(x, z, h);
+  // the main road runs level: no bumps along it, no tilt across it
+  if (z > -700 && z < 840) {
+    const rx = roadX(z), dxr = Math.abs(x - rx);
+    if (dxr < 6) {
+      const hc = (baseHeight(roadX(z - 5), z - 5) + baseHeight(rx, z) + baseHeight(roadX(z + 5), z + 5)) / 3;
+      h = lerp(h, hc, 1 - smoothstep(3.2, 6, dxr));
+    }
+  }
+  // level crossings: the road rises gently to rail height and runs flat across the line
+  for (const C of LEVEL_X) {
+    if (Math.abs(z - C.z) > 45) continue;
+    const dxr = Math.abs(x - roadX(z));
+    if (dxr > 6.5) continue;
+    const dz = Math.abs(z - C.zc(x));
+    const w = (1 - smoothstep(C.half, C.half + 22, dz)) * (1 - smoothstep(3.8, 6.5, dxr));
+    const top = TRACK_Y + 0.39;
+    if (top > h) h += (top - h) * w;
+  }
   const dr = Math.abs(x - riverX(z));
   if (dr < RIVER_HALF) {
     const q = dr / RIVER_HALF;
     return WATER_Y - 0.15 - 1.9 * (1 - q * q);
   }
   const target = WATER_Y - 0.15 + (dr - RIVER_HALF) * 0.22;
-  const hill = smoothstep(400, 720, Math.hypot(x, z));
+  const hill = smoothstep(440, 840, Math.hypot(x, z));
   const w = 1 - smoothstep(RIVER_HALF, RIVER_HALF + 14 + hill * 30, dr);
   h = lerp(h, target, w);
   // Banglagram's pond
@@ -361,7 +613,7 @@ export function dirtMask(x, z) {
   const j = noise2(x * 0.35, z * 0.35) * 0.5;
   let m = 0;
   const cell = dirtGrid ? dirtGrid.get(Math.floor(x / DG) + ',' + Math.floor(z / DG)) || EMPTY : { c: dirtCircles, l: lanes };
-  if (z > -615 && z < 712 && Math.abs(x) < 200) {
+  if (z > -700 && z < 840 && Math.abs(x) < 200) {
     const d = Math.abs(x - roadX(z)) + j;
     m = Math.max(m, 1 - smoothstep(1.8, 3.0, d));
   }
@@ -404,6 +656,7 @@ export function archTop(B, lx) {
 // fromY: current feet height. Bridges only count when you are already up near their deck.
 export function groundHeight(x, z, fromY) {
   let h = heightAt(x, z);
+  { const td = trackDist(x, z); if (td < 2.4) h = Math.max(h, TRACK_Y + 0.37 - Math.max(0, td - 1.5) * 0.5); }
   { const st = stairAt(x, z); if (st && st.d < STAIRS.W) h = Math.max(h, stepTop(st.s)); }
   for (const s of surfaces) {
     if (s.kind === 'arch') {
@@ -496,56 +749,57 @@ export const layout = {
   };
 
   // lanes
-  addLane(roadX(5) - 2, 5, -44, 5); // west to the mustard fields
-  addLane(roadX(-30) + 2, -30, 19, -30); // east to the wheat field
+  addLane(roadX(5) - 2, 5, -40, 5); // west to the mustard fields
+  addLane(roadX(-30) + 2, -30, 17.5, -30); // east to the wheat field
   const fW = rotPt(FOOT, -(RIVER_HALF + 6), 0), fE = rotPt(FOOT, RIVER_HALF + 6, 0);
   FOOT.w = fW; FOOT.e = fE;
   addLane(roadX(FOOT.z) + 2, FOOT.z, fW.x, fW.z); // to the footbridge
   addLane(fE.x, fE.z, EH.x - 6, EH.z - 4); // footbridge to the east hamlet
-  addLane(WF.x + 2.5, pathZ(WF.x + 2.5), WF.x + 3.8, WF.z + 3.2, 1.4); // ghat path down to the waterfall pool
   // country roads beyond the villages
   const road = (pts, w = 2.6) => { for (let i = 0; i < pts.length - 1; i++) addLane(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], w); };
   // west: from the main road past the sugarcane and round to Chhota Gaon
-  road([[roadX(-62) - 2, -62], [-60, -64], [-130, -80], [-222, -60], [-238, 10], [-232, 95], [-206, 160], [NV.x - 14, NV.z - 2]]);
+  road([[roadX(-62) - 2, -62], [-60, -64], [-130, -80], [-222, -79], [-238, 10], [-232, 95], [-206, 160], [NV.x - 14, NV.z - 2]]);
   // east: out of the village, over the new road bridge and on to Marudhar
   const rbW = rotPt(RBRIDGE, -(RIVER_HALF + 8), 0), rbE = rotPt(RBRIDGE, RIVER_HALF + 8, 0);
   RBRIDGE.w = rbW; RBRIDGE.e = rbE;
   road([[roadX(150) + 2, 150], [40, 152], [rbW.x, rbW.z]]);
-  road([[rbE.x, rbE.z], [150, 158], [210, 145], [292, 167], [RV.x - 16, RV.z]]);
+  road([[rbE.x, rbE.z], [150, 158], [210, 145], [313, 179], [RV.x - 16, RV.z]]);
   // south-east: down past the crossing, over the south bridge to Banglagram
   for (const B of BRIDGES.slice(1)) { B.w = rotPt(B, -(RIVER_HALF + 8), 0); B.e = rotPt(B, RIVER_HALF + 8, 0); }
   const [, B2, B3] = BRIDGES;
   road([[roadX(-150) + 2, -150], [20, -175], [B2.w.x, B2.w.z]]);
-  road([[B2.e.x, B2.e.z], [130, -228], [206, -267], [BV.x - 16, BV.z]]);
+  road([[B2.e.x, B2.e.z], [130, -228], [221, -286], [BV.x - 16, BV.z]]);
   // north-east: up the main road, over the north bridge to Thennoor
-  road([[roadX(250) + 2, 250], [33, 310], [B3.w.x, B3.w.z]]);
-  road([[B3.e.x, B3.e.z], [138, 357], [198, 408], [TV.x - 16, TV.z]]);
+  road([[roadX(250) + 2, 250], [35, 328], [B3.w.x, B3.w.z]]);
+  road([[B3.e.x, B3.e.z], [151, 390], [221, 456], [TV.x - 16, TV.z]]);
   // Paar gaon (across the footbridge) gets a proper road up to the eastern road
   road([[EH.x + 4, EH.z + 8], [142, 120], [150, 156]], 2.2);
   // north up the main road and the switchback into the hills to Pahadi Gaon
-  road([[roadX(warpR(540)), warpR(540)], [-18, 724], [PG.x + 14, PG.z]]);
+  road([[roadX(warpR(540)), warpR(540)], [-21, 845], [PG.x + 14, PG.z]]);
   // west: on from the country road out to the Maharashtrian village
-  road([[-238, 10], [-333, 0], [-457, -36], [-551, -69], [MH.x + 16, MH.z]]);
+  road([[-238, 10], [-356, 0], [-511, -40], [-629, -79], [MH.x + 16, MH.z]]);
   // up past Banglagram into the North-East hills
-  road([[BV.x + 4, BV.z - 14], [306, -392], [304, -536], [NE.x, NE.z + 16]]);
+  road([[BV.x + 4, BV.z - 14], [346, -443], [350, -618], [NE.x, NE.z + 16]]);
   // and a river-side track joining the three villages across the river
-  road([[BV.x + 14, BV.z + 6], [303, -168], [RV.x - 6, RV.z - 16]], 2.0);
-  road([[RV.x - 6, RV.z + 16], [310, 310], [TV.x + 28, TV.z + 8], [TV.x + 12, TV.z]], 2.0);
+  road([[BV.x + 14, BV.z + 6], [326, -181], [RV.x - 6, RV.z - 16]], 2.0);
+  road([[RV.x - 6, RV.z + 16], [345, 345], [TV.x + 28, TV.z + 8], [TV.x + 12, TV.z]], 2.0);
   // south-west: a track from the crossing toward the tiger hills (with a warning on the map)
-  road([[CROSSING.x - 6, CROSSING.z - 10], [-90, -170], [-189, -278], [-283, -361]], 2.2);
+  road([[CROSSING.x - 6, CROSSING.z - 10], [-90, -142], [-203, -298], [-317, -404]], 2.2);
   // east past Marudhar over the hills to Noorpur
-  road([[RV.x + 14, RV.z + 10], [494, 158], [599, 115], [705, 39], [NP.x - 18, NP.z]]);
+  road([[RV.x + 14, RV.z + 10], [560, 179], [690, 132], [821, 45], [NP.x - 18, NP.z]]);
   // north-west from the main road to Mariapur
-  road([[roadX(warpR(470)) - 2, warpR(470)], [-155, 647], [-305, 723], [MP.x + 18, MP.z]]);
+  road([[roadX(warpR(470)) - 2, warpR(470)], [-180, 750], [-358, 848], [MP.x + 18, MP.z]]);
+  // the hill road up to the summit shrine
+  for (let i = 0; i < SHRINE_ROAD.pts.length - 1; i++) { const p0 = SHRINE_ROAD.pts[i], p1 = SHRINE_ROAD.pts[i + 1]; addLane(p0.x, p0.z, p1.x, p1.z, 3.0); }
   // the old hilltop shrine, and on up the stone steps (kept clear of trees)
   for (let i = 0; i < STAIRS.pts.length - 1; i++) addLane(STAIRS.pts[i].x, STAIRS.pts[i].z, STAIRS.pts[i + 1].x, STAIRS.pts[i + 1].z, 2.4);
   dirtCircles.push({ x: PEAK.x, z: PEAK.z, r: 13, s: 0.85 });
   occupy(PEAK.x, PEAK.z, 14);
   // north-east: Marudhar's camel track toward the wolf hills
-  road([[RV.x + 14, RV.z + 10], [400, 255], [422, 326]], 2.2);
+  road([[RV.x + 14, RV.z + 10], [449, 286], [480, 371]], 2.2);
 
   // track corridor and crossing kept clear
-  for (const T of TRACKS) for (const [a, b] of T.segs) for (let x = a; x < b; x += 3) occupy(x, T.z(x), 7);
+  { const q = {}; for (const T of TRACKS) for (const [a, b] of T.segs) for (let t = a; t < b; t += 3) { T.path.at(t, q); occupy(q.x, q.z, 7); } }
   occupy(CROSSING.x, CROSSING.z, 9);
   occupy(CROSSING3.x, CROSSING3.z, 9);
 
@@ -597,12 +851,15 @@ export const layout = {
   // Waterfall: boulders + pool, kept clear of trees
   {
     layout.waterfall = WF;
-    WF.y = heightAt(WF.x, WF.z);
-    occupy(WF.x, WF.z, 4);
-    occupy(WF.lipX - 2.5, WF.z, 6);
-    colliders.push({ kind: 'c', x: WF.x, z: WF.z, r: 2.75 });
-    colliders.push({ kind: 'c', x: WF.lipX - 2.4, z: WF.z, r: 3.1 });
-    for (const dz of [-1, 1]) colliders.push({ kind: 'c', x: WF.lipX - 1.0, z: WF.z + dz * 3.3, r: 1.6 });
+    WF.y = WF.yPool;
+    // keep trees out of the pool, off the cliff edge and out of the stream; a trail down from the Banglagram road
+    occupy(WF.x - 5, WF.z, 10);
+    for (let u = -75; u <= -5; u += 6) occupy(WF.x - u, WF.z, 4);
+    for (let u = 12; u <= WF.Lr; u += 6) occupy(WF.x - u, WF.z + fallsMeander(u), 4.5);
+    // a rough trail from the road down to the viewpoint beside the pool
+    road([[351, -629], [302, -641], [WF.x + 30, WF.z - 36], [WF.x + 2, WF.z - 36], [WF.x - 14, WF.z - 16]], 1.6);
+    // the cliff blocks walking through it: rocks along the face
+    for (let v = -26; v <= 26; v += 4) if (Math.abs(v) > 3.5) colliders.push({ kind: 'c', x: WF.x + 2.2, z: WF.z + v, r: 2.4 });
   }
 
   // ----- Chhota Gaon: lane from the road, a dusty square, post office & hospital facing it -----
@@ -727,9 +984,8 @@ export const layout = {
   for (const sz of [-1, 1]) colliders.push({ kind: 'b', ...rotPt(FOOT, 0, sz * 1.15), rot: FOOT.rot, hw: RIVER_HALF + 4, hd: 0.08, height: FOOT.top + 1.2 });
   occupy(fW.x, fW.z, 4); occupy(fE.x, fE.z, 4);
   {
-    const rot = -Math.atan(trackSlope(TRACK.xr));
-    TRACK.rot = rot;
-    surfaces.push({ kind: 'b', x: TRACK.xr, z: TRACK.zr, rot, hw: RIVER_HALF + 9, hd: 2.4, top: TRACK_Y + 0.32, bridge: true });
+    // railway bridge decks, walkable, wherever a line crosses the river
+    { const q = {}; for (const T of TRACKS) for (const [b0, b1] of T.bridges) for (let t = b0; t <= b1; t += 3) { T.path.at(t, q); surfaces.push({ kind: 'b', x: q.x, z: q.z, rot: Math.atan2(q.tx, q.tz), hw: 2.4, hd: 1.8, top: TRACK_Y + 0.32, bridge: true }); } }
     // the road bridge: a concrete deck with parapets, wide enough for the car and the auto
     // road bridges: a smooth arched deck that ramps down to meet the banks at both ends
     for (const B of BRIDGES) {
@@ -741,10 +997,6 @@ export const layout = {
       surfaces.push({ kind: 'arch', x: B.x, z: B.z, rot: B.rot, hw: B.L / 2, hd: 2.7, B });
       // parapets: they only stop things up on the deck, not a swimmer or a boat passing underneath
       for (const sz of [-1, 1]) colliders.push({ kind: 'b', ...rotPt(B, 0, sz * 2.85), rot: B.rot, hw: B.L / 2 - 1.5, hd: 0.15, height: B.top + 1.2, minY: WATER_Y + 0.6 });
-    }
-    for (const T of [TRACK2, TRACK3]) {
-      T.rot = -Math.atan(T.slope(T.xr));
-      surfaces.push({ kind: 'b', x: T.xr, z: T.zr, rot: T.rot, hw: RIVER_HALF + 9, hd: 2.4, top: TRACK_Y + 0.32, bridge: true });
     }
   }
 
@@ -1230,19 +1482,22 @@ export const layout = {
   }
   // stations: keep each platform and station yard clear; Sonpur gets a little hamlet and a lane to Vitthalwadi
   for (const T of TRACKS) for (const h of T.halts) {
-    const sl = T.slope(h.x), tl = Math.hypot(1, sl), tx = 1 / tl, tz = sl / tl, nx = -tz * h.side, nz = tx * h.side;
-    const len = (h.L ?? 110) + 10;
+    const q = T.path.at(h.s);
+    h.x = q.x; h.z = q.z;
+    if (h.noStation) continue;
+    const len = (h.L ?? 110) + 10, p = {};
     for (let u = -len / 2; u <= len / 2; u += 6) {
-      const x = h.x + u * tx, z = T.z(x);
-      occupy(x + nx * 7, z + nz * 7, 6);
-      if (h.big) occupy(x + nx * 18, z + nz * 18, 8);
+      T.path.at(h.s + u, p);
+      const nx = -p.tz * h.side, nz = p.tx * h.side;
+      occupy(p.x + nx * 7, p.z + nz * 7, 6);
+      if (h.big) occupy(p.x + nx * 18, p.z + nz * 18, 8);
     }
-    const yo = h.W ? 1.75 + h.W / 2 : h.big ? 21 : 13;
-    h.yard = { x: h.x + nx * yo, z: T.z(h.x) + nz * yo };
+    const nx = -q.tz * h.side, nz = q.tx * h.side, yo = h.W ? 1.75 + h.W / 2 : h.big ? 21 : 13;
+    h.yard = { x: q.x + nx * yo, z: q.z + nz * yo };
     if (!h.W) dirtCircles.push({ ...h.yard, r: h.big ? 12 : 7, s: 0.8 });
   }
   {
-    const h = TRACK.halts[0], Y = h.yard;
+    const h = TRACK.halts.find((o) => o.name === STATION.name), Y = h.yard;
     layout.station = { ...STATION, yard: Y };
     // a lane from the station yard to Vitthalwadi
     road([[Y.x, Y.z + 8], [Y.x + 40, Y.z + 40], [MH.x - 30, MH.z - 10], [MH.x - 14, MH.z]], 2.4);
@@ -1259,13 +1514,51 @@ export const layout = {
       addHouse(x, z, Math.atan2(HC.x - x, HC.z - z), R() < 0.5 ? 'round' : 'rect');
     }
   }
+  // the two new villages: Khetpura, a Punjabi farming village of brick and flat-roofed houses with haystacks
+  // and cattle; Rannvas, a Kutchi village of round thatched huts and a few sandstone houses. Each has a lane
+  // to its station on the ring and a country road in to the nearest village.
+  layout.newVillages = [];
+  for (const v of NEWV) {
+    dirtCircles.push({ x: v.x, z: v.z, r: 13, s: 0.95 });
+    occupy(v.x, v.z, 10);
+    const kutch = v.style === 'kutch';
+    const homes = [];
+    for (const [ring, n, r0] of [[0, 9, 19], [1, 12, 31]]) for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + ring * 0.25 + 0.3;
+      const x = v.x + Math.cos(a) * (r0 + R() * 3), z = v.z + Math.sin(a) * (r0 + R() * 3);
+      if (!isFree(x, z, 5) || fieldType(x, z)) continue;
+      const type = kutch ? (R() < 0.75 ? 'round' : 'raj') : R() < 0.55 ? 'rect' : 'raj';
+      const h = addHouse(x, z, Math.atan2(v.x - x, v.z - z), type);
+      if (type === 'raj') { h.blue = !kutch && R() < 0.25; h.storeys = R() < 0.3 ? 2 : 1; }
+      homes.push(h);
+    }
+    // haystacks and cattle round Khetpura's edge; Rannvas keeps goats and a camel (see hamlet.js)
+    for (let i = 0; i < (kutch ? 2 : 6); i++) {
+      const a = R() * Math.PI * 2, d = 40 + R() * 14, x = v.x + Math.cos(a) * d, z = v.z + Math.sin(a) * d;
+      if (!isFree(x, z, 2.5)) continue;
+      layout.haystacks.push({ x, z, s: 0.9 + R() * 0.3 }); occupy(x, z, 2.5);
+    }
+    if (!kutch) for (let i = 0; i < 4; i++) { const a = R() * Math.PI * 2, d = 46 + R() * 12; layout.cows.push({ x: v.x + Math.cos(a) * d, z: v.z + Math.sin(a) * d, rot: R() * 6.28, color: R() < 0.6 ? '#ece6da' : '#b98e64', phase: R() * 10 }); }
+    // the lane out to the station
+    const h = RING.halts.find((o) => o.village === v);
+    if (h && h.yard) road([[v.x, v.z], [(v.x + h.yard.x) / 2, (v.z + h.yard.z) / 2], [h.yard.x, h.yard.z]], 2.4);
+    layout.newVillages.push({ ...v, homes });
+  }
+  // country roads in from the nearest villages
+  {
+    const K = NEWV[0], RN = NEWV[1];
+    const kRoad = [[TV.x + 16, TV.z + 10], [(TV.x + K.x) / 2 + 40, (TV.z + K.z) / 2 + 30], [K.x - 16, K.z - 14]];
+    const rRoad = [[MH.x - 10, MH.z - 16], [MH.x - 120, (MH.z + RN.z) / 2], [RN.x + 12, RN.z + 18]];
+    road(kRoad, 2.4); road(rRoad, 2.4);
+    layout.newRoads = { khet: kRoad, rann: rRoad };
+  }
   // bus stops: a shelter beside the road at each village
   layout.busStops = [];
   {
     const stops = [
-      ['गाँव', 'Gaon', roadX(70), 70, 0], ['छोटा गाँव', 'Chhota Gaon', -196, 168, 0.75], ['मारुधर', 'Marudhar', 254, 158, Math.PI / 2],
-      ['बांग्लाग्राम', 'Banglagram', 228, -270, Math.PI / 2], ['तेन्नूर', 'Thennoor', 214, 413, 1.37], ['विट्ठलवाड़ी', 'Vitthalwadi', -570, -72, 1.36],
-      ['पहाड़ी गाँव', 'Pahadi Gaon', roadX(warpR(525)), warpR(525), 0], ['नूरपुर', 'Noorpur', 798, -8, 1.98], ['मरियापुर', 'Mariapur', -390, 773, -1.4], ['बाँस पहाड़ी', 'Bamboo Hill', 308, -611, 0],
+      ['गाँव', 'Gaon', roadX(70), 70, 0], ['छोटा गाँव', 'Chhota Gaon', -196, 168, 0.75], ['मारुधर', 'Marudhar', 267, 166, Math.PI / 2],
+      ['बांग्लाग्राम', 'Banglagram', 246, -292, Math.PI / 2], ['तेन्नूर', 'Thennoor', 240, 463, 1.37], ['विट्ठलवाड़ी', 'Vitthalwadi', -653, -82, 1.36],
+      ['पहाड़ी गाँव', 'Pahadi Gaon', roadX(warpR(525)), warpR(525), 0], ['नूरपुर', 'Noorpur', 938, -9, 1.98], ['मरियापुर', 'Mariapur', -460, 913, -1.4], ['बाँस पहाड़ी', 'Bamboo Hill', 358, -710, 0],
     ];
     for (const [hi, en, x0, z0, dir] of stops) {
       // dir: the road's heading (0 = along +z); try either side of it for a free spot
@@ -1292,8 +1585,8 @@ export const layout = {
     occupy(x, z, sz * 0.7);
     colliders.push({ kind: 'c', x, z, r: sz * 0.72 });
   }
-  for (let i = 0; i < 900 && layout.crags.length < 440; i++) {
-    const a = R() * Math.PI * 2, d = 440 + R() * 960;
+  for (let i = 0; i < 1100 && layout.crags.length < 520; i++) {
+    const a = R() * Math.PI * 2, d = 520 + R() * 1250;
     const x = Math.cos(a) * d, z = Math.sin(a) * d;
     const sz = 1.2 + R() * 3;
     if (!isFree(x, z, sz) || dirtMask(x, z) > 0.1 || riverDist(x, z) < RIVER_HALF + 6) continue;
@@ -1360,7 +1653,7 @@ export const layout = {
   }
 
   for (let i = 0; i < 420; i++) {
-    const z = (R() * 2 - 1) * 760;
+    const z = (R() * 2 - 1) * 960;
     const side = R() < 0.5 ? -1 : 1;
     const x = riverX(z) + side * (RIVER_HALF - 1 + R() * 4);
     if (Math.abs(z - layout.donkeys.z) < 12 && side < 0) continue;
@@ -1369,15 +1662,15 @@ export const layout = {
   }
 
   const treeOk = (x, z, r) => !fieldType(x, z) && trackDist(x, z) > 8 && dirtMask(x, z) < 0.2 && isFree(x, z, r);
-  for (let z = -900; z < 900; z += 6 + R() * 11) {
+  for (let z = -1150; z < 1150; z += 6 + R() * 11) {
     const side = R() < 0.5 ? -1 : 1;
     const x = riverX(z) + side * (RIVER_HALF + 3 + R() * 9);
-    if (Math.hypot(x, z) > 950 || !treeOk(x, z, 2.5)) continue;
+    if (Math.hypot(x, z) > 1200 || !treeOk(x, z, 2.5)) continue;
     layout.palms.push({ x, z, s: 0.85 + R() * 0.35, rot: R() * 6.28, v: Math.floor(R() * 3) });
     occupy(x, z, 1.5);
     colliders.push({ kind: 'c', x, z, r: 0.35 });
   }
-  for (let i = 0; i < 160 && layout.palms.length < 480; i++) {
+  for (let i = 0; i < 180 && layout.palms.length < 560; i++) {
     const h = layout.houses[Math.floor(R() * layout.houses.length)];
     const a = R() * Math.PI * 2, d = 7 + R() * 5;
     const x = h.x + Math.cos(a) * d, z = h.z + Math.sin(a) * d;
@@ -1388,9 +1681,9 @@ export const layout = {
   }
 
   // Broadleaf trees — village groves, hillsides and far slopes
-  for (let i = 0; i < 200000 && layout.trees.length < 6400; i++) {
+  for (let i = 0; i < 260000 && layout.trees.length < 8600; i++) {
     const far = R() < 0.25;
-    const rad = far ? 1480 + R() * 560 : Math.sqrt(R()) * 1480;
+    const rad = far ? 1900 + R() * 600 : Math.sqrt(R()) * 1900;
     const a = R() * Math.PI * 2;
     const x = Math.cos(a) * rad, z = Math.sin(a) * rad;
     if (rad < 12) continue;
@@ -1408,9 +1701,9 @@ export const layout = {
   layout.trees.push({ x: HILLTOP.x - 6, z: HILLTOP.z + 3, s: 1.5, rot: 1, v: 0 });
   colliders.push({ kind: 'c', x: HILLTOP.x - 6, z: HILLTOP.z + 3, r: 0.5 });
 
-  for (let i = 0; i < 90000 && layout.bushes.length < 5600; i++) {
-    const x = (R() * 2 - 1) * 1480, z = (R() * 2 - 1) * 1480;
-    if (Math.hypot(x, z) > 1480) continue;
+  for (let i = 0; i < 120000 && layout.bushes.length < 7600; i++) {
+    const x = (R() * 2 - 1) * 1900, z = (R() * 2 - 1) * 1900;
+    if (Math.hypot(x, z) > 1900) continue;
     if (fieldType(x, z) && !isBund(x, z)) continue;
     if (riverDist(x, z) < RIVER_HALF + 2 || trackDist(x, z) < 6 || dirtMask(x, z) > 0.15 || !isFree(x, z, 1.2)) continue;
     layout.bushes.push({ x, z, s: 0.6 + R() * 0.7, rot: R() * 6.28, v: Math.floor(R() * 3) });
@@ -1420,6 +1713,7 @@ export const layout = {
 })();
 
 export function regionName(x, z) {
+  for (const v of NEWV) if (Math.hypot(x - v.x, z - v.z) < 55) return v.style === 'kutch' ? `${v.name} — a Kutchi village of round huts` : `${v.name} — a Punjabi farming village`;
   if (layout.pasture && Math.hypot(x - layout.pasture.x, z - layout.pasture.z) < layout.pasture.r + 6) return 'The charagah — village grazing ground';
   if (layout.pasture && Math.hypot(x - layout.pasture.pen.x, z - layout.pasture.pen.z) < 10) return 'The cattle pen';
   for (const T of TRACKS) for (const h of T.halts) if (h.yard && Math.hypot(x - h.yard.x, z - h.yard.z) < (h.big ? 70 : 40)) return h.big ? `${h.name} railway station` : h.W ? h.name : `${h.name} halt`;
@@ -1433,7 +1727,7 @@ export function regionName(x, z) {
   if (WILD.leopards.some((l) => Math.hypot(x - l.x, z - l.z) < l.area)) return 'Leopard rocks';
   if (Math.hypot(x - WILD.wolf.x, z - WILD.wolf.z) < WILD.wolf.area) return 'Wolf hills';
   if (Math.hypot(x - WILD.elephant.x, z - WILD.elephant.z) < WILD.elephant.area) return 'Elephant forest';
-  if (Math.abs(z) > 430 && riverDist(x, z) < RIVER_HALF + 25) return 'Crocodile banks — keep clear of the water';
+  if (Math.abs(z) > 470 && riverDist(x, z) < RIVER_HALF + 25) return 'Crocodile banks — keep clear of the water';
   if (Math.hypot(x - HILLTOP.x, z - HILLTOP.z) < 22) return 'Hilltop shrine — the steps begin here';
   if (Math.hypot(x - PEAK.x, z - PEAK.z) < 26) return 'Shikhar — the summit shrine, highest point around';
   { const st = stairAt(x, z); if (st && st.d < 6) return `The stone stairway — step ${Math.min(STAIRS.N, Math.floor(st.s / STAIRS.run) + 1)} of ${STAIRS.N}`; }
@@ -1446,7 +1740,7 @@ export function regionName(x, z) {
   if (Math.hypot(x - MP.x, z - MP.z) < 60) return 'Mariapur — a Christian village';
   for (const b of layout.busStops) if (Math.hypot(x - b.x, z - b.z) < 5) return `Bus stop — ${b.en}`;
   if (trackDist(x, z) < 9) return Math.hypot(x - CROSSING.x, z - CROSSING.z) < 14 ? 'Railway crossing' : 'The railway line';
-  if (Math.hypot(x - WF.x + 2, z - WF.z) < 11) return 'The little waterfall';
+  if (Math.hypot(x - WF.x + 10, z - WF.z) < 45) return 'Jharna — the waterfall in the hills';
   if (Math.hypot(x - TEA.x + 1.5, z - TEA.z) < 6) return 'Chai stall';
   if (layout.postOffice && Math.hypot(x - layout.postOffice.x, z - layout.postOffice.z) < 8) return 'Daakghar — the post office';
   if (layout.hospital && Math.hypot(x - layout.hospital.x, z - layout.hospital.z) < 9) return 'The village hospital';

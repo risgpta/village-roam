@@ -573,71 +573,149 @@ export class VillageBus {
     const paint = new THREE.MeshPhysicalMaterial({ color, roughness: 0.32, metalness: 0.2, clearcoat: 0.7, clearcoatRoughness: 0.2 });
     const bandM = new THREE.MeshPhysicalMaterial({ color: band, roughness: 0.35, clearcoat: 0.5 });
     const black = std('#141414', { roughness: 0.55 }), chrome = std('#d4d8dc', { metalness: 0.92, roughness: 0.16 });
-    const glass = new THREE.MeshPhysicalMaterial({ color: '#25343c', roughness: 0.05, metalness: 0.4, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
-    const seatM = std('#3a4a6a', { roughness: 0.7 }), floorM = std('#3a3632'), interior = std('#d8d0c0', { side: THREE.BackSide });
+    // clear glass that casts no shadow, so you can see the driver and everyone aboard
+    const glass = new THREE.MeshPhysicalMaterial({ color: '#d8ecf2', roughness: 0.03, metalness: 0, transparent: true, opacity: 0.14, side: THREE.DoubleSide, depthWrite: false, clearcoat: 1 });
+    const seatM = std('#8a2424', { roughness: 0.42 }), seatTopM = std('#a83a32', { roughness: 0.4 }), seatEdge = std('#4a1414', { roughness: 0.5 });
+    const floorM = std('#3a3632', { roughness: 0.9 }), lining = std('#e6dcc4', { roughness: 0.75 }), ceil = std('#f0ead8', { roughness: 0.8 }), wood = std('#8a5a32', { roughness: 0.55 });
     this.root = new THREE.Group();
     const g = new THREE.Group();
     this.root.add(g);
     this.body = g;
-    const add = (geo, m, x, y, z, parent = g) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; o.receiveShadow = true; parent.add(o); return o; };
-    const L = 9, W = 2.45, base = 0.8;
-    // chassis, skirts and the lower body with its painted livery
+    const add = (geo, m, x, y, z, parent = g) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = m !== glass; o.receiveShadow = true; parent.add(o); return o; };
+    const L = 9, W = 2.45, base = 0.8, fz = L / 2;
+    const floorY = base + 0.62, sill = base + 1.2, winY = base + 1.66, roofY = winY + 0.47;
+    const doorZ0 = fz - 1.65, doorZ1 = fz - 0.78; // the door: front, on the +x side
+    // chassis and the skirt below the floor
     add(RB(W - 0.2, 0.25, L - 0.6, 0.05), black, 0, base - 0.05, 0);
-    add(RB(W, 1.05, L, 0.14, 4), paint, 0, base + 0.55, 0);
+    add(RB(W, 0.62, L, 0.12, 3), paint, 0, base + 0.31, 0);
+    add(new THREE.BoxGeometry(W - 0.14, 0.04, L - 0.14), floorM, 0, floorY - 0.02, 0);
+    for (let i = 0; i < 36; i++) add(new THREE.BoxGeometry(0.5, 0.008, 0.035), std('#2a2724'), 0, floorY + 0.004, -fz + 0.4 + i * 0.235); // the ribbed mat down the aisle
+    // a hollow body: thin painted side walls up to the window sill (the doorway left open), front and back
+    const wallH = sill - floorY + 0.04, wallY = (sill + floorY) / 2;
+    const sideWall = (sx, z0, z1) => {
+      add(RB(0.08, wallH, z1 - z0, 0.03), paint, sx * (W / 2 - 0.04), wallY, (z0 + z1) / 2);
+      add(new THREE.BoxGeometry(0.01, wallH - 0.06, z1 - z0 - 0.04), lining, sx * (W / 2 - 0.09), wallY, (z0 + z1) / 2); // inside
+      add(RB(0.05, 0.05, z1 - z0, 0.02), wood, sx * (W / 2 - 0.1), sill - 0.03, (z0 + z1) / 2); // a wooden rail under the windows
+    };
+    sideWall(-1, -fz, fz);
+    sideWall(1, -fz, doorZ0); sideWall(1, doorZ1, fz);
+    add(RB(W, wallH, 0.08, 0.03), paint, 0, wallY, fz - 0.04);
+    add(RB(W, wallH, 0.08, 0.03), paint, 0, wallY, -fz + 0.04);
+    // livery on the sides and the cream belt at the sill
     const liv = new THREE.MeshStandardMaterial({ map: liveryTexture({ base: color, band, stripe, hi: name[0], en: name[1] }), roughness: 0.35 });
-    for (const sx of [-1, 1]) { const pl = add(new THREE.PlaneGeometry(L - 1.4, 0.95), liv, sx * (W / 2 + 0.003), base + 0.55, 0); pl.rotation.y = sx * Math.PI / 2; }
-    add(RB(W + 0.02, 0.16, L + 0.02, 0.05), bandM, 0, base + 1.12, 0);
-    // window band: pillars between big glass panes; seats and passengers' heads show through
-    const winY = base + 1.62;
-    add(RB(W - 0.08, 0.95, L - 0.2, 0.06), interior, 0, winY, 0);
     for (const sx of [-1, 1]) {
-      const pane = add(new THREE.PlaneGeometry(L - 1.0, 0.82), glass, sx * (W / 2 - 0.02), winY, -0.1); pane.rotation.y = sx * Math.PI / 2;
-      for (let i = 0; i <= 9; i++) add(RB(0.07, 0.9, 0.12, 0.02), paint, sx * (W / 2 - 0.01), winY, -L / 2 + 0.55 + i * ((L - 1.1) / 9));
-      add(new THREE.BoxGeometry(0.03, 0.03, L - 1.0), chrome, sx * (W / 2), winY - 0.05, -0.1);
+      const len = sx > 0 ? doorZ0 + fz - 0.3 : L - 1.4, cz = sx > 0 ? (-fz + doorZ0) / 2 : 0;
+      const pl = add(new THREE.PlaneGeometry(len, 0.9), liv, sx * (W / 2 + 0.004), base + 0.62, cz); pl.rotation.y = sx * Math.PI / 2; pl.castShadow = false;
+      const segs = sx > 0 ? [[-fz, doorZ0], [doorZ1, fz]] : [[-fz, fz]];
+      for (const [z0, z1] of segs) add(RB(0.03, 0.14, z1 - z0, 0.012), bandM, sx * (W / 2 + 0.003), sill + 0.02, (z0 + z1) / 2);
     }
-    for (let i = 0; i < 8; i++) for (const sx of [-1, 1]) {
-      add(RB(0.85, 0.45, 0.12, 0.04), seatM, sx * 0.55, base + 1.05, -3.2 + i * 0.85);
-      add(RB(0.85, 0.1, 0.42, 0.04), seatM, sx * 0.55, base + 0.82, -3.0 + i * 0.85);
-    }
-    add(new THREE.BoxGeometry(W - 0.2, 0.04, L - 0.4), floorM, 0, base + 0.62, 0);
-    // roof: rounded, with a hatch, rails and luggage
-    add(RB(W, 0.36, L, 0.18, 4), bandM, 0, winY + 0.62, 0);
-    add(RB(0.8, 0.08, 0.8, 0.04), chrome, 0, winY + 0.83, -1.2);
+    // the glasshouse: slim pillars and big clear windows all round
     for (const sx of [-1, 1]) {
-      add(new THREE.CylinderGeometry(0.025, 0.025, 5.4, 6).rotateX(Math.PI / 2), chrome, sx * 1.0, winY + 1.0, -0.8);
-      for (let i = 0; i < 6; i++) add(new THREE.CylinderGeometry(0.02, 0.02, 0.2, 6), chrome, sx * 1.0, winY + 0.9, -3.4 + i * 1.05);
+      const pane = add(new THREE.PlaneGeometry(L - 0.5, 0.86), glass, sx * (W / 2 - 0.03), winY - 0.02, 0); pane.rotation.y = sx * Math.PI / 2;
+      for (let i = 0; i <= 9; i++) {
+        const z = -fz + 0.3 + i * ((L - 0.6) / 9);
+        if (sx > 0 && z > doorZ0 - 0.06 && z < doorZ1 + 0.06) continue;
+        add(RB(0.08, 0.92, 0.1, 0.02), paint, sx * (W / 2 - 0.03), winY - 0.02, z);
+      }
+      add(new THREE.BoxGeometry(0.03, 0.03, L - 0.6), chrome, sx * (W / 2 + 0.005), winY - 0.4, 0);
+    }
+    // inside: a cream ceiling, tube lights, a luggage rack over each row of windows
+    add(new THREE.BoxGeometry(W - 0.12, 0.02, L - 0.12), ceil, 0, roofY - 0.04, 0);
+    this.cabinLight = std('#fffbe8', { emissive: '#fff2cc', emissiveIntensity: 0.2 });
+    for (const z of [-3, -1, 1, 3]) add(RB(0.1, 0.03, 1.3, 0.01), this.cabinLight, 0, roofY - 0.06, z);
+    const bagM = [std('#3a5a8a'), std('#8a3a2a'), std('#d8c8a0'), std('#2e6b4a')];
+    for (const sx of [-1, 1]) {
+      for (const dy of [0, 0.12]) add(new THREE.CylinderGeometry(0.012, 0.012, L - 1.4, 6).rotateX(Math.PI / 2), chrome, sx * (W / 2 - 0.32 - dy * 0.6), roofY - 0.12 - dy * 0.3, -0.3);
+      for (let i = 0; i < 5; i++) add(RB(0.36, 0.2, 0.42, 0.06), bagM[(i + (sx > 0 ? 1 : 0)) % 4], sx * (W / 2 - 0.3), roofY - 0.2, -3.4 + i * 1.6);
+      // the grab rail along the ceiling with hand straps
+      add(new THREE.CylinderGeometry(0.015, 0.015, L - 1.6, 6).rotateX(Math.PI / 2), chrome, sx * 0.3, roofY - 0.14, -0.4);
+      for (let i = 0; i < 8; i++) add(new THREE.TorusGeometry(0.05, 0.01, 5, 12), std('#2a2a2a'), sx * 0.3, roofY - 0.25, -3.6 + i * 0.95).rotation.y = Math.PI / 2;
+    }
+    // seats: nine rows of red rexine two-seaters each side of the aisle, high backs, chrome grab rails on top
+    this.seats = [];
+    const seatTop = floorY + 0.44;
+    const bench = (x, z) => {
+      add(RB(0.9, 0.12, 0.46, 0.05), seatM, x, seatTop - 0.06, z);
+      add(RB(0.9, 0.03, 0.42, 0.02), seatTopM, x, seatTop + 0.005, z + 0.01);
+      const bk = add(RB(0.9, 0.62, 0.1, 0.04), seatM, x, seatTop + 0.31, z - 0.24); bk.rotation.x = -0.1;
+      add(RB(0.92, 0.05, 0.12, 0.02), seatEdge, x, seatTop + 0.63, z - 0.27);
+      add(new THREE.CylinderGeometry(0.014, 0.014, 0.74, 6).rotateZ(Math.PI / 2), chrome, x, seatTop + 0.7, z - 0.22);
+      for (const lx of [-0.36, 0.36]) add(new THREE.CylinderGeometry(0.018, 0.018, 0.4, 6), chrome, x + lx * (x > 0 ? 1 : 1), floorY + 0.2, z + 0.08);
+    };
+    const rows = [];
+    for (let r = 0; r < 9; r++) rows.push(fz - 2.05 - r * 0.8);
+    for (const z of rows) for (const sx of [-1, 1]) {
+      if (sx > 0 && z > doorZ0 - 0.35) continue; // the gangway inside the door
+      bench(sx * 0.66, z);
+    }
+    // where the passengers sit: a dozen places spread through the bus
+    const places = [[-1, 0, 0], [1, 1, 1], [-1, 2, 1], [1, 3, 0], [-1, 3, 0], [1, 4, 1], [-1, 5, 1], [1, 5, 0], [-1, 6, 0], [1, 7, 1], [-1, 7, 1], [1, 8, 0]];
+    for (const [sx, r, k] of places) this.seats.push(V(sx * 0.66 + (k ? 0.22 : -0.22), seatTop, rows[r] + 0.04));
+    // poles by the door and mid-way
+    for (const [x, z] of [[0.62, doorZ0 + 0.1], [0.3, -0.5], [-0.3, -2.4]]) add(new THREE.CylinderGeometry(0.02, 0.02, roofY - floorY, 8), chrome, x, (roofY + floorY) / 2, z);
+    // the driver's corner: a sprung seat on a pedestal, the dashboard with its dials, the big flat wheel, a
+    // little brass shrine with a marigold garland, and a rail behind him
+    const dx = -0.62, dz = fz - 0.95;
+    add(RB(0.58, 0.13, 0.52, 0.05), seatM, dx, seatTop - 0.06, dz);
+    add(RB(0.58, 0.66, 0.1, 0.04), seatM, dx, seatTop + 0.32, dz - 0.27).rotation.x = -0.14;
+    add(new THREE.CylinderGeometry(0.06, 0.09, seatTop - 0.12 - floorY, 8), black, dx, (seatTop - 0.12 + floorY) / 2, dz);
+    add(RB(W - 0.14, 0.42, 0.55, 0.06), std('#2a2624', { roughness: 0.7 }), 0, sill - 0.12, fz - 0.33);
+    add(RB(W - 0.16, 0.04, 0.4, 0.02), std('#3a332e'), 0, sill + 0.1, fz - 0.3);
+    this.dial = std('#f4efe0', { emissive: '#ffe9b0', emissiveIntensity: 0.15 });
+    for (const ddx of [-0.82, -0.5]) {
+      const d = add(new THREE.CircleGeometry(0.08, 20), this.dial, ddx, sill - 0.06, fz - 0.61); d.rotation.y = Math.PI;
+      add(new THREE.TorusGeometry(0.085, 0.012, 6, 20), chrome, ddx, sill - 0.06, fz - 0.61);
+    }
+    add(RB(0.13, 0.15, 0.09, 0.02), std('#c8a04a', { metalness: 0.7, roughness: 0.3 }), 0.25, sill + 0.2, fz - 0.28);
+    add(new THREE.TorusGeometry(0.17, 0.022, 6, 18, Math.PI), std('#f2a41a', { roughness: 0.9 }), 0.25, winY + 0.22, fz - 0.12).rotation.z = Math.PI;
+    const wheelZ = dz + 0.5, wheelY = seatTop + 0.5;
+    const col = add(new THREE.CylinderGeometry(0.035, 0.035, 0.7, 8), black, dx, wheelY - 0.25, wheelZ + 0.25); col.rotation.x = 1.0;
+    const sw = new THREE.Group(); sw.position.set(dx, wheelY, wheelZ); sw.rotation.x = -1.05; g.add(sw);
+    add(new THREE.TorusGeometry(0.27, 0.025, 8, 30), black, 0, 0, 0, sw);
+    add(new THREE.BoxGeometry(0.52, 0.03, 0.025), black, 0, 0, 0, sw);
+    add(new THREE.CylinderGeometry(0.06, 0.06, 0.04, 12).rotateX(Math.PI / 2), chrome, 0, 0, 0, sw);
+    this.wheelSteer = sw;
+    add(new THREE.CylinderGeometry(0.03, 0.03, 0.45, 6), black, dx + 0.42, floorY + 0.22, dz + 0.12).rotation.x = -0.3; // the gear lever
+    add(new THREE.CylinderGeometry(0.016, 0.016, 0.8, 6).rotateZ(Math.PI / 2), chrome, dx + 0.05, floorY + 0.95, dz - 0.45);
+    // roof: rounded, a hatch, the luggage rack with bags and a sack of grain
+    add(RB(W, 0.36, L, 0.18, 4), bandM, 0, roofY + 0.14, 0);
+    add(RB(0.8, 0.08, 0.8, 0.04), chrome, 0, roofY + 0.35, -1.2);
+    for (const sx of [-1, 1]) {
+      add(new THREE.CylinderGeometry(0.025, 0.025, 5.4, 6).rotateX(Math.PI / 2), chrome, sx * 1.0, roofY + 0.52, -0.8);
+      for (let i = 0; i < 6; i++) add(new THREE.CylinderGeometry(0.02, 0.02, 0.2, 6), chrome, sx * 1.0, roofY + 0.42, -3.4 + i * 1.05);
     }
     const bag = [std('#3a5a8a'), std('#8a3a2a'), std('#d8c8a0'), std('#2e6b4a'), std('#6a4a2a')];
-    for (let i = 0; i < 7; i++) add(RB(0.6 + (i % 3) * 0.2, 0.34 + (i % 2) * 0.1, 0.55, 0.08), bag[i % 5], (i % 2 ? -0.4 : 0.42), winY + 1.0, -3.2 + i * 0.75);
-    add(RB(1.0, 0.2, 0.9, 0.08), std('#c9a95e', { roughness: 1 }), 0, winY + 1.0, 1.3); // a sack of grain
-    // the front: slightly raked two-pane windscreen, wipers, lit destination board, grille, lamps, bumper
-    const fz = L / 2;
-    for (const sx of [-1, 1]) { const ws = add(new THREE.PlaneGeometry(1.08, 1.0), glass, sx * 0.56, winY - 0.05, fz + 0.02); ws.rotation.x = -0.08; }
-    add(RB(0.06, 1.05, 0.06, 0.02), black, 0, winY - 0.05, fz + 0.03);
+    for (let i = 0; i < 7; i++) add(RB(0.6 + (i % 3) * 0.2, 0.34 + (i % 2) * 0.1, 0.55, 0.08), bag[i % 5], (i % 2 ? -0.4 : 0.42), roofY + 0.52, -3.2 + i * 0.75);
+    add(RB(1.0, 0.2, 0.9, 0.08), std('#c9a95e', { roughness: 1 }), 0, roofY + 0.52, 1.3);
+    // the front: a two-pane windscreen, wipers, lit destination board, grille, lamps, bumper
+    for (const sx of [-1, 1]) { const ws = add(new THREE.PlaneGeometry(1.08, 0.98), glass, sx * 0.56, winY - 0.04, fz + 0.02); ws.rotation.x = -0.08; }
+    add(RB(0.06, 1.0, 0.06, 0.02), black, 0, winY - 0.04, fz + 0.03);
+    for (const sx of [-1, 1]) add(RB(0.1, 0.98, 0.09, 0.03), paint, sx * (W / 2 - 0.05), winY - 0.04, fz - 0.03);
     for (const sx of [-1, 1]) { const wp = add(new THREE.BoxGeometry(0.02, 0.7, 0.02), black, sx * 0.5, winY - 0.25, fz + 0.06); wp.rotation.z = sx * 0.6; }
-    const board = add(new THREE.PlaneGeometry(2.0, 0.26), new THREE.MeshStandardMaterial({ map: boardTexture(...dest), emissive: '#ffffff', emissiveMap: boardTexture(...dest), emissiveIntensity: 0.5 }), 0, winY + 0.56, fz + 0.03);
-    void board;
-    add(RB(1.3, 0.35, 0.06, 0.04), chrome, 0, base + 0.55, fz + 0.03);
-    for (let i = 0; i < 5; i++) add(new THREE.BoxGeometry(1.2, 0.03, 0.02), black, 0, base + 0.42 + i * 0.065, fz + 0.065);
+    const dt = boardTexture(...dest);
+    add(new THREE.PlaneGeometry(2.0, 0.26), new THREE.MeshStandardMaterial({ map: dt, emissive: '#ffffff', emissiveMap: dt, emissiveIntensity: 0.5 }), 0, roofY + 0.08, fz + 0.03);
+    add(RB(1.3, 0.35, 0.06, 0.04), chrome, 0, base + 0.48, fz + 0.03);
+    for (let i = 0; i < 5; i++) add(new THREE.BoxGeometry(1.2, 0.03, 0.02), black, 0, base + 0.35 + i * 0.065, fz + 0.065);
     this.lamps = std('#fff6dc', { emissive: '#ffe6aa', emissiveIntensity: 0.6 });
     for (const sx of [-1, 1]) {
-      add(new THREE.TorusGeometry(0.15, 0.03, 8, 18), chrome, sx * 0.88, base + 0.55, fz + 0.04);
-      add(new THREE.CircleGeometry(0.14, 18), this.lamps, sx * 0.88, base + 0.55, fz + 0.045);
-      add(RB(0.12, 0.08, 0.04, 0.015), std('#f08a12', { emissive: '#5a2a06', emissiveIntensity: 0.6 }), sx * 1.1, base + 0.85, fz + 0.03);
-      // mirrors on long arms
+      add(new THREE.TorusGeometry(0.15, 0.03, 8, 18), chrome, sx * 0.88, base + 0.5, fz + 0.04);
+      add(new THREE.CircleGeometry(0.14, 18), this.lamps, sx * 0.88, base + 0.5, fz + 0.045);
+      add(RB(0.12, 0.08, 0.04, 0.015), std('#f08a12', { emissive: '#5a2a06', emissiveIntensity: 0.6 }), sx * 1.1, base + 0.8, fz + 0.03);
       add(new THREE.CylinderGeometry(0.015, 0.015, 0.55, 6).rotateZ(Math.PI / 2), black, sx * (W / 2 + 0.25), winY + 0.3, fz - 0.15);
       add(RB(0.08, 0.38, 0.22, 0.04), black, sx * (W / 2 + 0.5), winY + 0.15, fz - 0.1);
-      // rear lamps
       add(RB(0.16, 0.3, 0.04, 0.02), std('#c4201c', { emissive: '#5a0806', emissiveIntensity: 0.7 }), sx * 1.0, base + 0.6, -fz - 0.02);
     }
     add(RB(W + 0.06, 0.24, 0.24, 0.08), black, 0, base - 0.02, fz + 0.06);
     add(RB(W + 0.06, 0.24, 0.24, 0.08), black, 0, base - 0.02, -fz - 0.06);
-    const rearGlass = add(new THREE.PlaneGeometry(2.0, 0.7), glass, 0, winY + 0.05, -fz - 0.02); rearGlass.rotation.y = Math.PI;
+    const rearGlass = add(new THREE.PlaneGeometry(2.0, 0.7), glass, 0, winY + 0.02, -fz - 0.02); rearGlass.rotation.y = Math.PI;
     for (let i = 0; i < 7; i++) add(new THREE.BoxGeometry(0.4, 0.03, 0.04), chrome, -0.8, base + 0.4 + i * 0.3, -fz - 0.05); // ladder to the roof
-    // the door (left side, front) with glass, and steps
-    add(new THREE.PlaneGeometry(0.85, 1.75), glass, W / 2 + 0.004, base + 1.05, fz - 1.2).rotation.y = Math.PI / 2;
-    add(RB(0.04, 1.8, 0.05, 0.015), chrome, W / 2 + 0.01, base + 1.05, fz - 1.2);
-    for (let i = 0; i < 2; i++) add(RB(0.3, 0.05, 0.8, 0.02), chrome, W / 2 - 0.1, base - 0.15 + i * 0.25, fz - 1.2);
+    // the door: a glazed folding door in the open doorway, and steps up
+    const door = new THREE.Group(); door.position.set(W / 2 - 0.02, floorY, doorZ1); g.add(door);
+    add(RB(0.05, 0.6, 0.85, 0.02), paint, 0, 0.3, -0.43, door);
+    add(new THREE.PlaneGeometry(0.75, 0.95), glass, 0.0, 1.1, -0.43, door).rotation.y = Math.PI / 2;
+    for (const z of [-0.02, -0.84]) add(RB(0.05, 1.6, 0.05, 0.015), chrome, 0, 0.8, z, door);
+    door.rotation.y = 0.15;
+    for (let i = 0; i < 2; i++) add(RB(0.36, 0.05, 0.8, 0.02), chrome, W / 2 - 0.16, base - 0.1 + i * 0.3, (doorZ0 + doorZ1) / 2);
     // wheels in black-lined arches
     this.wheels = [];
     for (const [sx, sz] of [[-1, 2.9], [1, 2.9], [-1, -2.6], [1, -2.6]]) {
@@ -647,12 +725,17 @@ export class VillageBus {
       this.wheels.push(w);
       add(new THREE.CylinderGeometry(0.62, 0.62, 0.36, 18, 1, true, 0, Math.PI).rotateZ(Math.PI / 2), std('#0e0e0e', { side: THREE.DoubleSide }), sx * 1.02, 0.56, sz);
     }
-    this.seats = [];
-    for (let i = 0; i < 7; i++) this.seats.push(V((i % 2 ? 1 : -1) * 0.55, base + 0.86, -2.9 + i * 0.85));
-    this.driverSeat = V(-0.6, base + 0.86, fz - 0.9);
+    this.driverSeat = V(dx, seatTop, dz + 0.02);
+    this.wheelPos = V(dx, wheelY, wheelZ);
     this.len = L; this.half = W / 2; this.wheelR = 0.52;
+    this.floorY = floorY;
   }
-  update(dt, speed) { for (const w of this.wheels) w.rotation.x += (speed * dt) / this.wheelR; }
+  update(dt, speed, steer = 0, riding = false, night = 0) {
+    for (const w of this.wheels) w.rotation.x += (speed * dt) / this.wheelR;
+    this.wheelSteer.rotation.z = -(steer || 0) * 2.4;
+    this.cabinLight.emissiveIntensity = 0.2 + night * 2.2;
+    this.dial.emissiveIntensity = 0.3 + night * 1.2;
+  }
 }
 export class Jeep {
   constructor({ color = '#4a5a3a' } = {}) {
@@ -731,8 +814,8 @@ export class TakenVehicle {
     this.brake = false;
   }
   foot(side, out) { return out.set(side * 0.16, this.L.saddle.y - 0.5, 0.5); }
-  update(dt, speed) {
-    this.veh.update(dt, speed);
+  update(dt, speed, steer = 0, riding = false, night = 0) {
+    this.veh.update(dt, speed, steer, riding, night);
     if (this.root.visible) for (const q of this.riders) q.update(dt, 0, 'sit');
   }
 }

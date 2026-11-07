@@ -34,8 +34,9 @@ export function consolidate(root) {
       if (list.length < 2) continue;
       const geos = list.map((c) => {
         c.updateMatrix();
-        let g = c.geometry.clone().applyMatrix4(c.matrix);
-        if (g.index) g = g.toNonIndexed();
+        // keep shared vertices shared: merging as indexed geometry uses a fraction of the memory
+        const g = c.geometry.clone().applyMatrix4(c.matrix);
+        if (!g.index) { const n = g.attributes.position.count, idx = new (n > 65535 ? Uint32Array : Uint16Array)(n); for (let i = 0; i < n; i++) idx[i] = i; g.setIndex(new THREE.BufferAttribute(idx, 1)); }
         for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
         if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
         return g;
@@ -51,14 +52,21 @@ function mergeGeos(geos) {
   let count = 0;
   for (const g of geos) count += g.attributes.position.count;
   const pos = new Float32Array(count * 3), nor = new Float32Array(count * 3), uv = new Float32Array(count * 2);
-  let o = 0;
+  let o = 0, icount = 0;
+  for (const g of geos) icount += g.index ? g.index.count : g.attributes.position.count;
+  const idx = new (count > 65535 ? Uint32Array : Uint16Array)(icount);
+  let io = 0;
   for (const g of geos) {
     pos.set(g.attributes.position.array, o * 3);
     nor.set(g.attributes.normal.array, o * 3);
     uv.set(g.attributes.uv.array, o * 2);
-    o += g.attributes.position.count;
+    const n = g.attributes.position.count;
+    if (g.index) { const src = g.index.array; for (let i = 0; i < src.length; i++) idx[io++] = src[i] + o; }
+    else for (let i = 0; i < n; i++) idx[io++] = i + o;
+    o += n;
   }
   const out = new THREE.BufferGeometry();
+  out.setIndex(new THREE.BufferAttribute(idx, 1));
   out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   out.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
