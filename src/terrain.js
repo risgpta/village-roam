@@ -3,20 +3,20 @@
 import * as THREE from 'three';
 import { fbm, noise2, smoothstep } from './noise.js';
 import {
-  INNER_HALF, OUTER_HALF, MID_HALF, DATA_HALF, WATER_Y, RIVER_HALF, heightAt, riverX, dirtMask, fieldType, isBund, trackDist, waterfallMask, fallsRock, roadX, GARDEN, desertMask,
+  INNER_HALF, OUTER_HALF, MID_HALF, DATA_HALF, WATER_Y, RIVER_HALF, heightAt, riverX, dirtMask, fieldType, isBund, trackDist, waterfallMask, fallsRock, roadX, GARDEN, desertMask, TRACKS, LID_W, tunnelMask, dipMask, jungleMask,
 } from './world.js';
 import { detailCanvas, toTexture } from './textures.js';
 
 const C = {
   g1: [78, 112, 46], g2: [108, 136, 58], dry: [158, 148, 88], dirt: [178, 134, 90], dirt2: [150, 108, 72],
   sand: [194, 174, 134], mud: [84, 78, 56], soil: [104, 104, 54], crop: [96, 116, 52], hill: [66, 94, 44],
-  rock: [118, 112, 98], ballast: [122, 112, 100], rut: [128, 92, 62],
+  rock: [118, 112, 98], ballast: [122, 112, 100], rut: [128, 92, 62], forest: [46, 62, 30], leaf: [74, 70, 40], meadow: [92, 132, 52],
   desert: [214, 176, 122], desert2: [196, 150, 98], paddy: [74, 88, 62], cane: [92, 88, 58], sunsoil: [98, 110, 56], plough1: [92, 62, 40], plough2: [128, 92, 60],
 };
 const mix = (a, b, t, o) => { o[0] = a[0] + (b[0] - a[0]) * t; o[1] = a[1] + (b[1] - a[1]) * t; o[2] = a[2] + (b[2] - a[2]) * t; return o; };
 
 export function terrainColor(x, z, out) {
-  const h = heightAt(x, z);
+  const h = heightAt(x, z, false); // the hill as it looks from outside, even over a tunnel
   const dr = Math.abs(x - riverX(z));
   const d = Math.hypot(x, z);
   const n = fbm(x * 0.05, z * 0.05, 3) * 0.5 + 0.5;
@@ -52,9 +52,11 @@ export function terrainColor(x, z, out) {
     }
   }
   mix(c, C.sand, (1 - smoothstep(RIVER_HALF + 1.5, RIVER_HALF + 5, dr)) * 0.9, c);
-  if (h < WATER_Y + 0.1) mix(c, C.mud, smoothstep(WATER_Y + 0.1, WATER_Y - 1.0, h), c);
+  if (h < WATER_Y + 0.1 && dipMask(x, z) < 0.05) mix(c, C.mud, smoothstep(WATER_Y + 0.1, WATER_Y - 1.0, h), c);
   { const wm = waterfallMask(x, z); if (wm > 0) mix(c, C.mud, wm * 0.85, c); const fr = fallsRock(x, z); if (fr > 0) mix(c, C.rock, fr, c); }
   { const dm2 = desertMask(x, z); if (dm2 > 0) mix(c, mix(C.desert, C.desert2, noise2(x * 0.08, z * 0.08) * 0.5 + 0.5, [0, 0, 0]), dm2 * 0.9, c); }
+  { const jm = jungleMask(x, z); if (jm > 0) mix(c, mix(C.forest, C.leaf, noise2(x * 0.15, z * 0.15) * 0.5 + 0.5, [0, 0, 0]), jm * 0.75, c); } // the jungle's dark leafy floor
+  { const dp = dipMask(x, z); if (dp > 0.3) mix(c, C.meadow, (dp - 0.3) * 0.9, c); } // the lush meadow down in the valley
   const k = 0.92 + noise2(x * 0.9, z * 0.9) * 0.08;
   out[0] = c[0] * k; out[1] = c[1] * k; out[2] = c[2] * k;
 }
@@ -151,6 +153,37 @@ export function buildTerrain() {
   };
   ring(MID_HALF, 6, INNER_HALF, -0.03);
   ring(OUTER_HALF, 24, MID_HALF - 24, -0.2);
+  // over each tunnel, a strip of hillside laid back across the hollowed-out bore
+  for (const T of TRACKS) for (const [a, b] of T.tunnels) {
+    const P = T.path, q = {}, verts = [], cols = [], idx = [];
+    const nS = Math.max(2, Math.ceil((b - a) / 2)), lat = [];
+    for (let v = -LID_W; v <= LID_W + 1e-6; v += 1.25) lat.push(v);
+    const nL = lat.length;
+    for (let i = 0; i <= nS; i++) {
+      P.at(a + ((b - a) * i) / nS, q);
+      for (const v of lat) {
+        const x = q.x - q.tz * v, z = q.z + q.tx * v;
+        // the edges sink a touch into the ground so there's no seam; the middle sits just over the carved hill
+        verts.push(x, heightAt(x, z, false) + 0.12 - (Math.abs(v) > LID_W - 0.6 ? 0.25 : 0), z);
+        terrainColor(x, z, col);
+        const c = new THREE.Color(col[0] / 255, col[1] / 255, col[2] / 255).convertSRGBToLinear();
+        cols.push(c.r, c.g, c.b);
+      }
+    }
+    for (let i = 0; i < nS; i++) for (let j = 0; j < nL - 1; j++) { const k = i * nL + j; idx.push(k, k + 1, k + nL, k + 1, k + nL + 1, k + nL); }
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    lg.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+    lg.setIndex(idx);
+    lg.computeVertexNormals();
+    // make sure the normals point up whichever way the strip was wound
+    if (lg.attributes.normal.getY(0) < 0) { lg.setIndex(idx.map((_, n2) => idx[n2 - (n2 % 3) + [0, 2, 1][n2 % 3]])); lg.computeVertexNormals(); }
+    lg.computeBoundingSphere();
+    const m = new THREE.Mesh(lg, detailMaterial({ vertexColors: true }));
+    m.castShadow = true; m.receiveShadow = true;
+    m.userData.tunnelLid = true;
+    group.add(m);
+  }
   return group;
 }
 
@@ -168,6 +201,8 @@ export function buildGrassData() {
       let dens = 1 - dirtMask(x, z) * 1.15;
       dens *= smoothstep(RIVER_HALF + 1.5, RIVER_HALF + 4.5, dr);
       dens *= smoothstep(3.0, 5.0, trackDist(x, z));
+      if (tunnelMask(x, z)) dens = 0;
+      { const jm = jungleMask(x, z); if (jm > 0) dens *= 1 - jm * 0.7; } // under the jungle canopy the grass grows thin
       dens *= (1 - waterfallMask(x, z)) * (1 - fallsRock(x, z));
       if (Math.abs(x - GARDEN.x) < GARDEN.hw && Math.abs(z - GARDEN.z) < GARDEN.hd) dens *= 0.08;
       { const dm2 = desertMask(x, z); if (dm2 > 0) dens *= 1 - dm2 * 0.85; }

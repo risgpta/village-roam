@@ -554,6 +554,45 @@ export class Ambience {
     call(t0 + 2.7, 0.6, 80, 100, 0.14); // trailing growls
     call(t0 + 3.4, 0.5, 70, 85, 0.1);
   }
+  // a hyena's whooping cackle: a run of quick rising yelps
+  cackle(d) {
+    const v = this._vol(d, 120); if (!this.ctx || !v) return;
+    const ctx = this.ctx, t0 = ctx.currentTime, n = 6 + Math.floor(Math.random() * 5);
+    for (let i = 0; i < n; i++) {
+      const t = t0 + i * (0.13 + Math.random() * 0.04), f0 = 520 + Math.random() * 120 + i * 18;
+      const o = ctx.createOscillator(); o.type = 'triangle';
+      o.frequency.setValueAtTime(f0 * 0.7, t); o.frequency.exponentialRampToValueAtTime(f0, t + 0.05); o.frequency.exponentialRampToValueAtTime(f0 * 0.6, t + 0.11);
+      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 1.5;
+      const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.09 * v, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+      o.connect(f).connect(g).connect(this.master); o.start(t); o.stop(t + 0.13);
+    }
+  }
+  // monkeys: sharp squeaks and chatter
+  chatter(d) {
+    const v = this._vol(d, 60); if (!this.ctx || !v) return;
+    const ctx = this.ctx, t0 = ctx.currentTime, n = 3 + Math.floor(Math.random() * 5);
+    for (let i = 0; i < n; i++) {
+      const t = t0 + i * (0.08 + Math.random() * 0.1), f0 = 1300 + Math.random() * 900;
+      const o = ctx.createOscillator(); o.type = 'square';
+      o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * (0.6 + Math.random() * 0.3), t + 0.07);
+      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2000; f.Q.value = 2;
+      const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.05 * v, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+      o.connect(f).connect(g).connect(this.master); o.start(t); o.stop(t + 0.09);
+    }
+  }
+  // a rhino's or wild buffalo's snort: a burst of breath through the nose, with a low grunt
+  snort(d) {
+    const v = this._vol(d, 70); if (!this.ctx || !v) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const s = ctx.createBufferSource(); s.buffer = this.white;
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 700; f.Q.value = 0.8;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.22 * v, t + 0.04); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+    s.connect(f).connect(g).connect(this.master); s.start(t, Math.random()); s.stop(t + 0.55);
+    const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(75, t); o.frequency.exponentialRampToValueAtTime(50, t + 0.4);
+    const lf = ctx.createBiquadFilter(); lf.type = 'lowpass'; lf.frequency.value = 300;
+    const g2 = ctx.createGain(); g2.gain.setValueAtTime(0, t); g2.gain.linearRampToValueAtTime(0.12 * v, t + 0.05); g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+    o.connect(lf).connect(g2).connect(this.master); o.start(t); o.stop(t + 0.5);
+  }
   // an elephant's brassy trumpet
   trumpet(d) {
     const v = this._vol(d, 260); if (!this.ctx || !v) return;

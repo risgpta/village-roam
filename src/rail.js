@@ -2,7 +2,7 @@
 // a level crossing with a gatekeeper's hut — and a passenger train that passes once a minute.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { TRACK, TRACK3, TRACKS, RING, TRACK_Y, riverX, RIVER_HALF, WATER_Y, CROSSING, CROSSING3, heightAt, colliders, roadX } from './world.js';
+import { TRACK, TRACK3, TRACKS, RING, TRACK_Y, riverX, RIVER_HALF, WATER_Y, CROSSING, CROSSING3, heightAt, colliders, roadX, BORE_HALF, ROAD_X } from './world.js';
 import { toTexture } from './textures.js';
 import { lathe, boulder } from './shapes.js';
 import { Puffs } from './particles.js';
@@ -334,124 +334,129 @@ function gravelTex() {
 export function buildRailway(scene) {
   const group = new THREE.Group();
   for (const T of TRACKS) buildLine(group, T);
+  // a gated level crossing, with its gateman, wherever a road crosses a line
+  for (const X of ROAD_X) roadCrossing(group, X);
   scene.add(group);
   const A = new Train(scene, TRACK, { name: 'Sonpur–Noorpur Passenger', first: 10, coaches: 5 });
   const B = new Train(scene, TRACKS[1], { livery: { base: '#1d4a3c', line: '#ead9a6', dark: '#123228', door: '#183f33' }, end: '#1d4a3c', coaches: 5, first: 150, boiler: '#1c2a22', name: 'Mail' });
   const C = new Train(scene, TRACK3, { livery: { base: '#24407a', line: '#f0d070', dark: '#16284e', door: '#1d3566' }, end: '#24407a', coaches: 3, first: 22, boiler: '#1a1c24', name: 'Mariapur–Noorpur Local' });
   // the ring train goes round and round the whole country, stopping at the junctions and the new villages
   const D = new Train(scene, RING, { livery: { base: '#c46a1a', line: '#f6e2b0', dark: '#8a4410', door: '#9a4e14' }, end: '#c46a1a', coaches: 4, first: 30, boiler: '#202024', name: 'Gol Gaadi — the Ring Train' });
-  return new Railway([A, B, C, D]);
+  // and two more ring trains, spaced a third of the way round each, so a train is never far off
+  const third = RING.path.L / 3, s0 = RING.halts[0].s;
+  const E = new Train(scene, RING, { livery: { base: '#2a6a9a', line: '#f2efe2', dark: '#1a4466', door: '#1f5580' }, end: '#2a6a9a', coaches: 4, startS: s0 + third, boiler: '#1c2026', name: 'Neeli Gol Gaadi — the blue ring train' });
+  const F = new Train(scene, RING, { livery: { base: '#3c7a3c', line: '#f2e6b0', dark: '#265426', door: '#2e662e' }, end: '#3c7a3c', coaches: 4, startS: s0 + third * 2, boiler: '#1c221c', name: 'Hari Gol Gaadi — the green ring train' });
+  return new Railway([A, B, C, D, E, F]);
 }
 
 // a level crossing: a plank-and-concrete deck across the line, striped barrier booms on both sides of the
 // road that come down when a train is near (red lamps flashing, the bell ringing), and the gateman's little
 // brick cabin, with the gateman himself — he winds the booms down, then sits on his bench till it's gone.
 const CROSSINGS = [];
-function levelCrossing(group, cx, cz, tracks) {
-  const T0 = tracks[0];
-  TK = T0;
-  const { t } = trackPoint(cx);
-  // the deck: concrete panels between and either side of the rails, level with the railheads, on each line
+// A level crossing where a road (any road, at any angle) meets one or two lines: a deck level with the
+// railheads, striped booms on striped posts either side with flashing red lamps, and the gateman's cabin
+// with its winch. X comes from ROAD_X in world.js: centre, road direction, road half-width, the lines.
+let gateNo = 11;
+function roadCrossing(group, X) {
+  const { rdx, rdz, half } = X;
+  const at = (u, v) => ({ x: X.x + rdx * u - rdz * v, z: X.z + rdz * u + rdx * v }); // u along the road, v across it
+  const roadRot = Math.atan2(rdx, rdz);
+  // how far a spot is from the rails (posts, the winch and the cabin go on whichever side is clear)
+  const clearOf = (p) => { let m = 99; for (const L of X.tracks) { const n = L.T.path.near(p.x, p.z); if (n) m = Math.min(m, n.d); } return m; };
+  const pickV = (u, v) => (clearOf(at(u, v)) >= clearOf(at(u, -v)) ? v : -v);
+  // the deck on each line
   const deckM = std('#8d877e', { roughness: 0.95 }), plankM = std('#5a4632', { roughness: 0.9 });
-  const rdir = new THREE.Vector3(roadX(cz + 1) - roadX(cz - 1), 0, 2).normalize();
-  for (const T of tracks) {
-    TK = T;
-    const tz = T.z(cx);
-    // the road crosses this line where its centre meets it
-    let z = tz; for (let i = 0; i < 6; i++) z = T.z(roadX(z));
-    const x = roadX(z);
-    const { t: tt } = trackPoint(x);
-    const rot = Math.atan2(tt.x, tt.z);
-    const d = new THREE.Group(); d.position.set(x, RAIL_TOP, z); d.rotation.y = rot; group.add(d);
+  const lenAlong = Math.min(16, (half * 2 + 1.5) / X.sin);
+  for (const L of X.tracks) {
+    const q = L.T.path.at(L.s);
+    const d = new THREE.Group(); d.position.set(q.x, RAIL_TOP, q.z); d.rotation.y = Math.atan2(q.tx, q.tz); group.add(d);
     for (const [o, w, m] of [[0, GAUGE * 2 - 0.16, deckM], [GAUGE + 0.55, 1.0, plankM], [-(GAUGE + 0.55), 1.0, plankM]]) {
-      const p = new THREE.Mesh(new THREE.BoxGeometry(w, 0.1, 7.2), m);
-      p.position.set(o, -0.07, 0); p.receiveShadow = true; d.add(p);
+      const pl = new THREE.Mesh(new THREE.BoxGeometry(w, 0.1, lenAlong), m);
+      pl.position.set(o, -0.07, 0); pl.receiveShadow = true; d.add(pl);
     }
   }
-  TK = T0;
-  // barrier booms either side of the line, pivoting on striped posts at the edge of the road
   const white = std('#efefe8'), red = std('#c22d22');
-  const stripe = document.createElement('canvas');
-  stripe.width = 128; stripe.height = 8;
+  const stripe = document.createElement('canvas'); stripe.width = 128; stripe.height = 8;
   const sg = stripe.getContext('2d');
   for (let i = 0; i < 8; i++) { sg.fillStyle = i % 2 ? '#c22d22' : '#f2f2ec'; sg.fillRect(i * 16, 0, 16, 8); }
   const boomMat = std('#ffffff', { map: toTexture(stripe) });
-  const zs = tracks.map((T) => T.z(cx));
-  const zMin = Math.min(...zs), zMax = Math.max(...zs);
   const booms = [], lamps = [], boxes = [];
+  const clearU = X.span + 4.5, postV = half + 0.7, boomLen = postV * 2 - 0.3;
   for (const side of [-1, 1]) {
-    // along the road (rdir), 6 m beyond the outermost rail on this side; post at the road's edge
-    const zEdge = side > 0 ? zMax + 6 : zMin - 6;
-    const roadAt = { x: roadX(zEdge), z: zEdge };
-    const across = new THREE.Vector3(rdir.z, 0, -rdir.x); // perpendicular to the road
-    const bx = roadAt.x + across.x * 3.6 * side, bz = roadAt.z + across.z * 3.6 * side;
-    const by = heightAt(bx, bz);
+    // the boom post stands at the road's edge on alternate sides, so the two booms close the whole road
+    const pv = pickV(clearU * side, postV * side), sgv = Math.sign(pv), pp = at(clearU * side, pv), by = heightAt(pp.x, pp.z);
     const post = new THREE.Mesh(new THREE.BoxGeometry(0.32, 1.3, 0.32), white);
-    post.position.set(bx, by + 0.65, bz); post.castShadow = true; group.add(post);
-    const cw = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), std('#3a3a3a', { metalness: 0.4 })); // counterweight
+    post.position.set(pp.x, by + 0.65, pp.z); post.castShadow = true; group.add(post);
     const pivot = new THREE.Group();
-    pivot.position.set(bx, by + 1.2, bz);
-    pivot.rotation.y = Math.atan2(-across.x * side, -across.z * side); // pointing across the road
+    pivot.position.set(pp.x, by + 1.2, pp.z);
+    pivot.rotation.y = Math.atan2(rdz * sgv, -rdx * sgv); // pointing across the road, toward the far edge
     group.add(pivot);
     const arm = new THREE.Group(); pivot.add(arm);
-    const boom = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.13, 7.6).translate(0, 0, 3.8), boomMat);
+    const boom = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.13, boomLen).translate(0, 0, boomLen / 2), boomMat);
     boom.castShadow = true; arm.add(boom);
-    cw.position.set(0, 0, -0.5); arm.add(cw);
-    for (const z of [2.5, 5, 7.3]) { const tag = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.32, 0.32), red); tag.position.set(0, -0.2, z); arm.add(tag); }
+    const cw = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), std('#3a3a3a', { metalness: 0.4 })); cw.position.set(0, 0, -0.5); arm.add(cw);
+    for (const z of [boomLen * 0.3, boomLen * 0.62, boomLen * 0.94]) { const tag = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.32, 0.32), red); tag.position.set(0, -0.2, z); arm.add(tag); }
     booms.push(arm);
-    // two red lamps on a little gantry by the post, flashing in turn
+    // two red lamps on a post facing the oncoming road, flashing in turn
+    const lpos = at(clearU * side + side * 0.5, pv + sgv * 0.6);
+    const lampPost = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.2, 6), std('#2a2a2a'));
+    lampPost.position.set(lpos.x, by + 1.1, lpos.z); group.add(lampPost);
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.32, 0.05), std('#1a1a1a')); plate.position.set(lpos.x, by + 2.1, lpos.z); plate.rotation.y = roadRot; group.add(plate);
     for (const k of [-1, 1]) {
       const m = new THREE.MeshStandardMaterial({ color: '#5a0a08', emissive: '#ff2010', emissiveIntensity: 0 });
       const l = new THREE.Mesh(new THREE.CircleGeometry(0.12, 14), m);
-      const lp = new THREE.Vector3(bx + across.x * side * 0.6 + rdir.x * k * 0.18 * side, by + 2.1, bz + across.z * side * 0.6 + rdir.z * k * 0.18 * side);
-      l.position.copy(lp);
-      l.lookAt(lp.x - rdir.x * side * 5, lp.y, lp.z - rdir.z * side * 5);
+      const o = at(clearU * side + side * 0.53, pv + sgv * 0.6 + k * 0.18);
+      l.position.set(o.x, by + 2.1, o.z);
+      l.lookAt(o.x + rdx * side * 5, by + 2.1, o.z + rdz * side * 5);
       group.add(l); lamps.push(m);
     }
-    const lampPost = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.2, 6), std('#2a2a2a'));
-    lampPost.position.set(bx + across.x * side * 0.6, by + 1.1, bz + across.z * side * 0.6); group.add(lampPost);
-    colliders.push({ kind: 'c', x: bx, z: bz, r: 0.3 });
-    // the box a lowered boom blocks
-    boxes.push({ kind: 'b', x: roadAt.x, z: roadAt.z, rot: Math.atan2(rdir.x, rdir.z), hw: 3.8, hd: 0.25 });
+    colliders.push({ kind: 'c', x: pp.x, z: pp.z, r: 0.3 });
+    // the stretch of road a lowered boom closes
+    const bc = at(clearU * side, 0);
+    boxes.push({ kind: 'b', x: bc.x, z: bc.z, rot: roadRot, hw: half + 0.8, hd: 0.25 });
   }
-  // the gateman's cabin: whitewashed brick on a red plinth, a tiled roof, a window onto the line, the sign
-  const across = new THREE.Vector3(rdir.z, 0, -rdir.x);
-  const hz = zMax + 9, hx = roadX(hz) + across.x * 8 + 2 * across.x, hzz = hz + across.z * 10;
-  const hy = heightAt(hx, hzz);
+  // the gateman's cabin, set back from the road beside the gate, its front toward the road
+  // pick the corner (either end, either side of the road) farthest from the rails
+  let hu = clearU + 5, hv = half + 5.5;
+  { let best = -1; for (const cu of [clearU + 5, -(clearU + 5)]) for (const cv of [half + 5.5, -(half + 5.5)]) { const c = clearOf(at(cu, cv)); if (c > best) { best = c; hu = cu; hv = cv; } } }
+  const hp = at(hu, hv), hy = heightAt(hp.x, hp.z);
   const hut = new THREE.Group();
-  hut.position.set(hx, hy, hzz);
-  hut.rotation.y = Math.atan2(-across.x, -across.z); // its front faces the road
+  hut.position.set(hp.x, hy, hp.z);
+  hut.rotation.y = Math.atan2(rdz * Math.sign(hv), -rdx * Math.sign(hv)); // facing the road
   const addH = (geo, m, x, y, z, parent = hut) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = o.receiveShadow = true; parent.add(o); return o; };
   addH(new THREE.BoxGeometry(3.0, 2.5, 2.6), std('#ece6d8', { roughness: 0.9 }), 0, 1.25, 0);
   addH(new THREE.BoxGeometry(3.06, 0.5, 2.66), std('#9a3a26'), 0, 0.25, 0);
+  addH(new THREE.BoxGeometry(3.2, 0.6, 2.8), std('#9a3a26'), 0, -0.2, 0); // the plinth, down to the ground on a slope
   const roof = addH(new THREE.ConeGeometry(1, 1, 4, 1).rotateY(Math.PI / 4), std('#a8442c', { roughness: 0.8 }), 0, 3.0, 0);
   roof.scale.set(2.6, 1.0, 2.3);
-  addH(new THREE.BoxGeometry(0.9, 1.8, 0.06), std('#2f5a7a'), -0.7, 0.95, 1.31); // door
-  addH(new THREE.BoxGeometry(0.8, 0.7, 0.06), std('#1c1612'), 0.75, 1.55, 1.31); // window
+  addH(new THREE.BoxGeometry(0.9, 1.8, 0.06), std('#2f5a7a'), -0.7, 0.95, 1.31);
+  addH(new THREE.BoxGeometry(0.8, 0.7, 0.06), std('#1c1612'), 0.75, 1.55, 1.31);
   for (let i = 0; i < 4; i++) addH(new THREE.BoxGeometry(0.03, 0.7, 0.07), std('#5a5a5a', { metalness: 0.5 }), 0.47 + i * 0.19, 1.55, 1.33);
+  const no = ++gateNo;
   const sign = document.createElement('canvas'); sign.width = 512; sign.height = 128;
   const sx = sign.getContext('2d');
   sx.fillStyle = '#f2c418'; sx.fillRect(0, 0, 512, 128); sx.strokeStyle = '#141414'; sx.lineWidth = 8; sx.strokeRect(4, 4, 504, 120);
-  sx.fillStyle = '#141414'; sx.textAlign = 'center'; sx.font = 'bold 50px "Noto Sans Devanagari", Arial'; sx.fillText('रेलवे फाटक', 256, 56); sx.font = 'bold 34px Arial'; sx.fillText('LEVEL CROSSING · GATE No. 12', 256, 104);
+  sx.fillStyle = '#141414'; sx.textAlign = 'center'; sx.font = 'bold 50px "Noto Sans Devanagari", Arial'; sx.fillText('रेलवे फाटक', 256, 56); sx.font = 'bold 34px Arial'; sx.fillText('LEVEL CROSSING · GATE No. ' + no, 256, 104);
   addH(new THREE.PlaneGeometry(2.6, 0.65), new THREE.MeshStandardMaterial({ map: toTexture(sign) }), 0, 2.3, 1.34);
-  // a bench outside, and the winch the gateman turns
   addH(new THREE.BoxGeometry(1.4, 0.08, 0.4), std('#6a4a2c'), 0.3, 0.45, 1.9);
   for (const dx of [-0.35, 0.95]) addH(new THREE.BoxGeometry(0.06, 0.45, 0.35), std('#4a3420'), dx, 0.22, 1.9);
   group.add(hut);
-  colliders.push({ kind: 'b', x: hx, z: hzz, rot: hut.rotation.y, hw: 1.5, hd: 1.3 });
+  colliders.push({ kind: 'b', x: hp.x, z: hp.z, rot: hut.rotation.y, hw: 1.5, hd: 1.3 });
+  // the winch, between the cabin and the near boom post
+  const wp = at(hu - Math.sign(hu) * 3.2, Math.sign(hv) * (half + 2.0));
   const winch = new THREE.Group();
-  const wpos = { x: hx - across.x * 2.6, z: hzz - across.z * 2.6 };
-  winch.position.set(wpos.x, heightAt(wpos.x, wpos.z), wpos.z); winch.rotation.y = hut.rotation.y; group.add(winch);
+  winch.position.set(wp.x, heightAt(wp.x, wp.z), wp.z); winch.rotation.y = hut.rotation.y; group.add(winch);
   addH(new THREE.BoxGeometry(0.25, 0.9, 0.25), std('#2a4a6a', { metalness: 0.3 }), 0, 0.45, 0, winch);
   const wheel = addH(new THREE.TorusGeometry(0.28, 0.03, 6, 16), std('#c22d22'), 0, 0.95, 0.15, winch);
   // the gateman: blue uniform, white cap
-  const man = new Person({ dress: 'pants', top: '#3a5a8a', bottom: '#2a2a32', skin: '#6e4530', mustache: true, headwear: 'cap', turban: '#f2efe6', sleeves: 'short' });
+  const man = new Person({ dress: 'pants', top: '#3a5a8a', bottom: '#2a2a32', skin: ['#6e4530', '#7a4c33', '#8a5a3c'][no % 3], mustache: true, headwear: 'cap', turban: '#f2efe6', sleeves: 'short' });
   group.add(man.root);
-  const benchAt = { x: hx + Math.sin(hut.rotation.y) * 1.9 + Math.cos(hut.rotation.y) * 0.3, z: hzz + Math.cos(hut.rotation.y) * 1.9 - Math.sin(hut.rotation.y) * 0.3 };
-  const winchFront = { x: wpos.x + Math.sin(hut.rotation.y) * 0.65, z: wpos.z + Math.cos(hut.rotation.y) * 0.65 };
-  const X = { cx, cz, booms, lamps, boxes, man, wheel, benchAt, winchFront, hutRot: hut.rotation.y, angle: -1.3, closed: false, t: 0, manP: { ...benchAt }, tracks };
-  CROSSINGS.push(X);
-  return X;
+  const fr = hut.rotation.y;
+  const benchAt = { x: hp.x + Math.sin(fr) * 1.9 + Math.cos(fr) * 0.3, z: hp.z + Math.cos(fr) * 1.9 - Math.sin(fr) * 0.3 };
+  const winchFront = { x: wp.x + Math.sin(fr) * 0.65, z: wp.z + Math.cos(fr) * 0.65 };
+  const XC = { cx: X.x, cz: X.z, booms, lamps, boxes, man, wheel, benchAt, winchFront, hutRot: fr, angle: -1.3, closed: false, t: 0, manP: { ...benchAt }, tracks: X.tracks.map((t) => t.T) };
+  CROSSINGS.push(XC);
+  return XC;
 }
 function updateCrossing(X, dt, trains) {
   // close when any train on these lines is within ~80 m of the road; open once it's clear
@@ -481,18 +486,112 @@ function updateCrossing(X, dt, trains) {
   if (moving) X.wheel.rotation.z += dt * 4;
 }
 
+// ---------- tunnels ----------
+// The bore: a stone-lined arch over a walkway either side of the ballast. It's lit by lamps along the walls
+// (alternating sides every 22 m) and a little daylight spilling in at each end; the light is baked into the
+// vertex colours, so the inside stays dim and moody whatever the time of day.
+const ARCH_WALL = 3.4, ARCH_RISE = 3.2;
+function glowTex() {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,236,190,1)'); gr.addColorStop(0.3, 'rgba(255,200,120,0.45)'); gr.addColorStop(1, 'rgba(255,180,100,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+let GLOW = null;
+function buildTunnel(group, T, a, b) {
+  const P = T.path, q = {}, W = BORE_HALF;
+  // the cross-section, going round: walkway, wall, arch, wall, walkway, ballast
+  const prof = [[W, 0.12, 'walk'], [2.55, 0.12, 'walk'], [2.4, -0.05, 'bal'], [1.6, 0.25, 'bal'], [-1.6, 0.25, 'bal'], [-2.4, -0.05, 'bal'], [-2.55, 0.12, 'walk'], [-W, 0.12, 'walk'], [-W, 1.2, 'wall'], [-W, ARCH_WALL, 'wall']];
+  for (let k = 1; k < 10; k++) { const an = Math.PI - (k / 10) * Math.PI; prof.push([Math.cos(an) * W, ARCH_WALL + Math.sin(an) * ARCH_RISE, 'arch']); }
+  prof.push([W, ARCH_WALL, 'wall'], [W, 1.2, 'wall'], [W, 0.12, 'walk']);
+  const base = { walk: new THREE.Color('#6d675f'), bal: new THREE.Color('#5a544c'), wall: new THREE.Color('#857c70'), arch: new THREE.Color('#7a7166') };
+  const lamps = [];
+  for (let t = a + 12, k = 0; t < b - 6; t += 22, k++) lamps.push({ t, side: k % 2 ? 1 : -1 });
+  const pos = [], col = [], idx = [];
+  const n = Math.max(2, Math.ceil((b - a) / 1.5)), m = prof.length, c = new THREE.Color();
+  for (let i = 0; i <= n; i++) {
+    const t = a + ((b - a) * i) / n;
+    P.at(t, q);
+    const nx = -q.tz, nz = q.tx;
+    const day = Math.max(Math.exp(-(t - a) / 9), Math.exp(-(b - t) / 9));
+    for (const [o, y, kind] of prof) {
+      pos.push(q.x + nx * o, TRACK_Y + y, q.z + nz * o);
+      let L = 0.13 + day * 1.3;
+      for (const l of lamps) { const dt = l.t - t; if (Math.abs(dt) > 16) continue; const dd = dt * dt + (o - l.side * (W - 0.1)) ** 2 + (y - 4.3) ** 2; L += 1.25 * Math.exp(-dd / (2 * 4.2 * 4.2)); }
+      // the joints between courses of stone: faint darker bands
+      const course = kind === 'wall' || kind === 'arch' ? 0.9 + 0.1 * Math.abs(Math.sin(t * 2.1)) : 1;
+      c.copy(base[kind]).multiplyScalar(Math.min(1.25, L) * course);
+      col.push(c.r, c.g, c.b);
+    }
+  }
+  for (let i = 0; i < n; i++) for (let j = 0; j < m - 1; j++) { const p0 = i * m + j, p1 = p0 + m; idx.push(p0, p1, p0 + 1, p0 + 1, p1, p1 + 1); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  g.computeBoundingSphere();
+  const bore = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+  group.add(bore);
+  // the lamps: a little iron bracket and a warm glass globe, with a soft glow round it
+  const fix = [], bulbs = [];
+  GLOW = GLOW ?? new THREE.SpriteMaterial({ map: glowTex(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85 });
+  for (const l of lamps) {
+    P.at(l.t, q);
+    const nx = -q.tz, nz = q.tx, o = l.side * (W - 0.25), rot = Math.atan2(q.tx, q.tz);
+    const x = q.x + nx * o, z = q.z + nz * o, y = TRACK_Y + 4.3;
+    fix.push(new THREE.BoxGeometry(0.42, 0.12, 0.18).rotateY(rot + Math.PI / 2).translate(q.x + nx * (o - l.side * 0.15), y + 0.24, q.z + nz * (o - l.side * 0.15)));
+    fix.push(new THREE.CylinderGeometry(0.13, 0.16, 0.12, 8).translate(x, y + 0.2, z));
+    bulbs.push(new THREE.SphereGeometry(0.13, 10, 8).translate(x, y, z));
+    const sp = new THREE.Sprite(GLOW); sp.position.set(x, y, z); sp.scale.setScalar(2.2); group.add(sp);
+  }
+  if (fix.length) {
+    group.add(new THREE.Mesh(mergeGeometries(fix), new THREE.MeshBasicMaterial({ color: '#1c1a18' })));
+    group.add(new THREE.Mesh(mergeGeometries(bulbs), new THREE.MeshBasicMaterial({ color: '#ffe6b0' })));
+  }
+}
+// a stone portal at each end of a tunnel, with a lighter arch of dressed stone round the opening
+function tunnelPortal(group, P, t, dir, stone, trim) {
+  const q = P.at(t);
+  const portal = new THREE.Group();
+  portal.position.set(q.x, TRACK_Y, q.z);
+  portal.rotation.y = Math.atan2(q.tx * dir, q.tz * dir);
+  const hole = () => { const h = new THREE.Path(); h.moveTo(-BORE_HALF, 0); h.lineTo(BORE_HALF, 0); h.lineTo(BORE_HALF, ARCH_WALL); h.absellipse(0, ARCH_WALL, BORE_HALF, ARCH_RISE, 0, Math.PI, false); h.lineTo(-BORE_HALF, 0); return h; };
+  const shape = new THREE.Shape();
+  shape.moveTo(-10, -1.4); shape.lineTo(10, -1.4); shape.lineTo(10, 12.6); shape.lineTo(-10, 12.6); shape.lineTo(-10, -1.4);
+  shape.holes.push(hole());
+  const face = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: 1.4, bevelEnabled: false }), stone);
+  face.castShadow = face.receiveShadow = true;
+  portal.add(face);
+  const ring = new THREE.Shape();
+  ring.moveTo(-BORE_HALF - 0.7, 0); ring.lineTo(-BORE_HALF - 0.7, ARCH_WALL); ring.absellipse(0, ARCH_WALL, BORE_HALF + 0.7, ARCH_RISE + 0.7, Math.PI, 0, true); ring.lineTo(BORE_HALF + 0.7, 0); ring.lineTo(-BORE_HALF - 0.7, 0);
+  ring.holes.push(hole());
+  const arch = new THREE.Mesh(new THREE.ExtrudeGeometry(ring, { depth: 1.7, bevelEnabled: false }), trim);
+  arch.castShadow = true; portal.add(arch);
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(21, 0.6, 2.0), trim);
+  cap.position.set(0, 12.9, 0.7);
+  portal.add(cap);
+  // a pilaster either side of the arch
+  for (const sx of [-1, 1]) { const pl = new THREE.Mesh(new THREE.BoxGeometry(0.9, 9.5, 0.5), trim); pl.position.set(sx * (BORE_HALF + 1.6), 3.4, 1.55); portal.add(pl); }
+  group.add(portal);
+  // the face of the portal is solid
+  for (const sx of [-1, 1]) colliders.push({ kind: 'b', x: q.x - q.tz * sx * 7.3, z: q.z + q.tx * sx * 7.3, rot: Math.atan2(q.tx, q.tz), hw: 2.7, hd: 0.9, height: TRACK_Y + 12 });
+}
+
 function buildLine(group, T) {
   const P = T.path, q = {};
   const d = new THREE.Object3D();
   const ballastMat = BALLAST ?? (BALLAST = new THREE.MeshStandardMaterial({ map: gravelTex(), roughness: 1, color: '#c8c0b4' }));
   const prof = [[-2.4, TRACK_Y - 0.1], [-1.6, TRACK_Y + 0.25], [1.6, TRACK_Y + 0.25], [2.4, TRACK_Y - 0.1]];
   const onBridge = (t) => T.bridges.some(([a, b]) => t > a && t < b);
-  const railMat = std('#6a5a4c', { metalness: 0.6, roughness: 0.55, side: THREE.DoubleSide }), railTop = std('#c8ccd0', { metalness: 0.95, roughness: 0.18, side: THREE.DoubleSide });
-  const ss = [];
-  for (const [a0, b0] of T.segs) {
-    const a = T.closed ? a0 : Math.max(0, a0 - 4), b = T.closed ? b0 : Math.min(P.L, b0 + 4);
-    // ballast everywhere but the bridges
-    let cuts = [[a, b]];
+  const railMatL = std('#6a5a4c', { metalness: 0.6, roughness: 0.55, side: THREE.DoubleSide }), railTopL = std('#c8ccd0', { metalness: 0.95, roughness: 0.18, side: THREE.DoubleSide });
+  const ss = [], ssT = [];
+  const dimRail = new THREE.MeshBasicMaterial({ color: '#2e2a26', side: THREE.DoubleSide }), dimTop = new THREE.MeshBasicMaterial({ color: '#8c8f92', side: THREE.DoubleSide });
+  const runs = [...T.segs.map((g) => [g, false]), ...T.tunnels.map((g) => [g, true])];
+  for (const [[a, b], inT] of runs) {
+    const railMat = inT ? dimRail : railMatL, railTop = inT ? dimTop : railTopL;
+    // ballast everywhere but the bridges (in a tunnel the bore has its own floor)
+    let cuts = inT ? [] : [[a, b]];
     for (const [b1, b2] of T.bridges) cuts = cuts.flatMap(([u, v]) => (b2 <= u || b1 >= v ? [[u, v]] : [[u, Math.max(u, b1)], [Math.min(v, b2), v]].filter(([x0, x1]) => x1 - x0 > 1)));
     for (const [u, v] of cuts) group.add(ribbonS(P, u, v, 2, prof, ballastMat));
     // flat-bottomed rails: foot, web and a rounded head
@@ -501,7 +600,8 @@ function buildLine(group, T) {
       group.add(ribbonS(P, a, b, 2, [[sx + 0.028, RAIL_TOP], [sx + 0.036, RAIL_TOP - 0.008], [sx + 0.036, RAIL_TOP - 0.04], [sx + 0.012, RAIL_TOP - 0.05], [sx + 0.012, RAIL_TOP - 0.13], [sx + 0.075, RAIL_TOP - 0.14], [sx + 0.075, RAIL_TOP - 0.16]], railMat));
       group.add(ribbonS(P, a, b, 2, [[sx - 0.028, RAIL_TOP], [sx + 0.028, RAIL_TOP]], railTop));
     }
-    for (let t = a; t < b; t += 0.62) ss.push(t);
+    for (let t = a; t < b; t += 0.62) (inT ? ssT : ss).push(t);
+    if (inT) buildTunnel(group, T, a, b);
   }
   // concrete sleepers with dark rail pads and clips
   const slG = mergeGeometries([new THREE.BoxGeometry(0.26, 0.15, 2.6), ...[-GAUGE, GAUGE].flatMap((s2) => [new THREE.BoxGeometry(0.2, 0.03, 0.22).translate(0, 0.085, s2), new THREE.BoxGeometry(0.06, 0.06, 0.06).translate(0.09, 0.1, s2 + 0.1), new THREE.BoxGeometry(0.06, 0.06, 0.06).translate(-0.09, 0.1, s2 - 0.1)])]);
@@ -516,6 +616,12 @@ function buildLine(group, T) {
   sleepers.receiveShadow = true;
   sleepers.computeBoundingSphere();
   group.add(sleepers);
+  if (ssT.length) {
+    const sT = new THREE.InstancedMesh(slG, new THREE.MeshBasicMaterial({ color: '#4c4842' }), ssT.length);
+    ssT.forEach((t, i) => { P.at(t, q); d.position.set(q.x, TRACK_Y + 0.3, q.z); d.rotation.set(0, Math.atan2(q.tx, q.tz) - Math.PI / 2, 0); d.updateMatrix(); sT.setMatrixAt(i, d.matrix); });
+    sT.computeBoundingSphere();
+    group.add(sT);
+  }
 
   // girder bridges over the river: a concrete deck, steel trusses either side, piers in the water
   const steel = std('#56606a', { metalness: 0.4, roughness: 0.6 }), concrete = std('#9c968c');
@@ -543,39 +649,27 @@ function buildLine(group, T) {
         }
         if (i % 3 === 0) colliders.push({ kind: 'c', x: px, z: pz, r: 0.2 });
       }
-      if (i % 4 === 2) { const pier = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.9, RAIL_TOP - WATER_Y + 2.5, 12), concrete); pier.position.set(q.x, (RAIL_TOP + WATER_Y - 2.5) / 2 - 0.4, q.z); group.add(pier); }
+      if (i % 4 === 2) {
+        // piers down into the river, or all the way to the floor of the valley
+        const gb = Math.min(WATER_Y - 2.5, heightAt(q.x, q.z) - 1), top = RAIL_TOP - 0.6, tall = Math.max(0, -gb - 4);
+        const pier = new THREE.Mesh(new THREE.CylinderGeometry(0.7 + tall * 0.03, 0.9 + tall * 0.07, top - gb, 12), concrete);
+        pier.position.set(q.x, (top + gb) / 2, q.z); pier.castShadow = pier.receiveShadow = true; group.add(pier);
+        if (tall > 0) {
+          const capM = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.6, 1.8), concrete); capM.position.set(q.x, top - 0.3, q.z); capM.rotation.y = rot; capM.castShadow = true; group.add(capM);
+          colliders.push({ kind: 'c', x: q.x, z: q.z, r: 1.0 + tall * 0.07, height: top - 1 });
+        }
+      }
     }
   }
 
-  // tunnel portals where the Mail line meets a hill
-  const stone = std('#8f877b', { roughness: 1 });
-  const dark = new THREE.MeshBasicMaterial({ color: '#050505' });
-  if (!T.closed) for (const [a, b] of T.segs) for (const [t, dir] of [[a, 1], [b, -1]]) {
-    if (t < 1 || t > P.L - 1) continue; // the ends of a line run on into the ring, not into a hill
-    P.at(t, q);
-    const portal = new THREE.Group();
-    portal.position.set(q.x, TRACK_Y - 1, q.z);
-    portal.rotation.y = Math.atan2(q.tx * dir, q.tz * dir);
-    const shape = new THREE.Shape();
-    shape.moveTo(-8, -0.6); shape.lineTo(8, -0.6); shape.lineTo(8, 11); shape.lineTo(-8, 11); shape.lineTo(-8, -0.6);
-    const hole = new THREE.Path();
-    hole.moveTo(-2.6, 0); hole.lineTo(2.6, 0); hole.lineTo(2.6, 5.2); hole.absarc(0, 5.2, 2.6, 0, Math.PI, false); hole.lineTo(-2.6, 0);
-    shape.holes.push(hole);
-    const face = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: 1.6, bevelEnabled: false }), stone);
-    face.castShadow = face.receiveShadow = true;
-    portal.add(face);
-    const back = new THREE.Mesh(new THREE.PlaneGeometry(6, 8.5), dark);
-    back.position.set(0, 4, -1.5);
-    portal.add(back);
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(17, 0.6, 2.0), std('#7b7367'));
-    cap.position.set(0, 11.2, 0.8);
-    portal.add(cap);
-    group.add(portal);
+  // a portal at each end of every tunnel
+  const stone = std('#8f877b', { roughness: 1 }), trim = std('#b3a891', { roughness: 0.95 });
+  for (const [a, b] of T.tunnels) for (const [t, dir] of [[a, -1], [b, 1]]) {
+    if (!T.closed && (t < 1 || t > P.L - 1)) continue; // the ends of a line run on into the ring, not into a hill
+    tunnelPortal(group, P, t, dir, stone, trim);
   }
 
   // level crossings on the main road (the old one, spanning the main and Mail lines; the Mariapur line's)
-  if (T === TRACK) { TK = TRACK; levelCrossing(group, CROSSING.x, CROSSING.z, [TRACK, TRACKS[1]]); }
-  if (T === TRACK3) { TK = TRACK3; levelCrossing(group, CROSSING3.x, CROSSING3.z, [TRACK3]); }
 
   // telegraph poles along the station lines and the ring
   if (T.name === 'mail') return;
@@ -583,7 +677,7 @@ function buildLine(group, T) {
   const poleTs = [];
   for (const [a, b] of T.segs) for (let t = a + 10; t < b - 10; t += 45) {
     P.at(t, q);
-    if (onBridge(t) || Math.hypot(q.x - CROSSING.x, q.z - CROSSING.z) < 14 || Math.hypot(q.x - CROSSING3.x, q.z - CROSSING3.z) < 14) continue;
+    if (onBridge(t) || ROAD_X.some((X) => Math.hypot(q.x - X.x, q.z - X.z) < 16)) continue;
     poleTs.push(t);
   }
   const poles = new THREE.InstancedMesh(pg, std('#5a5048'), Math.max(1, poleTs.length));
@@ -617,6 +711,7 @@ function buildLine(group, T) {
 class Railway {
   constructor(trains) {
     this.trains = trains;
+    for (const t of trains) t.others = trains;
     this.boxes = [];
     this.main = trains[0];
     this.lastT = null;
@@ -717,7 +812,11 @@ class Train {
     this.drive = { throttle: 0, brake: 0 };
     this.at = null; // the halt it's standing at
     this.cabSign = 1;
-    if (this.loopLine) { this.termini = false; this.dir = 1; this.m = 1; this.head = this.stopFor(this.halts[0]); this.mode = 'dwell'; this.timer = o.first ?? 12; this.at = this.halts[0]; }
+    if (this.loopLine) {
+      this.termini = false; this.dir = 1; this.m = 1;
+      if (o.startS !== undefined) { this.head = o.startS; this.mode = 'run'; this.v = 0; this.at = null; } // starts out between stations
+      else { this.head = this.stopFor(this.halts[0]); this.mode = 'dwell'; this.timer = o.first ?? 12; this.at = this.halts[0]; }
+    }
     if (this.termini) {
       // starts standing at the western terminus, facing east
       this.dir = 1; this.m = 1;
@@ -800,7 +899,7 @@ class Train {
       this.head += this.v * dt;
       if (nh && nh.d < 0.6 && nsp < 1.2) {
         this.v = 0; this.head = this.stopFor(nh.h); this.at = nh.h;
-        this.mode = 'dwell'; this.timer = nh.h.noStation ? 12 : nh.h.big || !this.nextStop(this.m) ? 30 : 22;
+        this.mode = 'dwell'; this.timer = nh.h.noStation ? 12 : 45; // 45 s at every platform: time to get on, or take over the cab
         if (this.onStation) this.onStation('arrive', this, nh.h);
       }
     } else if (this.mode === 'driven') {
@@ -834,7 +933,7 @@ class Train {
       this.v = this.v < target ? Math.min(target, this.v + ACCEL * dt) : Math.max(target, this.v - BRAKE * 1.6 * dt);
       const step = this.v * dt;
       if (nh && nh.d - step < 0.6 && this.v < 1.2) {
-        this.head += nh.d; this.v = 0; this.at = nh.h; this.mode = 'dwell'; this.timer = 22;
+        this.head += nh.d; this.v = 0; this.at = nh.h; this.mode = 'dwell'; this.timer = 45;
         if (this.onStation) this.onStation('arrive', this, nh.h);
       } else this.head += step;
     } else if (this.mode === 'driven') {
@@ -875,7 +974,7 @@ class Train {
         if (nh.d < 0.6 && this.v < 1.2) {
           this.v = 0; this.head = this.stopFor(nh.h);
           this.served.add(nh.h); this.at = nh.h;
-          this.mode = 'dwell'; this.timer = nh.h.big ? 32 : 20;
+          this.mode = 'dwell'; this.timer = 45;
           if (this.onStation) this.onStation('arrive', this, nh.h);
         }
       }
@@ -907,6 +1006,24 @@ class Train {
       this.at = null;
       if (this.v === 0) for (const h of this.halts) if (Math.abs(this.head - this.stopFor(h)) < 22) this.at = h;
     }
+    // never run into another train sharing the line (the station lines run onto the ring at the junctions):
+    // stop a few metres short of it
+    if (this.head !== prevHead && this.others) {
+      const sg = Math.sign(this.head - prevHead), ends = [this.head, this.tail];
+      const fs = sg > 0 ? Math.max(...ends) : Math.min(...ends);
+      const f = this.path.at(fs + sg * 1.5);
+      let hit = false;
+      for (const o of this.others) {
+        if (o === this) continue;
+        for (const b of o.boxes) {
+          const dx = f.x - b.x, dz = f.z - b.z, c = Math.cos(b.rot), sn = Math.sin(b.rot);
+          const lz = dx * sn + dz * c, lx = dx * c - dz * sn;
+          if (Math.abs(lx) < 2.4 && Math.abs(lz) < b.hd + 3) { hit = true; break; }
+        }
+        if (hit) break;
+      }
+      if (hit) { this.head = prevHead; this.v = 0; this.bumped = true; }
+    }
     const ds = this.head - prevHead;
     this.travel += this.termini || this.loopLine ? ds : ds * this.dir;
     // cars along the line
@@ -914,7 +1031,7 @@ class Train {
     const speed = Math.abs(this.v);
     for (const c of this.cars) {
       const sc = this.head - this.dir * c.off;
-      const vis = this.mode !== 'wait' && (this.openAt(sc + c.L / 2 + 3) || this.openAt(sc - c.L / 2 - 3) || this.openAt(sc));
+      const vis = this.mode !== 'wait'; // the tunnels are real now: the train is seen going in and coming out
       c.g.visible = vis;
       c.s = sc;
       if (!vis) continue;

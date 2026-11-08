@@ -282,6 +282,39 @@ const FLATD = (() => {
   };
 })();
 
+// Out in the quiet south-east, between the river and Purab Junction: a wooded hill the ring line tunnels
+// through, and just beyond it a low valley it crosses on a tall viaduct
+const RING_HILL = (() => { const q = P_RING.at(8100); return { x: q.x, z: q.z }; })();
+const DIP = (() => { const q = P_RING.at(8650); return { x: q.x, z: q.z, tx: q.tx, tz: q.tz }; })();
+export function dipMask(x, z) {
+  const dx = x - DIP.x, dz = z - DIP.z, u = dx * DIP.tx + dz * DIP.tz, v = -dx * DIP.tz + dz * DIP.tx;
+  if (Math.abs(u) > 200 || Math.abs(v) > 340) return 0;
+  return Math.exp(-(u * u) / (2 * 40 * 40)) * (1 - smoothstep(180, 330, Math.abs(v)));
+}
+export const RING_SIGHTS = { hill: RING_HILL, dip: DIP };
+// the jungle: dense forest out beyond the ring line in the south-east, a good way off the track
+export const JUNGLE = { th0: -1.15, th1: -0.3, gap: 95, r1: 1880 };
+export function jungleMask(x, z) {
+  const th = Math.atan2(z, x);
+  if (th < JUNGLE.th0 || th > JUNGLE.th1) return 0;
+  const r = Math.hypot(x, z), rr = ringR(th) + JUNGLE.gap;
+  if (r < rr) return 0;
+  return smoothstep(JUNGLE.th0, JUNGLE.th0 + 0.08, th) * (1 - smoothstep(JUNGLE.th1 - 0.08, JUNGLE.th1, th)) * smoothstep(rr, rr + 45, r) * (1 - smoothstep(JUNGLE.r1 - 15, JUNGLE.r1 + 10, r));
+}
+const polar = (th, r) => ({ x: Math.cos(th) * r, z: Math.sin(th) * r });
+// where the jungle's animals keep, and the rhinos out on the open hills inside the ring
+export const JUNGLE_HOMES = {
+  lions: { ...polar(-1.0, ringR(-1.0) + 230), r: 40 },
+  hyenas: { ...polar(-0.62, ringR(-0.62) + 250), r: 45 },
+  buffalo: { ...(() => { const v = 150; return { x: DIP.x + DIP.tz * v, z: DIP.z - DIP.tx * v }; })(), r: 35 }, // grazing the valley meadow
+  monkeys: { ...polar(-0.8, ringR(-0.8) + 165), r: 22 },
+  snakes: [polar(-0.95, ringR(-0.95) + 175), polar(-0.7, ringR(-0.7) + 300), polar(-0.42, ringR(-0.42) + 200)].map((p) => ({ ...p, r: 9 })),
+  rhinos: { ...polar(1.12, ringR(1.12) - 200), r: 45 },
+};
+// tunnels: inside, the bore is about 8.8 m wide; the hill above is carved out a little wider and a strip of
+// hillside (the lid, see terrain.js) laid back over the top so it looks untouched from outside
+export const BORE_HALF = 4.4, BORE_RAMP = 7.5, LID_W = 11.5;
+
 // ---------- height ----------
 // distance to the station valley's spine: a stretch of the main line between two x's
 function segD(x, z, xa, xb) {
@@ -309,6 +342,9 @@ function rawHeight(x, z) {
   h = lerp(h, 0.35 + fbm(x * 0.03, z * 0.03, 2) * 0.35, Math.max(flat * 0.85, valley * 0.97, sv * 0.98, cor * 0.97));
   // a wooded ridge over the old Mail line west of the village: its train still vanishes into a tunnel there
   h += 30 * Math.exp(-(((x + 620) / 34) ** 2)) * (1 - smoothstep(12, 26, Math.abs(z - trackZ2(x))));
+  // the ring's tunnel hill, and the low valley under its viaduct
+  { const dh = (x - RING_HILL.x) ** 2 + (z - RING_HILL.z) ** 2; if (dh < 400 * 400) h += 30 * Math.exp(-dh / (2 * 95 * 95)) * (0.85 + 0.15 * fbm(x * 0.02, z * 0.02, 2)); }
+  { const m = dipMask(x, z); if (m > 0) h = lerp(h, -9 + fbm(x * 0.05, z * 0.05, 2) * 0.8, m * 0.97); }
   return h;
 }
 const HILLTOP_H = rawHeight(HILLTOP.x, HILLTOP.z);
@@ -452,13 +488,20 @@ function makeTrack(path, forced = false) {
   }
   // where it crosses the river: bridges
   const bridges = []; { let b0 = null; const q = {};
-    for (let t = 0; t <= path.L; t += 1) { path.at(t, q); const w = riverDist(q.x, q.z) < RIVER_HALF + 9; if (w && b0 === null) b0 = t; else if (!w && b0 !== null) { bridges.push([b0 - 2, t + 1]); b0 = null; } } }
-  return { path, segs, bridges, L: path.L, closed: path.closed, openS: (t, m = 0) => { t = path.wrap(t); return segs.some((g) => t > g[0] - m && t < g[1] + m); } };
+    for (let t = 0; t <= path.L; t += 1) { path.at(t, q); const w = riverDist(q.x, q.z) < RIVER_HALF + 9 || baseHeight(q.x, q.z) < TRACK_Y - 3; if (w && b0 === null) b0 = t; else if (!w && b0 !== null) { bridges.push([b0 - 2, t + 1]); b0 = null; } } }
+  // the stretches between the open ones run through hills: real tunnels you can go through
+  const tunnels = []; { let c = 0; for (const g of segs) { if (g[0] - c > 20) tunnels.push([c, g[0]]); c = g[1]; } if (path.L - c > 20) tunnels.push([c, path.L]); }
+  return {
+    path, segs, bridges, tunnels, L: path.L, closed: path.closed,
+    openS: (t, m = 0) => { t = path.wrap(t); return segs.some((g) => t > g[0] - m && t < g[1] + m); },
+    tunnelS: (t) => { t = path.wrap(t); return tunnels.some((g) => t >= g[0] && t <= g[1]); },
+    bridgeS: (t) => { t = path.wrap(t); return bridges.some((g) => t > g[0] && t < g[1]); },
+  };
 }
 export const TRACK = Object.assign(makeTrack(P_MAIN, true), { z: trackZ, slope: trackSlope, termini: true, name: 'main' });
 export const TRACK2 = Object.assign(makeTrack(P_MAIL, false), { z: trackZ2, slope: trackSlope2, termini: true, name: 'mail' });
 export const TRACK3 = Object.assign(makeTrack(P_LINE3, true), { z: trackZ3, slope: trackSlope3, termini: true, name: 'line3' });
-export const RING = Object.assign(makeTrack(P_RING, true), { loop: true, name: 'ring' });
+export const RING = Object.assign(makeTrack(P_RING, false), { loop: true, name: 'ring' });
 export const TRACKS = [TRACK, TRACK2, TRACK3, RING];
 // The route a driven train can take: its own line, and at each end on round the ring through the junction
 // (a whole loop each way), so the boy can run through onto the ring line and on to its stations. The line's
@@ -496,6 +539,8 @@ RING.halts = [
 ].sort((a, b) => a.s - b.s);
 // both level crossings of the main road: the old one over the two lines south of the village, and the new one
 const LEVEL_X = [];
+// every level crossing (the main road's two and the country roads'): filled in once the roads are laid out
+export const ROAD_X = [];
 // where the new line crosses the main road north of the village
 export const CROSSING3 = (() => {
   let z = 535;
@@ -516,14 +561,19 @@ export function trackDist(x, z) {
   return m;
 }
 
-export function heightAt(x, z) {
+export function heightAt(x, z, bore = true) {
   let h = baseHeight(x, z);
   for (const T of TRACKS) {
     const n = T.path.near(x, z);
-    if (!n || n.d >= 34 || !T.openS(n.s)) continue;
+    if (!n || n.d >= 34) continue;
+    if (!T.openS(n.s)) {
+      // in a tunnel: the hill is hollowed out round the bore (the lid covers it from above)
+      if (bore && n.d < BORE_RAMP && T.tunnelS(n.s)) h = Math.min(h, lerp(TRACK_Y - 0.8, h, smoothstep(5.0, BORE_RAMP, n.d)));
+      continue;
+    }
     const dz = n.d;
     {
-      const fill = TRACK_Y - Math.max(0, dz - 3.5) * 0.55;
+      const fill = T.bridgeS(n.s) ? -1e9 : TRACK_Y - Math.max(0, dz - 3.5) * 0.55; // under a bridge the valley stays open
       const cut = TRACK_Y + Math.max(0, dz - 4) * 0.8;
       if (h < fill) h = fill;
       else if (h > cut) h = cut;
@@ -549,6 +599,16 @@ export function heightAt(x, z) {
     const w = (1 - smoothstep(C.half, C.half + 22, dz)) * (1 - smoothstep(3.8, 6.5, dxr));
     const top = TRACK_Y + 0.39;
     if (top > h) h += (top - h) * w;
+  }
+  // the country roads' crossings: the lane rises gently to rail height too
+  for (const X of ROAD_X) {
+    if (X.main) continue;
+    const dx = x - X.x, dz = z - X.z;
+    if (Math.abs(dx) > 34 || Math.abs(dz) > 34) continue;
+    const u = dx * X.rdx + dz * X.rdz, v = -dx * X.rdz + dz * X.rdx;
+    const w = (1 - smoothstep(X.span + 3, X.span + 22, Math.abs(u))) * (1 - smoothstep(X.half + 0.6, X.half + 3.2, Math.abs(v)));
+    const top = TRACK_Y + 0.39;
+    if (w > 0 && top > h) h += (top - h) * w;
   }
   const dr = Math.abs(x - riverX(z));
   if (dr < RIVER_HALF) {
@@ -654,7 +714,32 @@ export function archTop(B, lx) {
   return B.h0 + (B.h1 - B.h0) * t + Math.sin(t * Math.PI) * B.rise + 0.05;
 }
 // fromY: current feet height. Bridges only count when you are already up near their deck.
+// inside a tunnel's reach? (within the lid's width of a line, along a tunnel stretch)
+const _tn = { T: null, s: 0, d: 0 };
+// a box round each tunnel, for a quick "nowhere near one" answer
+const TUNNEL_BOX = [];
+for (const T of TRACKS) for (const [a, b] of T.tunnels) {
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity; const q = {};
+  for (let t = a; t <= b; t += 2) { T.path.at(t, q); x0 = Math.min(x0, q.x); x1 = Math.max(x1, q.x); z0 = Math.min(z0, q.z); z1 = Math.max(z1, q.z); }
+  TUNNEL_BOX.push({ T, x0: x0 - LID_W - 1, x1: x1 + LID_W + 1, z0: z0 - LID_W - 1, z1: z1 + LID_W + 1 });
+}
+export function tunnelAt(x, z) {
+  for (const B of TUNNEL_BOX) {
+    if (x < B.x0 || x > B.x1 || z < B.z0 || z > B.z1) continue;
+    const T = B.T, n = T.path.near(x, z);
+    if (n && n.d < LID_W && T.tunnelS(n.s)) { _tn.T = T; _tn.s = n.s; _tn.d = n.d; return _tn; }
+  }
+  return null;
+}
+// 1 where the hill is hollowed out for a tunnel (no grass, trees or rocks there)
+export function tunnelMask(x, z) { const t = tunnelAt(x, z); return t && t.d < BORE_RAMP + 1 ? 1 : 0; }
 export function groundHeight(x, z, fromY) {
+  // a tunnel: up on the hill you walk on the hillside; down in the bore, on its floor, with walls either side
+  { const tn = tunnelAt(x, z); if (tn) {
+    const lid = heightAt(x, z, false);
+    if (fromY === undefined || fromY > lid - 2.5) return lid;
+    return tn.d < BORE_HALF - 0.5 ? (tn.d < 1.6 ? TRACK_Y + 0.37 : TRACK_Y + 0.22) : lid;
+  } }
   let h = heightAt(x, z);
   { const td = trackDist(x, z); if (td < 2.4) h = Math.max(h, TRACK_Y + 0.37 - Math.max(0, td - 1.5) * 0.5); }
   { const st = stairAt(x, z); if (st && st.d < STAIRS.W) h = Math.max(h, stepTop(st.s)); }
@@ -762,16 +847,19 @@ export const layout = {
   // east: out of the village, over the new road bridge and on to Marudhar
   const rbW = rotPt(RBRIDGE, -(RIVER_HALF + 8), 0), rbE = rotPt(RBRIDGE, RIVER_HALF + 8, 0);
   RBRIDGE.w = rbW; RBRIDGE.e = rbE;
-  road([[roadX(150) + 2, 150], [40, 152], [rbW.x, rbW.z]]);
-  road([[rbE.x, rbE.z], [150, 158], [210, 145], [313, 179], [RV.x - 16, RV.z]]);
+  // every road bridge gets a straight run-up off each end, so the road meets the deck head-on, not from the side
+  for (const B of BRIDGES) { B.aw = rotPt(B, -(RIVER_HALF + 21), 0); B.ae = rotPt(B, RIVER_HALF + 21, 0); }
+  const RB = RBRIDGE;
+  road([[roadX(150) + 2, 150], [40, 152], [RB.aw.x, RB.aw.z], [rbW.x, rbW.z]]);
+  road([[rbE.x, rbE.z], [RB.ae.x, RB.ae.z], [150, 158], [210, 145], [313, 179], [RV.x - 16, RV.z]]);
   // south-east: down past the crossing, over the south bridge to Banglagram
   for (const B of BRIDGES.slice(1)) { B.w = rotPt(B, -(RIVER_HALF + 8), 0); B.e = rotPt(B, RIVER_HALF + 8, 0); }
   const [, B2, B3] = BRIDGES;
-  road([[roadX(-150) + 2, -150], [20, -175], [B2.w.x, B2.w.z]]);
-  road([[B2.e.x, B2.e.z], [130, -228], [221, -286], [BV.x - 16, BV.z]]);
+  road([[roadX(-150) + 2, -150], [20, -175], [B2.aw.x, B2.aw.z], [B2.w.x, B2.w.z]]);
+  road([[B2.e.x, B2.e.z], [B2.ae.x, B2.ae.z], [130, -228], [221, -286], [BV.x - 16, BV.z]]);
   // north-east: up the main road, over the north bridge to Thennoor
-  road([[roadX(250) + 2, 250], [35, 328], [B3.w.x, B3.w.z]]);
-  road([[B3.e.x, B3.e.z], [151, 390], [221, 456], [TV.x - 16, TV.z]]);
+  road([[roadX(250) + 2, 250], [35, 328], [B3.aw.x, B3.aw.z], [B3.w.x, B3.w.z]]);
+  road([[B3.e.x, B3.e.z], [B3.ae.x, B3.ae.z], [151, 390], [221, 456], [TV.x - 16, TV.z]]);
   // Paar gaon (across the footbridge) gets a proper road up to the eastern road
   road([[EH.x + 4, EH.z + 8], [142, 120], [150, 156]], 2.2);
   // north up the main road and the switchback into the hills to Pahadi Gaon
@@ -799,7 +887,7 @@ export const layout = {
   road([[RV.x + 14, RV.z + 10], [449, 286], [480, 371]], 2.2);
 
   // track corridor and crossing kept clear
-  { const q = {}; for (const T of TRACKS) for (const [a, b] of T.segs) for (let t = a; t < b; t += 3) { T.path.at(t, q); occupy(q.x, q.z, 7); } }
+  { const q = {}; for (const T of TRACKS) { for (const [a, b] of T.segs) for (let t = a; t < b; t += 3) { T.path.at(t, q); occupy(q.x, q.z, 7); } for (const [a, b] of T.tunnels) for (let t = a; t < b; t += 3) { T.path.at(t, q); occupy(q.x, q.z, 9); } } }
   occupy(CROSSING.x, CROSSING.z, 9);
   occupy(CROSSING3.x, CROSSING3.z, 9);
 
@@ -1709,10 +1797,72 @@ export const layout = {
     layout.bushes.push({ x, z, s: 0.6 + R() * 0.7, rot: R() * 6.28, v: Math.floor(R() * 3) });
     occupy(x, z, 0.8);
   }
+  // the jungle: big old trees close together, thick undergrowth between; the valley meadow stays open
+  {
+    let nt = 0, nb = 0;
+    const J = JUNGLE;
+    for (let i = 0; i < 120000 && (nt < 2200 || nb < 3200); i++) {
+      const th = J.th0 + R() * (J.th1 - J.th0), r = ringR(th) + J.gap + R() * (J.r1 - ringR(th) - J.gap);
+      const x = Math.cos(th) * r, z = Math.sin(th) * r;
+      const m = jungleMask(x, z);
+      if (R() > m || dipMask(x, z) > 0.2 || riverDist(x, z) < RIVER_HALF + 6) continue;
+      if (nt < 2200 && R() < 0.5) {
+        if (!isFree(x, z, 2.3)) continue;
+        const s2 = 1.05 + R() * 0.85;
+        layout.trees.push({ x, z, s: s2, rot: R() * 6.28, v: Math.floor(R() * 3) });
+        occupy(x, z, 2.1);
+        colliders.push({ kind: 'c', x, z, r: 0.35 * s2 });
+        nt++;
+      } else if (nb < 3200) {
+        if (!isFree(x, z, 0.9)) continue;
+        layout.bushes.push({ x, z, s: 0.8 + R() * 0.9, rot: R() * 6.28, v: Math.floor(R() * 3) });
+        occupy(x, z, 0.7);
+        nb++;
+      }
+    }
+    // keep the animals' own spots clear of trunks
+    void nt;
+  }
   buildDirtGrid();
 })();
 
+// Level crossings: wherever a road meets an open stretch of line (not on a bridge, not in a tunnel)
+{
+  const linesAt = (cx, cz, rdx, rdz) => {
+    const out = [];
+    for (const T of TRACKS) for (let u = -16; u <= 16; u += 0.25) {
+      const n = T.path.near(cx + rdx * u, cz + rdz * u);
+      if (n && n.d < 0.3 && T.openS(n.s) && !T.bridgeS(n.s)) { const q = T.path.at(n.s); out.push({ T, s: n.s, u, sin: Math.abs(rdx * q.tz - rdz * q.tx) }); break; }
+    }
+    return out;
+  };
+  const add = (cx, cz, rdx, rdz, half, main) => {
+    const tracks = linesAt(cx, cz, rdx, rdz);
+    if (!tracks.length) return;
+    const us = tracks.map((t) => t.u), sin = Math.max(0.35, Math.min(...tracks.map((t) => t.sin)));
+    const uc = (Math.min(...us) + Math.max(...us)) / 2;
+    ROAD_X.push({ x: cx + rdx * uc, z: cz + rdz * uc, rdx, rdz, half, main, tracks: tracks.map((t) => ({ ...t, u: t.u - uc })), span: (Math.max(...us) - Math.min(...us)) / 2 + 2.5 / sin, sin });
+  };
+  for (const C of [CROSSING, CROSSING3]) { const d = unit(roadX(C.z + 1) - roadX(C.z - 1), 2); add(C.x, C.z, d.x, d.z, 3.2, true); }
+  for (const T of TRACKS) for (const L of lanes) {
+    const len = Math.hypot(L.bx - L.ax, L.bz - L.az), n = Math.ceil(len / 0.5);
+    for (let i = 0; i <= n; i++) {
+      const x = L.ax + ((L.bx - L.ax) * i) / n, z = L.az + ((L.bz - L.az) * i) / n, q = T.path.near(x, z);
+      if (!(q && q.d < 0.5 && T.openS(q.s) && !T.bridgeS(q.s))) continue;
+      if (!ROAD_X.some((X) => Math.hypot(X.x - x, X.z - z) < 18)) { const d = unit(L.bx - L.ax, L.bz - L.az); add(x, z, d.x, d.z, L.w + 0.3, false); }
+      break;
+    }
+  }
+  // clear trees and bushes from round each crossing, where the gates and the gateman's cabin go
+  const clear = (list, r) => { for (let i = list.length - 1; i >= 0; i--) { const t = list[i]; if (ROAD_X.some((X) => Math.hypot(t.x - X.x, t.z - X.z) < r)) { list.splice(i, 1); const ci = colliders.findIndex((c) => c.kind === 'c' && c.x === t.x && c.z === t.z); if (ci >= 0) colliders.splice(ci, 1); } } };
+  clear(layout.trees, 26); clear(layout.bushes, 20); clear(layout.palms, 26); clear(layout.rocks, 20);
+}
+
 export function regionName(x, z) {
+  { const tn = tunnelAt(x, z); if (tn && tn.d < BORE_HALF + 1) return tn.T.name === 'ring' ? 'Pahadi Surang — the ring line\'s tunnel' : 'In the Mail line\'s tunnel'; }
+  if (dipMask(x, z) > 0.35) return 'Ghati — the valley under the viaduct';
+  if (jungleMask(x, z) > 0.5) return 'The jungle — lions, hyenas, monkeys and snakes live here';
+  if (Math.hypot(x - JUNGLE_HOMES.rhinos.x, z - JUNGLE_HOMES.rhinos.z) < 90) return 'Gainda hills — the rhinos graze here';
   for (const v of NEWV) if (Math.hypot(x - v.x, z - v.z) < 55) return v.style === 'kutch' ? `${v.name} — a Kutchi village of round huts` : `${v.name} — a Punjabi farming village`;
   if (layout.pasture && Math.hypot(x - layout.pasture.x, z - layout.pasture.z) < layout.pasture.r + 6) return 'The charagah — village grazing ground';
   if (layout.pasture && Math.hypot(x - layout.pasture.pen.x, z - layout.pasture.pen.z) < 10) return 'The cattle pen';

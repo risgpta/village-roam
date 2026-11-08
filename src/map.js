@@ -2,7 +2,7 @@
 // a painted picture of the whole area baked once at load, with places, rides and the boy marked on it.
 import {
   heightAt, riverDist, fieldType, dirtMask, trackDist, layout, WATER_Y, RIVER_HALF, PLAY_RADIUS,
-  WILD, STATION, TRACK3, NEW_VILLAGES, SQUARE, TEA, GHAT, WF, FOOT, EH, NV, SCHOOL, GARDEN, MARKET, CRICKET, PUMP, TANK, CROSSING, HILLTOP, TRACKS, riverX, RBRIDGE, BRIDGES, desertMask, NP, MP, PEAK,
+  WILD, STATION, TRACK3, NEW_VILLAGES, SQUARE, TEA, GHAT, WF, FOOT, EH, NV, SCHOOL, GARDEN, MARKET, CRICKET, PUMP, TANK, CROSSING, HILLTOP, TRACKS, JUNGLE_HOMES, RING_SIGHTS, riverX, RBRIDGE, BRIDGES, desertMask, NP, MP, PEAK,
 } from './world.js';
 
 const E = 1950; // half extent of the map, metres
@@ -88,7 +88,7 @@ function places() {
     ['Marudhar', L.rv, '🐪', 1], ...BRIDGES.map((b) => ['Road bridge', b, '🌉', 0]),
     ['Banglagram', L.bv, '🪷', 1], ['Thennoor', L.tv, '🛕', 1], ['Pond', L.bv?.pond, '', 0],
     ['Vitthalwadi', L.mh, '🪔', 1], ['Bamboo hill', L.ne, '🎋', 1], ['Tea garden', L.ne && { x: (L.ne.tea.x0 + L.ne.tea.x1) / 2, z: (L.ne.tea.z0 + L.ne.tea.z1) / 2 }, '🍃', 0],
-    ['Tiger country', WILD.tiger, '🐅', 1], ['Wolf hills', WILD.wolf, '🐺', 1], ['Elephant forest', WILD.elephant, '🐘', 1], ...WILD.leopards.map((l) => ['Leopard rocks', l, '🐆', 1]), ...WILD.deer.map((d) => ['Deer meadow', d, '🦌', 0]), ...[...new Map(TRACKS.flatMap((T) => T.halts.filter((h) => !h.noStation && !h.island).map((h) => [h.name, [h.big ? `${h.name} station` : h.name, h.yard ?? h, '🚉', h.big || h.W ? 1 : 0]]))).values()], ...NEW_VILLAGES.map((v) => [v.name, v, v.style === 'kutch' ? '🛖' : '🌾', 1]), ['Pahadi Gaon', L.pg, '🏔', 1],
+    ['Tiger country', WILD.tiger, '🐅', 1], ['Wolf hills', WILD.wolf, '🐺', 1], ['Elephant forest', WILD.elephant, '🐘', 1], ...WILD.leopards.map((l) => ['Leopard rocks', l, '🐆', 1]), ...WILD.deer.map((d) => ['Deer meadow', d, '🦌', 0]), ...[...new Map(TRACKS.flatMap((T) => T.halts.filter((h) => !h.noStation && !h.island).map((h) => [h.name, [h.big ? `${h.name} station` : h.name, h.yard ?? h, '🚉', h.big || h.W ? 1 : 0]]))).values()], ...NEW_VILLAGES.map((v) => [v.name, v, v.style === 'kutch' ? '🛖' : '🌾', 1]), ['Pahadi Gaon', L.pg, '🏔', 1], ['Jungle', JUNGLE_HOMES.monkeys, '🦁', 1], ['Rhino hills', JUNGLE_HOMES.rhinos, '🦏', 1], ['Viaduct', RING_SIGHTS.dip, '🌉', 0], ['Ring tunnel', RING_SIGHTS.hill, '⛰', 0],
     ['Noorpur', NP, '🕌', 1], ['Kabristan', NP.kab, '⚱', 0], ['Mariapur', MP, '⛪', 1], ['Cemetery', MP.cem, '✝', 0], ['Shikhar summit', PEAK, '🗻', 1],
     ...(L.busStops || []).map((b) => ['', b, '🚏', 0]),
     ['Crocodiles', { x: riverX(380) + 18, z: 380 }, '🐊', 1], ['Crocodiles', { x: riverX(-400) + 18, z: -400 }, '🐊', 1],

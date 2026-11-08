@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { noise2, clamp } from './noise.js';
 import {
-  roadX, groundHeight, resolveCollisions, pushOut, colliders, NP, MP, heightAt, riverDist, WATER_Y, WATER, PLAY_RADIUS, layout, regionName, WF, RIVER_HALF, MARKET, TEA,
+  roadX, groundHeight, resolveCollisions, pushOut, colliders, NP, MP, heightAt, riverDist, WATER_Y, WATER, PLAY_RADIUS, layout, regionName, WF, RIVER_HALF, MARKET, TEA, tunnelAt, LID_W, TRACK_Y,
 } from './world.js';
 import { buildTerrain, buildGrassData } from './terrain.js';
 import { buildGrass } from './grass.js';
@@ -29,6 +29,7 @@ import { buildStations, CAPACITY } from './station.js';
 import { buildHerds } from './herds.js';
 import { buildHamlets } from './hamlet.js';
 import { buildShrineLife } from './shrine.js';
+import { buildTrackside } from './trackside.js';
 import { ALL_PEOPLE } from './people.js';
 import { buildPassengers } from './passengers.js';
 import { buildConstruction } from './construction.js';
@@ -102,7 +103,8 @@ let soundChoice = 'auto';
 const WY = () => WATER_Y + WATER.off;
 // only the river (and its ghat and pool) holds water: low dry hollows elsewhere are just ground
 const wet = (x, z) => riverDist(x, z) < RIVER_HALF + 3;
-let herds = null, birds = null, hamlets = null, shrineLife = null;
+let tunnelK = 1;
+let herds = null, birds = null, hamlets = null, shrineLife = null, trackside = null;
 let stations = null, drv = null, drvLoco = null, drvView = 0;
 let river, motes, train, flocks, people, animals, waterfall, lanterns, farm, fish, wild, map;
 const scare = { shake: 0, cool: 0 };
@@ -1032,6 +1034,7 @@ async function build() {
   });
   hamlets = buildHamlets(scene, layout.newVillages ?? []);
   shrineLife = buildShrineLife(scene);
+  trackside = buildTrackside(scene, train, { moo: (v) => audio.moo(v) });
   motes = buildMotes();
   scene.add(motes);
   boy.root.rotation.order = 'YXZ';
@@ -1357,7 +1360,7 @@ function updatePlayer(dt) {
     // pitch with the slope of the ground under the wheels
     if (!ride.water) {
       const fx = Math.sin(player.facing), fz = Math.cos(player.facing), hl = ride.name === 'minibus' ? 2.1 : ride.name === 'bus' ? 2.6 : 0.9;
-      const hf = groundHeight(player.x + fx * hl, player.z + fz * hl), hb = groundHeight(player.x - fx * hl, player.z - fz * hl);
+      const hf = groundHeight(player.x + fx * hl, player.z + fz * hl, player.y + 0.5), hb = groundHeight(player.x - fx * hl, player.z - fz * hl, player.y + 0.5);
       ridePitch += (-Math.atan2(hf - hb, hl * 2) - ridePitch) * (1 - Math.exp(-dt * 6));
     } else ridePitch *= 0.9;
     boy.root.rotation.x = ridePitch;
@@ -1528,7 +1531,7 @@ function updateTrainDrive(dt) {
   if (!dragging && performance.now() - autoYaw > 1500) yaw = lerpAngle(yaw, drvLoco.g.rotation.y + Math.PI, 1 - Math.exp(-dt * 2));
   // in a tunnel: dark, with the beat of the engine
   const inTunnel = !tr.openAt(drvLoco.s ?? tr.head);
-  $('tunnel').classList.toggle('show', inTunnel && started);
+  $('tunnel').classList.toggle('show', false); void inTunnel; // the tunnels are real now: you see the walls and lamps go by
   // HUD: speed, how hard she's working, passengers and the next stop
   const hud = $('ridehud');
   hud.classList.add('show', 'bus'); hud.classList.remove('four', 'boat', 'boost', 'empty');
@@ -2105,19 +2108,22 @@ function villageVoices(dt) {
 }
 
 // ---------------- the wild: warnings, and a shove back when an animal gets too close ----------------
-const WARN = { leopard: 'A leopard! It springs at you — back away', elephant: 'The elephant charges — give the herd space!', crocodile: 'Careful! A mugger crocodile — stay away from the bank', tiger: 'The tiger roars — back away slowly!', wolf: 'The wolves snap at you — keep your distance' };
+const WARN = { leopard: 'A leopard! It springs at you — back away', elephant: 'The elephant charges — give the herd space!', crocodile: 'Careful! A mugger crocodile — stay away from the bank', tiger: 'The tiger roars — back away slowly!', wolf: 'The wolves snap at you — keep your distance', lion: 'The lion roars and lunges — back away from the pride!', hyena: 'The hyenas snap at you — keep your distance', rhino: 'The rhino charges! Get out of its way', buffalo: 'The wild buffalo charges — leave the herd alone', snake: 'A cobra rears and strikes — step back!', monkey: 'A monkey snatches at you and scampers off' };
 const wildEvents = {
   hiss: (d) => audio.hiss(d),
   growl: (d, k) => audio.growl(d, k),
   roar: (d) => { audio.roar(d); if (d < 40) scare.shake = Math.max(scare.shake, 0.5); },
   howl: (d) => audio.howl(d),
+  cackle: (d) => audio.cackle(d),
+  chatter: (d) => audio.chatter(d),
+  snort: (d) => audio.snort(d),
   trumpet: (d) => { audio.trumpet(d); if (d < 30) scare.shake = Math.max(scare.shake, 0.4); },
   snap: (x, z, kind) => {
     if ((ride && ride.fly) || drv) return;
     if (scare.cool > 0) return;
     scare.cool = 2.5;
     const dx = player.x - x, dz = player.z - z, d = Math.hypot(dx, dz) || 1;
-    const push = kind === 'tiger' || kind === 'elephant' ? 4.5 : 2.6;
+    const push = kind === 'tiger' || kind === 'elephant' || kind === 'lion' || kind === 'rhino' || kind === 'buffalo' ? 4.5 : kind === 'monkey' || kind === 'snake' ? 1.6 : 2.6;
     const p = { x: player.x + (dx / d) * push, z: player.z + (dz / d) * push };
     resolveCollisions(p, 0.3, player.y);
     player.x = p.x; player.z = p.z;
@@ -2125,7 +2131,8 @@ const wildEvents = {
     if (!ride && !swim.on) { player.vy = 3.2; player.grounded = false; }
     scare.shake = 1;
     if (kind === 'elephant') audio.trumpet(2);
-    else if (kind === 'tiger') audio.roar(2); else if (kind === 'crocodile') audio.hiss(1);
+    else if (kind === 'tiger' || kind === 'lion') audio.roar(2); else if (kind === 'crocodile' || kind === 'snake') audio.hiss(1);
+    else if (kind === 'rhino' || kind === 'buffalo') audio.snort(1); else if (kind === 'monkey') audio.chatter(1); else if (kind === 'hyena') audio.cackle(1);
     else audio.growl(1, 'wolf');
     toast(WARN[kind]);
   },
@@ -2269,6 +2276,7 @@ function frame(now) {
   herds?.update(dt, player);
   hamlets?.update(dt, player);
   shrineLife?.update(dt, player);
+  trackside?.update(dt, player, !!PRESETS[presetIdx].night);
   clouds.material.uniforms.uTime.value = time;
   clouds.position.x = camera.position.x;
   clouds.position.z = camera.position.z;
@@ -2322,6 +2330,24 @@ function frame(now) {
     }
   }
 
+  // in a tunnel: keep the camera inside the bore with the boy (or his train), and let the daylight fall away
+  {
+    const cp = camera.position;
+    const tp = tunnelAt(player.x, player.z), pin = !!tp && player.y < heightAt(player.x, player.z, false) - 2.5;
+    if (pin) {
+      const T = tp.T, n = T.path.near(cp.x, cp.z);
+      if (n && T.tunnelS(n.s) && n.d < LID_W + 6) {
+        const q = T.path.at(n.s), nx = -q.tz, nz = q.tx;
+        const lat = clamp((cp.x - q.x) * nx + (cp.z - q.z) * nz, -3.3, 3.3);
+        cp.set(q.x + nx * lat, clamp(cp.y, TRACK_Y + 1.0, TRACK_Y + 6.0), q.z + nz * lat);
+      }
+    }
+    const tc = tunnelAt(cp.x, cp.z), camIn = !!tc && cp.y < heightAt(cp.x, cp.z, false) - 0.5;
+    tunnelK += ((pin || camIn ? 0.22 : 1) - tunnelK) * (1 - Math.exp(-dt * 3));
+    const pr = PRESETS[presetIdx];
+    sun.intensity = pr.sunI * tunnelK;
+    hemi.intensity *= 0.35 + 0.65 * tunnelK; // (the storm code sets it afresh every frame)
+  }
   composer.render();
 }
 
@@ -2371,6 +2397,7 @@ window.__gaon = {
   get herds() { return herds; },
   get hamlets() { return hamlets; },
   get shrineLife() { return shrineLife; },
+  get trackside() { return trackside; },
   allPeople: ALL_PEOPLE,
   get birds() { return birds; },
   get drv() { return drv; },

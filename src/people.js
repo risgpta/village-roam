@@ -1259,9 +1259,9 @@ function buildTravellers(scene, hooks) {
   const along = (z0, z1, step = 10) => { const o = []; for (let z = z0; Math.sign(z1 - z0) * (z1 - z) > 0; z += Math.sign(z1 - z0) * step) o.push([roadX(z), z]); return o; };
   const [B1, B2, B3] = BRIDGES;
   const routes = {
-    east: [...along(40, 150), [roadX(150) + 2, 150], [40, 152], [B1.w.x, B1.w.z], [B1.e.x, B1.e.z], [150, 158], [210, 145], [313, 179], [RV.x - 16, RV.z]],
-    south: [...along(0, -150), [roadX(-150) + 2, -150], [20, -175], [B2.w.x, B2.w.z], [B2.e.x, B2.e.z], [130, -228], [221, -286], [BV.x - 16, BV.z]],
-    north: [...along(150, 250), [roadX(250) + 2, 250], [35, 328], [B3.w.x, B3.w.z], [B3.e.x, B3.e.z], [151, 390], [221, 456], [TV.x - 16, TV.z]],
+    east: [...along(40, 150), [roadX(150) + 2, 150], [40, 152], [B1.aw.x, B1.aw.z], [B1.w.x, B1.w.z], [B1.e.x, B1.e.z], [B1.ae.x, B1.ae.z], [150, 158], [210, 145], [313, 179], [RV.x - 16, RV.z]],
+    south: [...along(0, -150), [roadX(-150) + 2, -150], [20, -175], [B2.aw.x, B2.aw.z], [B2.w.x, B2.w.z], [B2.e.x, B2.e.z], [B2.ae.x, B2.ae.z], [130, -228], [221, -286], [BV.x - 16, BV.z]],
+    north: [...along(150, 250), [roadX(250) + 2, 250], [35, 328], [B3.aw.x, B3.aw.z], [B3.w.x, B3.w.z], [B3.e.x, B3.e.z], [B3.ae.x, B3.ae.z], [151, 390], [221, 456], [TV.x - 16, TV.z]],
     main: along(-100, 175, 8),
     west: [...along(20, 175), [roadX(178) - 2, 178], [NV.x + 12, NV.z], [NV.x - 14, NV.z - 2], [-206, 160], [-232, 95], [-238, 10], [-356, 0], [-511, -40], [-629, -79], [MH.x + 16, MH.z]],
     ne: [[BV.x - 16, BV.z], [BV.x + 4, BV.z - 14], [346, -443], [350, -618], [NE.x, NE.z + 16]],
@@ -1270,10 +1270,10 @@ function buildTravellers(scene, hooks) {
   if (layout.newRoads?.khet) routes.khet = layout.newRoads.khet;
   if (layout.newRoads?.rann) routes.rann = layout.newRoads.rann;
   // the buses and jeeps take longer runs, linking several villages
-  routes.busA = [...along(30, 150), [roadX(150) + 2, 150], [40, 152], [B1.w.x, B1.w.z], [B1.e.x, B1.e.z], [150, 158], [210, 145], [313, 179], [RV.x - 16, RV.z], [RV.x - 6, RV.z - 16], [326, -181], [BV.x + 14, BV.z + 6], [BV.x - 16, BV.z], [221, -286], [130, -228], [B2.e.x, B2.e.z], [B2.w.x, B2.w.z], [20, -175], [roadX(-150) + 2, -150], ...along(-150, 10)];
+  routes.busA = [...along(30, 150), [roadX(150) + 2, 150], [40, 152], [B1.aw.x, B1.aw.z], [B1.w.x, B1.w.z], [B1.e.x, B1.e.z], [B1.ae.x, B1.ae.z], [150, 158], [210, 145], [313, 179], [RV.x - 16, RV.z], [RV.x - 6, RV.z - 16], [326, -181], [BV.x + 14, BV.z + 6], [BV.x - 16, BV.z], [221, -286], [130, -228], [B2.ae.x, B2.ae.z], [B2.e.x, B2.e.z], [B2.w.x, B2.w.z], [B2.aw.x, B2.aw.z], [20, -175], [roadX(-150) + 2, -150], ...along(-150, 10)];
   routes.busB = routes.west;
-  routes.jeepA = [...along(60, 250), [roadX(250) + 2, 250], [35, 328], [B3.w.x, B3.w.z], [B3.e.x, B3.e.z], [151, 390], [221, 456], [TV.x - 16, TV.z], [TV.x + 12, TV.z], [TV.x + 28, TV.z + 8], [345, 345], [RV.x - 6, RV.z + 16]];
-  routes.jeepB = [...along(0, -150), [roadX(-150) + 2, -150], [20, -175], [B2.w.x, B2.w.z], [B2.e.x, B2.e.z], [130, -228], [221, -286], ...routes.ne];
+  routes.jeepA = [...along(60, 250), [roadX(250) + 2, 250], [35, 328], [B3.aw.x, B3.aw.z], [B3.w.x, B3.w.z], [B3.e.x, B3.e.z], [B3.ae.x, B3.ae.z], [151, 390], [221, 456], [TV.x - 16, TV.z], [TV.x + 12, TV.z], [TV.x + 28, TV.z + 8], [345, 345], [RV.x - 6, RV.z + 16]];
+  routes.jeepB = [...along(0, -150), [roadX(-150) + 2, -150], [20, -175], [B2.aw.x, B2.aw.z], [B2.w.x, B2.w.z], [B2.e.x, B2.e.z], [B2.ae.x, B2.ae.z], [130, -228], [221, -286], ...routes.ne];
   const motorRiders = [
     { route: 'east', kind: Moped, o: { dress: 'pants', top: '#c8323a', bottom: '#3a3a42', skin: '#7a4c33', sleeves: 'short', mustache: true }, v: 8, s0: 30 },
     { route: 'south', kind: Scooter, o: { dress: 'saree', k: 0.92, top: '#1e6fa8', bottom: '#f2b705', veil: false, skin: '#80523a' }, v: 7, s0: 90 },
