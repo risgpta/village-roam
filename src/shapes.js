@@ -22,6 +22,44 @@ export function limb(r0, r1, len, segs = 12) {
   return lathe(pts, segs);
 }
 
+// A limb with muscle: like limb(), but the radius swells where the muscles are. bulges: [[t, amount, width,
+// side]] where t runs 0 (top) → 1 (bottom), amount is a fraction of the radius, and side says which way it
+// swells: 1 to the front (+z), -1 to the back, 0 all round. flat squashes the limb front-to-back a little.
+export function muscle(r0, r1, len, bulges = [], { flat = 0.88, segs = 14 } = {}) {
+  const pts = [], n = 5, mid = 14;
+  for (let i = 0; i <= n; i++) { const a = -Math.PI / 2 + (i / n) * (Math.PI / 2); pts.push([Math.cos(a) * r1, -len + Math.sin(a) * r1]); }
+  for (let i = 1; i < mid; i++) { const t = 1 - i / mid; pts.push([r0 + (r1 - r0) * t, -len * t]); }
+  for (let i = 0; i <= n; i++) { const a = (i / n) * (Math.PI / 2); pts.push([Math.cos(a) * r0, Math.sin(a) * r0]); }
+  const g = lathe(pts, segs);
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const t = Math.min(1, Math.max(0, -y / len)), a = Math.atan2(x, z);
+    let k = 1;
+    for (const [c, amt, w, side] of bulges) {
+      const dir = side === 0 ? 1 : Math.max(0, Math.cos(a - (side > 0 ? 0 : Math.PI))) ** 1.5;
+      k += amt * Math.exp(-(((t - c) / w) ** 2)) * dir;
+    }
+    p.setXYZ(i, x * k, y, z * k * flat);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+// soft folds in cloth: ripples running down a lathed garment, stronger toward its hem (lower y)
+export function folds(g, amp, count, yTop, yHem) {
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const w = Math.min(1, Math.max(0, (yTop - y) / (yTop - yHem)));
+    const a = Math.atan2(x, z);
+    const f = 1 + amp * w * (Math.sin(a * count + Math.sin(a * 3) * 1.4) * 0.7 + Math.sin(a * count * 2.3 + 1.7) * 0.3);
+    p.setXYZ(i, x * f, y, z * f);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
 // same, but lying along +Z from the origin (snouts, tails, beaks)
 export const limbZ = (r0, r1, len, segs = 12) => limb(r0, r1, len, segs).rotateX(-Math.PI / 2);
 

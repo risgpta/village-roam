@@ -7,7 +7,7 @@ import { Moped } from './bicycle.js';
 import { Scooter, VillageBus, Jeep, RowBoat, poseRower } from './vehicles.js';
 import { Bicycle, poseRider } from './bicycle.js';
 import { makeCow } from './animals.js';
-import { lathe, limb, limbZ, ellipsoid } from './shapes.js';
+import { lathe, limb, limbZ, ellipsoid, muscle, folds } from './shapes.js';
 import { Dog, consolidate } from './animals.js';
 import { Gear } from './gear.js';
 
@@ -32,7 +32,7 @@ const damp = (dt, r) => 1 - Math.exp(-dt * r);
 const HEADS = new Map();
 function headGeo(fine) {
   if (HEADS.has(fine)) return HEADS.get(fine);
-  const g = new THREE.SphereGeometry(1, 40, 30);
+  const g = new THREE.SphereGeometry(1, 64, 48);
   const p = g.attributes.position;
   const bump = (x, y, z, cx, cy, cz, r) => Math.exp(-((x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2) / r);
   for (let i = 0; i < p.count; i++) {
@@ -47,7 +47,7 @@ function headGeo(fine) {
     X += Math.sign(x) * (fine ? 0.0025 : 0.0065) * bump(axJ, y, z, 0.72, -0.56, 0.05, 0.06); // the angle of the jaw
     // a chin with some shape to it: forward at the front, and flat underneath rather than coming to a point
     Z += (fine ? 0.004 : 0.007) * bump(axJ, y, z, 0.0, -0.84, 0.5, 0.04);
-    if (y < -0.8) Y += (-0.8 - y) * (z > 0 ? 0.045 : 0.07);
+    { const cu = Math.max(0, -0.72 - y); Y += cu * cu * (z > 0 ? 0.22 : 0.3); }
     // fuller cheeks on the finer (women's and children's) head
     if (fine) { const ck = bump(axJ, y, z, 0.5, -0.42, 0.7, 0.05); X += Math.sign(x) * 0.004 * ck; Z += 0.003 * ck; }
     // the chin comes forward a little; the throat side goes back
@@ -68,6 +68,23 @@ function headGeo(fine) {
     X -= Math.sign(x) * 0.004 * bump(ax, y, z, 0.85, 0.3, 0.35, 0.04);
     // the front of the face is flatter than a ball
     if (z > 0.55) Z -= (z - 0.55) * 0.012;
+    if (z > 0.45) {
+      const fz = Math.min(1, (z - 0.45) / 0.3);
+      // the nose grows out of the face: a narrow bridge between the eyes, widening and rising to the tip, then
+      // tucking back under to the lip
+      const ny = Math.min(1, Math.max(0, (0.12 - y) / 0.44)); // 0 between the eyes → 1 at the tip
+      const under = Math.max(0, Math.min(1, (y + 0.34) / 0.08));
+      const wN = 0.075 + ny * 0.07;
+      Z += (0.002 + 0.0155 * ny * ny) * under * Math.exp(-((x / wN) ** 2)) * fz * (fine ? 0.85 : 1);
+      // the wings of the nose either side of the tip
+      Z += 0.0045 * bump(ax, y, z, 0.12, -0.31, 0.93, 0.004) * fz;
+      // the groove from the nose to the lip, and the lips standing out a little from the teeth behind them
+      Z += 0.0042 * bump(ax, y, z, 0.0, -0.53, 0.9, 0.012) * fz;
+      Z -= 0.0012 * Math.exp(-((x / 0.035) ** 2)) * bump(ax, y, z, 0.0, -0.43, 0.9, 0.004);
+      // the hollow under the lower lip, and the cheeks fuller beside the nose
+      Z -= 0.002 * bump(ax, y, z, 0.0, -0.66, 0.85, 0.004);
+      Z += 0.003 * bump(ax, y, z, 0.3, -0.28, 0.85, 0.015) * (fine ? 1.3 : 1);
+    }
     p.setXYZ(i, X, Y, Z);
   }
   g.computeVertexNormals();
@@ -162,14 +179,15 @@ export function buildHuman(o) {
     hip.position.set(s * 0.088, hipY, 0);
     body.add(hip);
     if (dress === 'dhoti') part(limb(0.102, 0.088, thigh), bottom, hip);
-    else if (saree) part(limb(0.068, 0.052, thigh), skin, hip);
-    else if (dress === 'shorts') { part(limb(0.094, 0.086, thigh * 0.48), bottom, hip); part(limb(0.064, 0.052, thigh), skin, hip); }
+    else if (saree) part(muscle(0.068, 0.05, thigh, [[0.35, 0.1, 0.3, 1], [0.85, -0.08, 0.15, 0]]), skin, hip);
+    else if (dress === 'shorts') { part(limb(0.094, 0.086, thigh * 0.48), bottom, hip); part(muscle(0.064, 0.05, thigh, [[0.4, 0.12, 0.3, 1], [0.86, -0.08, 0.14, 0]]), skin, hip); }
     else part(limb(0.088, 0.07, thigh), bottom, hip);
     const knee = new THREE.Group();
     knee.position.y = -thigh;
     hip.add(knee);
-    if (dress === 'dhoti') { part(limb(0.084, 0.074, shin * 0.42), bottom, knee); part(limb(0.052, 0.036, shin), skin, knee); }
-    else if (saree || dress === 'shorts') part(limb(0.052, 0.036, shin), skin, knee);
+    // the shin: a knee, the swell of the calf behind, and a slim ankle
+    if (dress === 'dhoti') { part(limb(0.084, 0.074, shin * 0.42), bottom, knee); part(muscle(0.05, 0.03, shin, [[0.08, 0.06, 0.12, 0], [0.3, 0.3, 0.2, -1], [0.3, 0.06, 0.25, 0], [0.88, -0.1, 0.1, 0]]), skin, knee); }
+    else if (saree || dress === 'shorts') part(muscle(0.05, 0.03, shin, [[0.08, 0.06, 0.12, 0], [0.3, 0.3, 0.2, -1], [0.3, 0.06, 0.25, 0], [0.88, -0.1, 0.1, 0]]), skin, knee);
     else { part(limb(0.07, 0.062, shin * 0.92), bottom, knee); part(limb(0.042, 0.036, shin), skin, knee); }
     part(ellipsoid(0.04, 0.028, 0.098, 12, 8), skin, knee, 0, -shin - 0.004, 0.045);
     part(ellipsoid(0.048, 0.011, 0.115, 12, 6), sandal, knee, 0, -shin - 0.03, 0.045);
@@ -212,11 +230,12 @@ export function buildHuman(o) {
     }
   } else {
     const kurta = dress === 'kurta' ? 0.46 : dress === 'dhoti' ? 0.3 : dress === 'shorts' ? 0.2 : 0.1;
-    part(lathe([[0, -0.06], [0.13, -0.05], [0.155, 0.02], [0.16, 0.15], [0.168, 0.3], [0.178, 0.42], [0.172, 0.48], [0.14, 0.53], [0.075, 0.565], [0, 0.575]], 20).scale(1, 1, 0.68), top, torso);
-    part(lathe([[0.21, -kurta], [0.19, -kurta * 0.5], [0.165, -0.03], [0.157, 0.04]], 20).scale(1, 1, 0.72), topDS, torso);
+    // the shirt over the chest and back: broad at the shoulders and chest, gathered at the waist with a few folds
+    part(folds(lathe([[0, -0.06], [0.13, -0.05], [0.155, 0.02], [0.158, 0.15], [0.17, 0.3], [0.182, 0.42], [0.176, 0.48], [0.142, 0.53], [0.075, 0.565], [0, 0.575]], 32), 0.025, 7, 0.32, 0.0).scale(1, 1, 0.68), top, torso);
+    part(folds(lathe([[0.21, -kurta], [0.19, -kurta * 0.5], [0.165, -0.03], [0.157, 0.04]], 40), 0.06, 9, 0.04, -kurta).scale(1, 1, 0.72), topDS, torso); // the hem falls in soft folds
     if (o.vest) part(lathe([[0.163, 0.12], [0.172, 0.3], [0.182, 0.42], [0.176, 0.48], [0.12, 0.535]], 20).scale(1, 1, 0.7), mat(o.vest, 0.9), torso);
   }
-  part(limb(0.05, 0.054, 0.11, 12), skin, torso, 0, 0.64, 0);
+  part(muscle(0.048, 0.056, 0.12, [[0.85, 0.12, 0.25, 0]], { flat: 0.92 }), skin, torso, 0, 0.645, 0);
 
   const head = new THREE.Group();
   head.position.y = 0.72;
@@ -236,10 +255,11 @@ export function buildHuman(o) {
     part(ellipsoid(0.0068, 0.0068, 0.0026, 14, 8), iris, head, ex, ey + 0.0004, ez + 0.0119);
     part(ellipsoid(0.0031, 0.0031, 0.0016, 10, 6), pupil, head, ex, ey + 0.0004, ez + 0.0137);
     part(new THREE.SphereGeometry(0.0013, 6, 5), shine, head, ex + 0.0024, ey + 0.003, ez + 0.0144);
-    const upper = part(ellipsoid(0.0156, 0.0072, 0.0126, 14, 8), skin, head, ex, ey + 0.0128, ez + 0.0004);
+    const upper = part(ellipsoid(0.0156, 0.0068, 0.0126, 14, 8), skin, head, ex, ey + 0.0142, ez + 0.0002);
     upper.rotation.x = -0.12;
-    part(ellipsoid(0.0152, 0.0012, 0.0112, 12, 4), dark, head, ex, ey + 0.0078, ez + 0.0046).rotation.z = -s * 0.06; // the lash line
+    part(ellipsoid(0.0152, 0.0012, 0.0112, 12, 4), dark, head, ex, ey + 0.0092, ez + 0.0044).rotation.z = -s * 0.06; // the lash line
     part(ellipsoid(0.0146, 0.0036, 0.0108, 12, 6), skin, head, ex, ey - 0.0124, ez + 0.0004);
+    part(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new THREE.Vector3(ex - s * 0.013, ey + 0.0175, ez - 0.004), new THREE.Vector3(ex, ey + 0.0215, ez + 0.0035), new THREE.Vector3(ex + s * 0.014, ey + 0.016, ez - 0.004)]), 8, 0.0009, 4, false), lidM, head); // the crease of the lid
     // brows: an arch of hair over each eye, finer for the women
     const bw = fem ? 0.0024 : 0.0036;
     const brow = new THREE.CatmullRomCurve3([new THREE.Vector3(s * 0.016, 0.034, 0.097), new THREE.Vector3(s * 0.034, 0.041, 0.095), new THREE.Vector3(s * 0.054, 0.036, 0.083)]);
@@ -249,12 +269,11 @@ export function buildHuman(o) {
     ear.rotation.y = s * 0.35;
     part(ellipsoid(0.005, 0.016, 0.011, 8, 6), lidM, head, s * 0.1, -0.001, -0.004).rotation.y = s * 0.35;
     // the sides of the nose and the nostrils
-    part(ellipsoid(0.0072, 0.0064, 0.0082, 10, 6), skin, head, s * 0.0104, -0.0335, 0.0995);
+    part(ellipsoid(0.0052, 0.0048, 0.0052, 10, 6), skin, head, s * 0.0092, -0.034, 0.0985);
     part(ellipsoid(0.0024, 0.0013, 0.0022, 6, 4), dark, head, s * 0.0052, -0.0402, 0.1026);
   }
   // the nose: a bridge running down from between the brows to a rounded tip
-  part(ellipsoid(0.0082, 0.03, 0.0105, 10, 8), skin, head, 0, -0.006, 0.0982).rotation.x = -0.28;
-  part(ellipsoid(0.0102, 0.0092, 0.0102, 12, 10), skin, head, 0, -0.031, 0.1062);
+  part(ellipsoid(0.0082, 0.0074, 0.007, 12, 10), skin, head, 0, -0.031, 0.1045);
   // lips: a shaped upper lip, a fuller lower one, the line of the mouth between
   const lipC = fem ? mat('#' + new THREE.Color(skinC).lerp(new THREE.Color('#9a3438'), 0.45).multiplyScalar(0.85).getHexString(), 0.45) : lip;
   part(ellipsoid(0.021, 0.0052, 0.0085, 12, 6), lipC, head, 0, -0.0535, 0.0935);
@@ -308,19 +327,28 @@ export function buildHuman(o) {
     shoulder.position.set(s * 0.182, 0.505, 0);
     torso.add(shoulder);
     const longSleeve = !saree && o.sleeves !== 'short';
-    if (saree) { part(limb(0.056, 0.05, 0.11), top, shoulder); part(limb(0.046, 0.038, 0.29), skin, shoulder); }
-    else if (!longSleeve) { part(limb(0.059, 0.053, 0.15), top, shoulder); part(limb(0.047, 0.04, 0.29), skin, shoulder); }
+    // the round of the shoulder, so the arm grows out of the body instead of meeting it at a seam
+    part(ellipsoid(0.06, 0.05, 0.056, 14, 10), top, shoulder, -s * 0.004, -0.004, 0);
+    const upper = (r0, r1) => muscle(r0, r1, 0.29, [[0.15, 0.12, 0.18, 0], [0.5, 0.16, 0.22, 1], [0.55, 0.1, 0.22, -1]], { flat: 0.9 });
+    if (saree) { part(limb(0.056, 0.05, 0.11), top, shoulder); part(upper(0.046, 0.036), skin, shoulder); }
+    else if (!longSleeve) { part(limb(0.059, 0.053, 0.15), top, shoulder); part(upper(0.047, 0.038), skin, shoulder); }
     else part(limb(0.057, 0.047, 0.3), top, shoulder);
     const elbow = new THREE.Group();
     elbow.position.y = -0.3;
     shoulder.add(elbow);
-    part(limb(0.043, 0.033, 0.26), longSleeve ? top : skin, elbow);
+    part(longSleeve ? limb(0.043, 0.033, 0.26) : muscle(0.04, 0.026, 0.26, [[0.22, 0.2, 0.22, 0], [0.92, -0.08, 0.08, 0]], { flat: 0.84 }), longSleeve ? top : skin, elbow);
     if (longSleeve) part(limb(0.034, 0.032, 0.03, 10), skin, elbow, 0, -0.255, 0);
     const hand = new THREE.Group();
     hand.position.y = -0.28;
     elbow.add(hand);
-    part(ellipsoid(0.019, 0.052, 0.033, 12, 10), skin, hand, 0, -0.04, 0.004);
-    part(ellipsoid(0.011, 0.026, 0.012, 8, 6), skin, hand, -s * 0.012, -0.03, 0.03).rotation.z = s * 0.35;
+    // the palm, four fingers held together and curled a little, and the thumb
+    part(ellipsoid(0.017, 0.036, 0.03, 12, 10), skin, hand, 0, -0.03, 0.004);
+    for (let f = 0; f < 4; f++) {
+      const fz = 0.02 - f * 0.0128, len = [0.044, 0.05, 0.047, 0.038][f];
+      const fg = part(limb(0.0068, 0.0058, len, 6), skin, hand, 0.002, -0.06, fz + 0.004);
+      fg.rotation.z = s * 0.25; fg.rotation.x = (f - 1.5) * 0.06;
+    }
+    part(limb(0.0085, 0.007, 0.034, 6), skin, hand, -s * 0.012, -0.03, 0.03).rotation.set(0.5, 0, s * 0.5);
     if (saree) for (const y of [-0.215, -0.235]) part(new THREE.TorusGeometry(0.036, 0.006, 4, 12).rotateX(Math.PI / 2), mat(y < -0.22 ? '#c42a3a' : '#d9a63a', 0.3), elbow, 0, y, 0);
     return { shoulder, elbow, hand };
   });
