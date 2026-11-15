@@ -1,17 +1,18 @@
-// GPU grass: ~110k instanced blades in a tile that wraps around the player.
+// GPU grass: 260k fine instanced blades in a tile that wraps around the player.
 // Positions, height and density come from a baked data texture; wind bends every blade.
 import * as THREE from 'three';
 import { windGLSL, windUniforms } from './wind.js';
+import { backlightGLSL } from './realism.js';
 import { DATA_HALF } from './world.js';
 
 const TILE = 80;
-const COUNT = 170000;
+const COUNT = 260000;
 
 function bladeGeometry() {
   const rows = [0, 0.3, 0.55, 0.8];
   const pos = [], uv = [], idx = [];
   rows.forEach((t) => {
-    const w = 0.038 * (1 - t * 0.8);
+    const w = 0.023 * (1 - t * 0.8);
     const z = t * t * 0.15;
     pos.push(-w, t, z, w, t, z);
     uv.push(0, t, 1, t);
@@ -130,9 +131,10 @@ export function buildGrass(dataTex) {
       .replace(
         '#include <normal_fragment_begin>',
         'float faceDirection = 1.0;\nvec3 normal = normalize(vNormal);\nvec3 nonPerturbedNormal = normal;'
-      );
+      )
+      .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n' + backlightGLSL(0.4));
   };
-  mat.customProgramCacheKey = () => 'grass';
+  mat.customProgramCacheKey = () => 'grass2';
 
   const mesh = new THREE.Mesh(geo, mat);
   mesh.frustumCulled = false;

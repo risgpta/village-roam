@@ -380,8 +380,8 @@ export function buildFarm(scene) {
     },
     cropsOn: true,
     setSeason(season) {
-      this.cropsOn = season === 'spring' || season === 'summer';
-      paddyMesh.visible = season === 'spring';
+      this.cropsOn = season === 'spring' || season === 'summer' || season === 'monsoon';
+      paddyMesh.visible = season === 'spring' || season === 'monsoon';
     },
     update(dt, t, player) {
       paddy.uniforms.uTime.value = t;

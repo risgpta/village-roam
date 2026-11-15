@@ -34,8 +34,8 @@ function paint(geo, hex, R, jitter = 1) {
   return g;
 }
 
-function lumpy(r, seed = 0) {
-  const g = new THREE.IcosahedronGeometry(r, 1);
+function lumpy(r, seed = 0, detail = 1) {
+  const g = new THREE.IcosahedronGeometry(r, detail);
   const p = g.attributes.position;
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
@@ -66,30 +66,30 @@ function shadeCanopy(geo) {
 const GREENS = ['#4a7a2c', '#5a8832', '#669036', '#3f6c2a', '#6e963a', '#527d2e'];
 const BARK = '#5a4330';
 
-function broadleaf(R) {
+// lod 1: the full tree; lod 0: the same tree (same random numbers) in a quarter of the triangles, for far away
+function broadleaf(R, lod = 1) {
   const trunk = [], leaves = [];
   const th = 2.4 + R() * 1.4;
-  trunk.push(paint(new THREE.CylinderGeometry(0.2, 0.36, th, 7).translate(0, th / 2, 0), BARK, R));
+  trunk.push(paint(new THREE.CylinderGeometry(0.2, 0.36, th, lod ? 7 : 4).translate(0, th / 2, 0), BARK, R));
   const nb = 3 + Math.floor(R() * 3);
   for (let i = 0; i < nb; i++) {
     const a = (i / nb) * Math.PI * 2 + R() * 0.8, len = 1.4 + R() * 1.4, tilt = 0.55 + R() * 0.5;
     const by = th * (0.72 + R() * 0.2);
-    trunk.push(paint(new THREE.CylinderGeometry(0.07, 0.15, len, 5).translate(0, len / 2, 0).rotateZ(-tilt).rotateY(a).translate(0, by, 0), BARK, R));
+    trunk.push(paint(new THREE.CylinderGeometry(0.07, 0.15, len, lod ? 5 : 3).translate(0, len / 2, 0).rotateZ(-tilt).rotateY(a).translate(0, by, 0), BARK, R));
     const ex = Math.sin(tilt) * len, ey = Math.cos(tilt) * len;
     const end = new V3(ex * Math.cos(a), by + ey, -ex * Math.sin(a));
     const nl = 2 + Math.floor(R() * 2);
     for (let k = 0; k < nl; k++) {
       const r = 0.95 + R() * 0.8;
-      leaves.push(paint(lumpy(r, R() * 10).scale(1, 0.78, 1)
+      leaves.push(paint(lumpy(r, R() * 10, lod).scale(1, 0.78, 1)
         .translate(end.x + (R() - 0.5) * 1.3, end.y + (R() - 0.2) * 0.8, end.z + (R() - 0.5) * 1.3), GREENS[Math.floor(R() * GREENS.length)], R));
     }
   }
-  leaves.push(paint(lumpy(1.7 + R() * 0.7, R() * 10).scale(1, 0.8, 1).translate(0, th + 1.5 + R() * 0.5, 0), GREENS[Math.floor(R() * GREENS.length)], R));
+  leaves.push(paint(lumpy(1.7 + R() * 0.7, R() * 10, lod).scale(1, 0.8, 1).translate(0, th + 1.5 + R() * 0.5, 0), GREENS[Math.floor(R() * GREENS.length)], R));
   return { trunk: mergeGeometries(trunk), leaves: shadeCanopy(mergeGeometries(leaves)) };
 }
 
-function frond(a, e0, L) {
-  const n = 10;
+function frond(a, e0, L, n = 10) {
   const d = new V3(Math.cos(a), 0, Math.sin(a)), p = new V3(-Math.sin(a), 0, Math.cos(a));
   const P = [], Lf = [], Rt = [];
   for (let i = 0; i <= n; i++) {
@@ -114,33 +114,33 @@ function frond(a, e0, L) {
   return g;
 }
 
-function palm(R) {
+function palm(R, lod = 1) {
   const trunk = [], leaves = [];
   const h = 6.5 + R() * 3.5, lean = 0.6 + R() * 1.8;
   const curve = new THREE.CatmullRomCurve3([new V3(0, 0, 0), new V3(lean * 0.12, h * 0.33, 0), new V3(lean * 0.45, h * 0.66, 0), new V3(lean, h, 0)]);
-  trunk.push(paint(new THREE.TubeGeometry(curve, 14, 0.18, 7, false), '#8a7660', R));
-  trunk.push(paint(new THREE.CylinderGeometry(0.26, 0.3, 0.5, 7).translate(0, 0.25, 0), '#7a6650', R));
-  trunk.push(paint(new THREE.SphereGeometry(0.3, 8, 6).translate(lean, h, 0), '#6b5a3a', R));
+  trunk.push(paint(new THREE.TubeGeometry(curve, lod ? 14 : 5, 0.18, lod ? 7 : 4, false), '#8a7660', R));
+  trunk.push(paint(new THREE.CylinderGeometry(0.26, 0.3, 0.5, lod ? 7 : 4).translate(0, 0.25, 0), '#7a6650', R));
+  trunk.push(paint(new THREE.SphereGeometry(0.3, lod ? 8 : 4, lod ? 6 : 3).translate(lean, h, 0), '#6b5a3a', R));
   for (let k = 0; k < 5; k++) {
     const a = R() * Math.PI * 2;
-    trunk.push(paint(new THREE.SphereGeometry(0.15, 7, 5).translate(lean + Math.cos(a) * 0.3, h - 0.28, Math.sin(a) * 0.3), '#5d6b2a', R));
+    trunk.push(paint(new THREE.SphereGeometry(0.15, lod ? 7 : 4, lod ? 5 : 3).translate(lean + Math.cos(a) * 0.3, h - 0.28, Math.sin(a) * 0.3), '#5d6b2a', R));
   }
   const nf = 10 + Math.floor(R() * 4);
   for (let f = 0; f < nf; f++) {
     const a = (f / nf) * Math.PI * 2 + R() * 0.4;
     const e0 = 0.6 - R() * 0.8;
     const L = 3.0 + R() * 1.3;
-    leaves.push(paint(frond(a, e0, L).translate(lean, h, 0), ['#4d7a28', '#5e8a2c', '#6e9134', '#46702a'][f % 4], R));
+    leaves.push(paint(frond(a, e0, L, lod ? 10 : 3).translate(lean, h, 0), ['#4d7a28', '#5e8a2c', '#6e9134', '#46702a'][f % 4], R));
   }
   return { trunk: mergeGeometries(trunk), leaves: mergeGeometries(leaves) };
 }
 
-function bush(R) {
+function bush(R, lod = 1) {
   const leaves = [];
   const n = 2 + Math.floor(R() * 3);
   for (let i = 0; i < n; i++) {
     const r = 0.5 + R() * 0.5;
-    leaves.push(paint(lumpy(r, R() * 10).scale(1, 0.75, 1).translate((R() - 0.5) * 1.1, r * 0.55, (R() - 0.5) * 1.1), ['#3a5f25', '#4a6e2a', '#5a7a30'][i % 3], R));
+    leaves.push(paint(lumpy(r, R() * 10, lod).scale(1, 0.75, 1).translate((R() - 0.5) * 1.1, r * 0.55, (R() - 0.5) * 1.1), ['#3a5f25', '#4a6e2a', '#5a7a30'][i % 3], R));
   }
   if (R() < 0.3) {
     for (let i = 0; i < 6; i++) leaves.push(paint(new THREE.IcosahedronGeometry(0.09, 0).translate((R() - 0.5) * 1.2, 0.5 + R() * 0.5, (R() - 0.5) * 1.2), R() < 0.5 ? '#e05a7a' : '#f0a020', R, 0));
@@ -149,20 +149,51 @@ function bush(R) {
 }
 
 const dummy = new THREE.Object3D();
-function instanced(geo, mat, items, { cast = true, sink = 0.15 } = {}) {
-  if (!items.length) return new THREE.Group();
-  const m = new THREE.InstancedMesh(geo, mat, items.length);
-  items.forEach((it, i) => {
-    dummy.position.set(it.x, heightAt(it.x, it.z) - sink, it.z);
-    dummy.rotation.set(0, it.rot, 0);
-    if (it.sv) dummy.scale.copy(it.sv); else dummy.scale.setScalar(it.s);
-    dummy.updateMatrix();
-    m.setMatrixAt(i, dummy.matrix);
-  });
-  m.castShadow = cast;
-  m.receiveShadow = true;
-  m.computeBoundingSphere();
-  return m;
+// Trees are instanced in ground cells, not one mesh for the whole land: a cell out of view (or out of the sun's
+// shadow box) is skipped whole, far cells draw the light version of the tree, and cells lost in the haze
+// are not drawn at all.
+const CELL = 250, NEAR = 90;
+const lodCells = [];
+function instanced(geo, mat, items, { cast = true, sink = 0.15, far = null } = {}) {
+  const group = new THREE.Group();
+  const cells = new Map();
+  for (const it of items) {
+    const k = Math.floor(it.x / CELL) + ',' + Math.floor(it.z / CELL);
+    if (!cells.has(k)) cells.set(k, []);
+    cells.get(k).push(it);
+  }
+  for (const list of cells.values()) {
+    const make = (g, shadow) => {
+      const m = new THREE.InstancedMesh(g, mat, list.length);
+      list.forEach((it, i) => {
+        dummy.position.set(it.x, heightAt(it.x, it.z) - sink, it.z);
+        dummy.rotation.set(0, it.rot, 0);
+        if (it.sv) dummy.scale.copy(it.sv); else dummy.scale.setScalar(it.s);
+        dummy.updateMatrix();
+        m.setMatrixAt(i, dummy.matrix);
+      });
+      m.castShadow = shadow;
+      m.receiveShadow = true;
+      m.computeBoundingSphere();
+      group.add(m);
+      return m;
+    };
+    const near = make(geo, cast);
+    const cell = { near, far: far ? make(far, false) : null, c: near.boundingSphere.center.clone(), r: near.boundingSphere.radius };
+    if (cell.far) cell.far.visible = false;
+    lodCells.push(cell);
+  }
+  return group;
+}
+// once a frame: which cells draw in full, which in the light version, which not at all
+export function updateVegetation(camPos, fogDensity) {
+  const maxD = 2.4 / Math.max(fogDensity, 0.0012); // past this the haze has swallowed everything
+  for (const c of lodCells) {
+    const d = camPos.distanceTo(c.c) - c.r;
+    const on = d < maxD, full = on && (d < NEAR || !c.far);
+    c.near.visible = full;
+    if (c.far) c.far.visible = on && !full;
+  }
 }
 
 export function buildVegetation() {
@@ -170,25 +201,25 @@ export function buildVegetation() {
   const R = rng(77);
 
   const trunkMat = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true }), { height: 8, amp: 0.32, flutter: 0 });
-  const leafMat = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true, emissive: '#22381a' }), { height: 8, amp: 0.32, flutter: 0.05 });
+  const leafMat = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true, emissive: '#22381a' }), { height: 8, amp: 0.32, flutter: 0.05, backlight: 0.55, leafy: 0.85 });
   glowMats.push(leafMat);
   leafMats.push(leafMat);
   const palmTrunkMat = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true }), { height: 9, amp: 0.75, flutter: 0 });
-  const palmLeafMat = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, emissive: '#22381a' }), { height: 9, amp: 0.75, flutter: 0.1 });
+  const palmLeafMat = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, emissive: '#22381a' }), { height: 9, amp: 0.75, flutter: 0.1, backlight: 0.55 });
   glowMats.push(palmLeafMat);
-  const bushMat = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true }), { height: 1.4, amp: 0.1, flutter: 0.03 });
+  const bushMat = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true }), { height: 1.4, amp: 0.1, flutter: 0.03, leafy: 1.6 });
 
   for (let v = 0; v < 3; v++) {
-    const t = broadleaf(R);
+    const t = broadleaf(rng(770 + v)), tFar = broadleaf(rng(770 + v), 0);
     const items = layout.trees.filter((it) => it.v === v);
-    const lm = instanced(t.leaves, leafMat, items);
+    const lm = instanced(t.leaves, leafMat, items, { far: tFar.leaves });
     leafMeshes.push(lm);
-    group.add(instanced(t.trunk, trunkMat, items), lm);
-    const p = palm(R);
+    group.add(instanced(t.trunk, trunkMat, items, { far: tFar.trunk }), lm);
+    const p = palm(rng(780 + v)), pFar = palm(rng(780 + v), 0);
     const pitems = layout.palms.filter((it) => it.v === v);
-    group.add(instanced(p.trunk, palmTrunkMat, pitems), instanced(p.leaves, palmLeafMat, pitems));
-    const b = bush(R);
-    group.add(instanced(b, bushMat, layout.bushes.filter((it) => it.v === v), { cast: false, sink: 0.1 }));
+    group.add(instanced(p.trunk, palmTrunkMat, pitems, { far: pFar.trunk }), instanced(p.leaves, palmLeafMat, pitems, { far: pFar.leaves }));
+    const b = bush(rng(790 + v)), bFar = bush(rng(790 + v), 0);
+    group.add(instanced(b, bushMat, layout.bushes.filter((it) => it.v === v), { cast: false, sink: 0.1, far: bFar }));
   }
 
   // rocks
@@ -250,7 +281,7 @@ function buildBanyan() {
     roots.push(paint(new THREE.CylinderGeometry(0.02, 0.04, len, 4).translate(Math.cos(a) * d, top - len / 2, Math.sin(a) * d), '#9a8770', R));
   }
   const tm = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true }), { height: 14, amp: 0.1, flutter: 0 });
-  const lm = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true, emissive: '#22381a' }), { height: 14, amp: 0.1, flutter: 0.06 });
+  const lm = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true, emissive: '#22381a' }), { height: 14, amp: 0.1, flutter: 0.06, backlight: 0.55, leafy: 0.6 });
   glowMats.push(lm);
   leafMats.push(lm);
   const rm = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true }), { height: 14, amp: 0.1, flutter: 0.03 });

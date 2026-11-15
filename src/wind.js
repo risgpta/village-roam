@@ -1,4 +1,6 @@
 // A single shared wind field, evaluated identically in every vegetation shader.
+import { backlightGLSL, grainTexture, microBumpGLSL } from './realism.js';
+
 export const windUniforms = { uTime: { value: 0 }, uWind: { value: 0.6 } };
 
 export const windGLSL = /* glsl */ `
@@ -17,8 +19,25 @@ vec2 windAt(vec2 p) {
 `;
 
 // Sway any (instanced or not) mesh with height above its origin. Works with Lambert/Standard.
-export function applyFoliageWind(material, { height = 8, amp = 0.3, flutter = 0.04 } = {}) {
+// backlight: leaves glow against the sun. leafy: the smooth canopy shapes are broken up into clumps of leaf and
+// the shadowed gaps between them (colour and relief), so a crown reads as foliage rather than a moulded blob.
+export function applyFoliageWind(material, { height = 8, amp = 0.3, flutter = 0.04, backlight = 0, leafy = 0 } = {}) {
   material.onBeforeCompile = (shader) => {
+    if (leafy) {
+      shader.uniforms.uGrain = { value: grainTexture() };
+      shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vLeafP;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>\nuniform sampler2D uGrain;\nvarying vec3 vLeafP;\n${microBumpGLSL}`)
+        .replace('#include <color_fragment>', `#include <color_fragment>
+          vec3 lfP = vLeafP * ${leafy.toFixed(3)};
+          float lfA = texture2D(uGrain, lfP.xz + lfP.y * 0.37).g, lfB = texture2D(uGrain, lfP.xy * 2.3 + lfP.z * 0.61).g;
+          float lfN = lfA * 0.65 + lfB * 0.35;
+          float lfNear = 1.0 - smoothstep(60.0, 160.0, length(vViewPosition));
+          float lfClump = smoothstep(0.34, 0.62, lfN);
+          diffuseColor.rgb *= mix(1.0, mix(0.5, 1.2, lfClump) * (0.92 + lfB * 0.2), lfNear);`)
+        .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = microBump(normal, -vViewPosition, lfN * 0.16 * lfNear);');
+    }
+    if (backlight) shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n' + backlightGLSL(backlight));
     shader.uniforms.uTime = windUniforms.uTime;
     shader.uniforms.uWind = windUniforms.uWind;
     shader.vertexShader = shader.vertexShader
@@ -37,6 +56,7 @@ export function applyFoliageWind(material, { height = 8, amp = 0.3, flutter = 0.
           vec3 swayOrigin = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
         #endif
         vec4 wPos = modelMatrix * mvPosition;
+        ${leafy ? 'vLeafP = wPos.xyz;' : ''}
         float hf = max(0.0, wPos.y - swayOrigin.y) / uSwayHeight;
         vec2 wv = windAt(swayOrigin.xz);
         wPos.xz += wv * hf * hf * uSwayAmp;
@@ -50,7 +70,7 @@ export function applyFoliageWind(material, { height = 8, amp = 0.3, flutter = 0.
         `
       );
   };
-  material.customProgramCacheKey = () => `sway-${height}-${amp}-${flutter}`;
+  material.customProgramCacheKey = () => `sway-${height}-${amp}-${flutter}-${backlight}-${leafy}`;
   return material;
 }
 

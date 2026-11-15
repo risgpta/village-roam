@@ -315,6 +315,6 @@ export class Moped {
     this.frontW.rotation.x += turn;
     this.fork.quaternion.setFromAxisAngle(new THREE.Vector3(0, Math.cos(this.forkTilt), Math.sin(this.forkTilt)), riding ? steer : 0.4);
     this.stand.visible = !riding;
-    this.mats.lamp.emissiveIntensity = riding ? 0.6 + night * 3 : 0.1;
+    this.mats.lamp.emissiveIntensity = night ? 4.5 : 0.15;
   }
 }

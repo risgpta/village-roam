@@ -12,8 +12,8 @@ import {
 } from './world.js';
 import { buildTerrain, buildGrassData } from './terrain.js';
 import { buildGrass } from './grass.js';
-import { buildVegetation, setFoliageGlow, setFoliageSeason } from './vegetation.js';
-import { buildRiver, buildWaterfall } from './water.js';
+import { buildVegetation, setFoliageGlow, setFoliageSeason, updateVegetation } from './vegetation.js';
+import { buildRiver, buildWaterfall, streamDist } from './water.js';
 import { buildVillage, setNightGlow } from './props.js';
 import { buildRailway } from './rail.js';
 import { buildPeople } from './people.js';
@@ -44,6 +44,10 @@ import { Flocks, GroundBirds, buildMotes } from './life.js';
 import { buildNightSky, buildClouds, buildRain } from './atmosphere.js';
 import { Ambience, THEMES } from './audio.js';
 import { windUniforms } from './wind.js';
+import { createEnvironment, addSurfaceGrain } from './realism.js';
+import { sampleAtmo, WEATHERS, TIMES, clockText } from './daycycle.js';
+import { updateCull } from './perf.js';
+import { buildBuffaloes } from './buffalo.js';
 
 const $ = (id) => document.getElementById(id);
 const status = (s) => { $('start').textContent = s; };
@@ -64,6 +68,13 @@ const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerH
 // ---------------- sky & light ----------------
 const sky = new Sky();
 sky.scale.setScalar(4000);
+// the sky goes wherever the camera goes (out at the edge of the land you'd otherwise be outside it) and is
+// always drawn first, behind everything, so its size never hides the far hills
+sky.material.depthTest = false; sky.material.depthWrite = false; sky.renderOrder = -10; sky.frustumCulled = false;
+// near a low sun the stock sky shader blows out into a flat white patch with a hard edge: roll the highlights
+// off smoothly instead, and leave the white-hot core to the sun's own disc
+sky.material.fragmentShader = sky.material.fragmentShader.replace('gl_FragColor = vec4( retColor, 1.0 );',
+  'float skyPeak = max( retColor.r, max( retColor.g, retColor.b ) );\n\t\t\tretColor *= 1.0 / ( 1.0 + max( skyPeak - 0.62, 0.0 ) * 1.1 );\n\t\t\tgl_FragColor = vec4( retColor, 1.0 );');
 scene.add(sky);
 const nightSky = buildNightSky();
 nightSky.visible = false;
@@ -85,119 +96,168 @@ scene.add(sun, sun.target);
 const hemi = new THREE.HemisphereLight('#cfe0f0', '#7a6440', 1.2);
 scene.add(hemi);
 scene.fog = new THREE.FogExp2('#d9c7a8', 0.005);
+// the sky lights the scene too (see realism.js), so the flat hemisphere fill is turned down to match
+// (add ?plain to the address to switch the sky lighting and surface grain off, to compare or for a slow machine)
+const REAL = !new URLSearchParams(location.search).has('plain');
+const skyEnv = REAL ? createEnvironment(renderer, scene) : null;
+const HEMI_K = REAL ? 0.85 : 1;
 
-const M_DEFAULT = { color: '#fff0c8', i: 1, density: 1, height: 14, speed: 1, size: 1 };
-const PRESETS = [
-  { key: 'golden', name: 'Golden afternoon', elev: 20, az: 248, turb: 4.5, ray: 1.6, mie: 0.005, mieG: 0.83, sun: '#ffd09a', sunI: 4.2, sky: '#d2e3f2', ground: '#8a7048', hemiI: 1.6, fog: '#e2d2b4', fogD: 0.0026, exp: 0.66, wind: 0.8, clouds: 0.3, cLit: '#fff3e0', cShade: '#b9b2b2', sound: 'calm', motes: M_DEFAULT },
-  { key: 'morning', name: 'Early morning', elev: 7, az: 100, turb: 9, ray: 1.3, mie: 0.009, mieG: 0.8, sun: '#ffdcb0', sunI: 3.0, sky: '#d6e2ea', ground: '#6f6650', hemiI: 1.6, fog: '#d3d9d4', fogD: 0.0072, exp: 0.62, wind: 0.45, clouds: 0.22, cLit: '#ffe8d0', cShade: '#a9aab5', sound: 'dawn', motes: { ...M_DEFAULT, i: 0.8 } },
-  { key: 'noon', name: 'Bright noon', elev: 58, az: 165, turb: 3, ray: 1.1, mie: 0.004, mieG: 0.8, sun: '#fff3e2', sunI: 3.4, sky: '#bcd6ef', ground: '#7a6a48', hemiI: 1.3, fog: '#c8d8e4', fogD: 0.0024, exp: 0.52, wind: 0.7, clouds: 0.38, cLit: '#ffffff', cShade: '#aab4c0', sound: 'calm', motes: { ...M_DEFAULT, i: 0.6 } },
-  { key: 'dusk', name: 'Dusk', elev: 3, az: 258, turb: 7, ray: 3, mie: 0.007, mieG: 0.87, sun: '#ff9a5a', sunI: 2.4, sky: '#9fadcc', ground: '#4d4038', hemiI: 1.15, fog: '#b9a093', fogD: 0.005, exp: 0.75, wind: 0.5, clouds: 0.3, cLit: '#ffb98a', cShade: '#6b5a6a', sound: 'insects', motes: { ...M_DEFAULT, i: 1.2 } },
-  { key: 'night', name: 'Full-moon night', night: true, elev: 34, az: 140, sun: '#b4c6e8', sunI: 1.4, sky: '#4a6194', ground: '#1e2026', hemiI: 1.1, fog: '#142038', fogD: 0.004, exp: 1.3, wind: 0.35, clouds: 0.14, cLit: '#56637d', cShade: '#141a28', sound: 'insects', motes: { color: '#d8ff6a', i: 5, density: 0, height: 3.2, speed: 0.12, size: 1.5 } },
-  { key: 'newmoon', name: 'Moonless night', night: true, dark: true, elev: 40, az: 140, sun: '#6070a0', sunI: 0.16, sky: '#1a2236', ground: '#08090c', hemiI: 0.5, fog: '#04060b', fogD: 0.0045, exp: 1.15, wind: 0.25, clouds: 0.04, cLit: '#1a2030', cShade: '#04060a', sound: 'insects', motes: { color: '#d8ff6a', i: 6.5, density: 0, height: 3, speed: 0.12, size: 1.6 } },
-  { key: 'windy', name: 'Windy day', elev: 30, az: 220, turb: 7, ray: 1.2, mie: 0.006, mieG: 0.8, sun: '#fff0d8', sunI: 3.4, sky: '#c4d4e2', ground: '#7a6a50', hemiI: 1.5, fog: '#cfd5d6', fogD: 0.0034, exp: 0.6, wind: 1.9, clouds: 0.55, cloudSpeed: 4, cLit: '#ffffff', cShade: '#8f98a3', sound: 'wind', motes: { color: '#b8b060', i: 0.7, density: 0.4, height: 7, speed: 7, size: 1.8 } },
-  { key: 'storm', name: 'Dry thunderstorm', storm: true, elev: 22, az: 230, turb: 12, ray: 0.5, mie: 0.012, mieG: 0.75, sun: '#aab0c4', sunI: 0.9, sky: '#69727f', ground: '#3a3832', hemiI: 1.4, fog: '#5f6672', fogD: 0.0062, exp: 0.78, wind: 2.3, clouds: 0.99, cloudSpeed: 3.5, cLit: '#7f8796', cShade: '#2f343e', sound: 'storm', motes: { color: '#a89a70', i: 0.6, density: 0.5, height: 6, speed: 8, size: 1.6 } },
-  { key: 'rain', name: 'Monsoon rain', elev: 35, az: 200, turb: 10, ray: 0.4, mie: 0.01, mieG: 0.7, sun: '#d8dde2', sunI: 0.8, sky: '#a2adb7', ground: '#4a4a42', hemiI: 1.9, fog: '#8f989f', fogD: 0.0105, exp: 0.7, wind: 1.1, clouds: 0.95, cloudSpeed: 1.5, cLit: '#a3aab1', cShade: '#5d646b', rain: 1, sound: 'rain', motes: { ...M_DEFAULT, density: 0 } },
-];
-let presetIdx = 0;
+// ---------------- the day and the weather (see daycycle.js) ----------------
+// Nothing changes by itself: the hour, the weather and the season stay exactly as chosen. T steps to the next
+// time of day, J to the next weather, Y to the next season (or use the menus in the corner).
+const clock = { hour: 17.35, dark: false, wx: 'clear', wxW: 0, wxWant: 'clear', wxChoice: 'clear', sig: '', envT: 0, envDir: new THREE.Vector3(), glow: -1 };
+let ATMO = sampleAtmo(clock.hour, false, 'clear', 0);
+let timeIdx = 2;
 let soundChoice = 'auto';
 const WY = () => WATER_Y + WATER.off;
 // only the river (and its ghat and pool) holds water: low dry hollows elsewhere are just ground
 const wet = (x, z) => riverDist(x, z) < RIVER_HALF + 3;
 let tunnelK = 1;
-let herds = null, birds = null, hamlets = null, shrineLife = null, trackside = null;
+let herds = null, birds = null, hamlets = null, shrineLife = null, trackside = null, buffs = null;
 let stations = null, drv = null, drvLoco = null, drvView = 0;
 let river, motes, train, flocks, people, animals, waterfall, lanterns, farm, fish, wild, map;
 const scare = { shake: 0, cool: 0 };
 let gearMode = 'none';
-const storm = { on: false, next: 4, flash: 0, base: null, bolts: [] };
+const storm = { on: false, next: 4, flash: 0, bolts: [], base: { hemiI: 1.3, exp: 0.6, fog: new THREE.Color('#d9c7a8'), cLit: new THREE.Color('#ffffff'), fogD: 0.003 } };
 let windBase = 0.8;
 
-function applyPreset(i) {
-  const p = PRESETS[i];
-  const night = !!p.night;
+// the sun itself: a soft glowing disc far off, so it rises from behind the hills and sinks behind them
+const sunDisc = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d'), gr = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.1, 'rgba(255,248,230,1)'); gr.addColorStop(0.125, 'rgba(255,215,160,0.3)');
+  gr.addColorStop(0.3, 'rgba(255,180,110,0.07)'); gr.addColorStop(1, 'rgba(255,160,90,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, transparent: true }));
+  sp.scale.setScalar(1500); sp.renderOrder = -1;
+  scene.add(sp);
+  return sp;
+})();
+const _tint = new THREE.Color();
+
+function setTimeOfDay(t, say = true) {
+  clock.hour = t.hour; clock.dark = !!t.dark; clock.envT = 0;
+  if (say) toast(t.name);
+}
+function setWeatherChoice(c, say = true) {
+  clock.wxChoice = clock.wxWant = c;
+  $('wx').value = c;
+  if (say) toast(WEATHERS[c].name);
+}
+function tickClock(dt) {
+  if (clock.wx !== clock.wxWant) { clock.wxW -= dt / 7; if (clock.wxW <= 0) { clock.wxW = 0; clock.wx = clock.wxWant; } }
+  else clock.wxW = clock.wx === 'clear' ? 0 : Math.min(1, clock.wxW + dt / 12);
+  ATMO = sampleAtmo(clock.hour, clock.dark, clock.wx, clock.wxW);
+  applyAtmo(ATMO);
+}
+// every frame: the light, the sky, the haze — all the things that change smoothly
+function applyAtmo(p) {
+  const night = p.night, S = SEASONS[season] ?? SEASONS.spring;
   sky.visible = !night;
   nightSky.visible = night;
-  sunDir.setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - p.elev), THREE.MathUtils.degToRad(p.az));
+  sunDir.copy(p.lightDir);
   if (!night) {
     const u = sky.material.uniforms;
     u.turbidity.value = p.turb;
     u.rayleigh.value = p.ray;
     u.mieCoefficient.value = p.mie;
     u.mieDirectionalG.value = p.mieG;
-    u.sunPosition.value.copy(sunDir);
-  } else {
-    nightSky.material.uniforms.uMoonDir.value.copy(sunDir);
-  }
+    u.sunPosition.value.copy(p.sunDir);
+  } else nightSky.material.uniforms.uMoonDir.value.copy(p.lightDir);
   nightSky.material.uniforms.uCloud.value = p.clouds;
   nightSky.material.uniforms.uMoon.value = p.dark ? 0 : 1;
-  sun.color.set(p.sun);
-  sun.intensity = p.sunI;
-  hemi.color.set(p.sky);
-  hemi.groundColor.set(p.ground);
-  hemi.intensity = p.hemiI;
-  scene.fog.color.set(p.fog);
-  scene.fog.density = p.fogD;
-  renderer.toneMappingExposure = p.exp;
+  // the sun's disc: big and warm near the horizon, lost in the glare when high, hidden by heavy cloud
+  {
+    const el = p.sunElev, low = 1 - THREE.MathUtils.smoothstep(el, 10, 30);
+    const op = THREE.MathUtils.smoothstep(el, -5, -1.5) * (0.35 + 0.65 * low) * Math.max(0, 1 - Math.max(0, p.clouds - 0.45) * 2.2);
+    sunDisc.visible = op > 0.01;
+    sunDisc.material.opacity = op;
+    sunDisc.material.color.copy(p.sun).lerp(_tint.set('#ff5a1e'), low * (1 - THREE.MathUtils.smoothstep(el, 1, 12)) * 0.85).multiplyScalar(1.6);
+    sunDisc.position.copy(camera.position).addScaledVector(p.sunDir, 4700);
+    sunDisc.scale.setScalar(900 + low * 500);
+  }
+  sun.color.copy(p.sun);
+  if (S.light && !night) sun.color.lerp(_tint.set(S.light), 0.35);
+  hemi.color.copy(p.sky);
+  hemi.groundColor.copy(p.ground);
+  storm.base.hemiI = p.hemiI * HEMI_K; storm.base.exp = p.exp; storm.base.fog.copy(p.fog); storm.base.cLit.copy(p.cLit);
+  storm.base.fogD = scene.fog.density = p.fogD * S.fog;
   windBase = p.wind;
   const cu = clouds.material.uniforms;
   cu.uCover.value = p.clouds;
-  cu.uSpeed.value = p.cloudSpeed || 1;
-  cu.uLit.value.set(p.cLit);
-  cu.uShade.value.set(p.cShade);
-  cu.uOpacity.value = p.rain ? 0.97 : 0.9;
-  cu.uSunDir.value.copy(sunDir);
-  rain.visible = !!p.rain;
-  rain.material.uniforms.uAmount.value = p.rain ? 0.85 : 0;
+  cu.uSpeed.value = p.cloudSpeed;
+  cu.uShade.value.copy(p.cShade);
+  cu.uOpacity.value = 0.9 + p.rain * 0.07;
+  cu.uSunDir.value.copy(p.lightDir);
+  rain.visible = p.rain > 0.02;
+  rain.material.uniforms.uAmount.value = p.rain * 0.85;
   if (river) {
     const wu = river.material.uniforms;
-    wu.uSunDir.value.copy(sunDir);
-    wu.uSunColor.value.set(night ? '#c8d6f0' : p.sun);
-    wu.uSky.value.set(p.sky).multiplyScalar(night ? 0.35 : 0.9);
-    wu.uHorizon.value.set(p.fog);
-    wu.uRain.value = p.rain ? 1 : 0;
-    wu.uNight.value = night ? 0.85 : 0;
+    wu.uSunDir.value.copy(p.lightDir);
+    wu.uSunColor.value.copy(night ? _tint.set('#c8d6f0') : p.sun);
+    wu.uSky.value.copy(p.sky).multiplyScalar(0.9 - 0.55 * p.glow);
+    wu.uHorizon.value.copy(p.fog);
+    wu.uRain.value = p.rain;
+    wu.uNight.value = p.glow * 0.85;
   }
   if (motes) {
     const mu = motes.material.uniforms, m = p.motes;
-    mu.uColor.value.set(m.color);
-    mu.uIntensity.value = m.i;
-    mu.uDensity.value = m.density;
-    mu.uHeight.value = m.height;
-    mu.uSpeed.value = m.speed;
-    mu.uSize.value = m.size;
+    if (S.leaves && !night && !p.rainy) {
+      // autumn: drifting leaves instead of pollen
+      mu.uColor.value.set('#e0862e'); mu.uIntensity.value = 0.9; mu.uDensity.value = 0.55; mu.uHeight.value = 7; mu.uSpeed.value = 2.2; mu.uSize.value = 2.6;
+    } else {
+      mu.uColor.value.copy(m.color);
+      mu.uIntensity.value = m.i; mu.uDensity.value = m.density; mu.uHeight.value = m.height; mu.uSpeed.value = m.speed; mu.uSize.value = m.size;
+    }
   }
-  setNightGlow(night ? 1 : p.key === 'dusk' ? 0.35 : 0);
-  setFoliageGlow(night ? 0.05 : p.key === 'dusk' ? 0.4 : p.rain ? 0.6 : 1);
-  if (train) train.setNight(night ? 1 : p.key === 'dusk' ? 0.4 : 0);
-  if (flocks) flocks.enabled = !night && !p.rain && !p.storm;
-  if (birds) birds.enabled = !p.storm && !p.rain;
-  herds?.setNight(!!night);
-  hamlets?.setNight(!!night);
-  shrineLife?.setNight(!!night);
-  helipad?.setNight(!!night);
-  storm.on = !!p.storm;
-  storm.base = { hemiI: p.hemiI, exp: p.exp, fog: new THREE.Color(p.fog), cLit: new THREE.Color(p.cLit), fogD: p.fogD };
-  if (farm) farm.setTheme({ night, sky: p.sky });
+  if (Math.abs(p.glow - clock.glow) > 0.02) {
+    clock.glow = p.glow;
+    setNightGlow(p.glow);
+    if (lanterns) lanterns.on = p.glow > 0.6 ? 1 : 0;
+  }
+  setFoliageGlow((1 - 0.95 * p.glow) * (1 - 0.4 * Math.min(1, p.rain * 2)));
+  bloom.strength = 0.28 + 0.22 * p.glow;
+  // the sky's own light is re-baked when the sun has moved on a bit (or the look has drifted for a while)
+  clock.envT -= 1 / 60;
+  if (skyEnv && (clock.envT <= 0 || clock.envDir.angleTo(p.lightDir) > 0.06)) {
+    clock.envT = 6; clock.envDir.copy(p.lightDir);
+    skyEnv.update(p, p.lightDir);
+    if (farm) farm.setTheme({ night, sky: p.sky });
+    if (waterfall) waterfall.setTheme({ night, rain: p.rainy, sky: p.sky, sun: p.sun });
+  }
+  const dusky = p.glow > 0.3 && !night;
+  const sig = `${night}|${dusky}|${p.rainy}|${p.storm}|${p.dark}|${p.sound}|${p.wind > 1.4}`;
+  if (sig !== clock.sig) { clock.sig = sig; applyMoment(p, night, dusky); }
+}
+// only when something flips: night falls, the rain starts, a storm breaks
+function applyMoment(p, night, dusky) {
+  const rainy = p.rainy;
+  if (train) train.setNight(night ? 1 : dusky ? 0.4 : 0);
+  if (flocks) flocks.enabled = !night && !rainy && !p.storm;
+  if (birds) birds.enabled = !p.storm && !rainy;
+  herds?.setNight(night);
+  buffs?.setNight(night);
+  hamlets?.setNight(night);
+  shrineLife?.setNight(night);
+  helipad?.setNight(night);
+  storm.on = p.storm;
   // weather & time-of-day touches: umbrellas in the rain, lanterns after dark, animals bedding down
-  gearMode = p.rain ? 'umbrella' : night ? 'lantern' : 'none';
-  if (people) people.setWeather({ rain: !!p.rain, night });
-  site?.setWeather({ rain: !!p.rain, night }); kites?.setWeather({ rain: !!p.rain, night }); mela?.setWeather({ rain: !!p.rain, night });
+  gearMode = rainy ? 'umbrella' : night ? 'lantern' : 'none';
+  if (people) people.setWeather({ rain: rainy, night });
+  site?.setWeather({ rain: rainy, night }); kites?.setWeather({ rain: rainy, night }); mela?.setWeather({ rain: rainy, night });
   boy.setGear(gearMode);
   if (animals) animals.setNight(night);
-  if (wild) wild.setNight(night || p.key === 'dusk');
-  if (lanterns) lanterns.on = night ? 1 : 0;
-  if (waterfall) waterfall.setTheme({ night, rain: !!p.rain, sky: p.sky, sun: p.sun });
+  if (wild) wild.setNight(night || dusky);
   if (train) {
     if (night) train.setSmokeColors('#7d8496', '#23252b');
-    else if (p.key === 'dusk') train.setSmokeColors('#c9a796', '#3a2f2c');
-    else if (p.rain) train.setSmokeColors('#b4b7ba', '#3c3d3f');
+    else if (dusky) train.setSmokeColors('#c9a796', '#3a2f2c');
+    else if (rainy) train.setSmokeColors('#b4b7ba', '#3c3d3f');
     else train.setSmokeColors('#e2ddd4', '#3b3936');
     const w = p.wind * 1.6;
     train.setWind(w * 0.8, w * 0.5);
   }
-  if (village) village.setSteamColor(night ? '#6c7488' : p.rain ? '#c9ccce' : '#f4f2ee');
-  bloom.strength = night ? 0.5 : 0.28;
-  applySeason(true);
+  if (village) village.setSteamColor(night ? '#6c7488' : rainy ? '#c9ccce' : '#f4f2ee');
   applySound();
   $('atmo').value = p.key;
 }
@@ -205,11 +265,12 @@ function applyPreset(i) {
 const SEASONS = {
   spring: { name: 'Spring — lush and in flower', base: '#2f4a19', tip: '#a8d05a', dry: '#c9b46a', crop: '#a9b85a', flowers: 0.07, crops: 1, water: 0, fog: 1 },
   summer: { name: 'Summer — dry, the river runs low', base: '#4a5220', tip: '#c8bc62', dry: '#dcc274', crop: '#d8bc58', flowers: 0.006, crops: 1, water: -0.6, fog: 0.85, light: '#fff0d0' },
+  monsoon: { name: 'Monsoon — rain, deep green, the river runs high', base: '#24451a', tip: '#7fbe44', dry: '#9fbe58', crop: '#86b84c', flowers: 0.02, crops: 1, water: 0.26, fog: 1.25, light: '#eef2f0' },
   autumn: { name: 'Autumn — harvest, falling leaves', base: '#45451f', tip: '#b8a050', dry: '#c89a50', crop: '#b89a5a', flowers: 0.01, crops: 0, water: -0.2, fog: 1.1, leaves: true },
   winter: { name: 'Winter — bare trees, misty mornings', base: '#4a4a34', tip: '#b8ae86', dry: '#c4b896', crop: '#9a9070', flowers: 0, crops: 0, water: -0.1, fog: 1.9, light: '#dde6f2' },
 };
 let season = 'spring';
-function applySeason(fromPreset = false) {
+function applySeason(quiet = false) {
   if (!SEASONS[season]) season = 'spring';
   const S = SEASONS[season];
   if (grass) {
@@ -221,20 +282,12 @@ function applySeason(fromPreset = false) {
   if (farm) farm.setSeason(season);
   WATER.off = S.water;
   if (river) river.position.y = S.water;
-  const P = PRESETS[presetIdx];
-  scene.fog.density = P.fogD * S.fog;
-  if (storm.base) storm.base.fogD = scene.fog.density;
-  if (S.light && !P.night) sun.color.set(P.sun).lerp(new THREE.Color(S.light), 0.35);
-  // autumn: drifting leaves instead of pollen
-  if (motes && S.leaves && !P.night && !P.rain) {
-    const mu = motes.material.uniforms;
-    mu.uColor.value.set('#e0862e'); mu.uIntensity.value = 0.9; mu.uDensity.value = 0.55; mu.uHeight.value = 7; mu.uSpeed.value = 2.2; mu.uSize.value = 2.6;
-  }
+  waterfall?.setRiverLevel(WATER_Y + S.water);
   $('season').value = season;
-  if (!fromPreset) toast(S.name);
+  if (!quiet) toast(S.name);
 }
 function applySound() {
-  const theme = soundChoice === 'auto' ? PRESETS[presetIdx].sound : soundChoice;
+  const theme = soundChoice === 'auto' ? ATMO.sound : soundChoice;
   audio.setTheme(theme);
 }
 
@@ -286,6 +339,20 @@ window.addEventListener('resize', () => {
 const boy = new Boy();
 const audio = new Ambience();
 boy.onStep = (run) => audio.footstep(run);
+// what people call out appears as a quiet caption (there are no spoken voices)
+let captionT = 0, captionTimer;
+audio.onSay = (hi, roman) => {
+  const now = performance.now();
+  if (!started || now - captionT < 1800) return;
+  captionT = now;
+  const el = $('caption');
+  el.innerHTML = '';
+  const a = document.createElement('span'); a.className = 'cap-hi'; a.textContent = hi; el.append(a);
+  if (roman) { const b = document.createElement('span'); b.className = 'cap-ro'; b.textContent = roman; el.append(b); }
+  el.classList.add('show');
+  clearTimeout(captionTimer);
+  captionTimer = setTimeout(() => el.classList.remove('show'), 2600);
+};
 const startZ = 30;
 const player = { x: roadX(startZ) + 0.5, z: startZ, y: 0, vy: 0, grounded: true, facing: Math.PI, speed: 0, dirX: 0, dirZ: -1 };
 player.y = groundHeight(player.x, player.z);
@@ -297,23 +364,23 @@ let jumpQueued = false;
 // rides: the bicycle parked by the road where the walk starts, and a battered old moped across the road
 const vehicles = [
   { obj: new Bicycle(), name: 'bicycle', park: { x: roadX(25) + 2.3, z: 25, rot: 0.4 }, walk: 5.5, run: 8.5, boost: 12.5, accel: 1.3, reach: 2.2, rad: 0.4, lean: 1,
-    on: 'On the bicycle', off: 'Off the bicycle', help: [['E', 'get off'], ['B', 'bell'], ['Shift', 'pedal harder']], ask: 'ride the bicycle' },
+    on: 'On the bicycle', off: 'Off the bicycle', help: [['E', 'get off'], ['B', 'bell'], ['L', 'lamp'], ['Shift', 'pedal harder']], ask: 'ride the bicycle' },
   { obj: new Moped(), name: 'moped', nitro: true, park: { x: layout.moped.x, z: layout.moped.z, rot: -0.6 }, walk: 9, run: 14, boost: 21, accel: 0.9, reach: 2.2, rad: 0.45, lean: 1,
-    on: 'Phat-phat-phat… the old moped starts', off: 'Off the moped', help: [['E', 'get off'], ['B', 'horn'], ['Shift', 'faster'], ['N', 'nitro']], ask: 'ride the moped', flame: true },
+    on: 'Phat-phat-phat… the old moped starts', off: 'Off the moped', help: [['E', 'get off'], ['B', 'horn'], ['Shift', 'faster'], ['N', 'nitro'], ['L', 'lights']], ask: 'ride the moped', flame: true },
   { obj: new AutoRickshaw(), name: 'auto', park: { x: layout.auto.x, z: layout.auto.z, rot: layout.auto.rot }, walk: 8.5, run: 13, boost: 19, accel: 0.8, reach: 2.8, rad: 0.75, lean: 0.2,
     four: true, wb: 1.6, rev: 3.5, probes: [-0.65, 0.6], exit: [-1.1, 0.2], box: [0, -0.1, 0.72, 1.3],
-    on: 'Driving the auto rickshaw', off: 'Out of the auto', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn']], ask: 'drive the auto rickshaw', flame: true },
+    on: 'Driving the auto rickshaw', off: 'Out of the auto', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['L', 'lights']], ask: 'drive the auto rickshaw', flame: true },
   { obj: new Scooter(), name: 'scooter', nitro: true, park: { x: roadX(29) - 2.8, z: 29, rot: 2.6 }, walk: 8.5, run: 13, boost: 23, accel: 1.0, reach: 2.3, rad: 0.45, lean: 1, flame: true,
-    on: 'On the scooter', off: 'Off the scooter', help: [['E', 'get off'], ['B', 'horn'], ['Shift', 'faster'], ['N', 'nitro']], ask: 'ride the scooter' },
+    on: 'On the scooter', off: 'Off the scooter', help: [['E', 'get off'], ['B', 'horn'], ['Shift', 'faster'], ['N', 'nitro'], ['L', 'lights']], ask: 'ride the scooter' },
   { obj: new SmallCar(), name: 'car', nitro: true, park: { x: roadX(100) + 5, z: 100, rot: 0.1 }, walk: 12, run: 18, boost: 28, accel: 0.9, reach: 3.0, rad: 0.82, lean: 0.1, flame: true,
     four: true, wb: 2.05, rev: 4.5, probes: [-1.05, 0, 1.05], exit: [-1.2, 0], box: [0.33, 0, 0.8, 1.68],
-    on: 'In the little car — vroom!', off: 'Out of the car', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['N', 'nitro']], ask: 'drive the little car' },
+    on: 'In the little car — vroom!', off: 'Out of the car', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['N', 'nitro'], ['L', 'lights']], ask: 'drive the little car' },
   { obj: new MiniBus(), name: 'minibus', park: { x: roadX(84) - 4.9, z: 84, rot: 0 }, walk: 13.9, run: 22.2, boost: 22.2, accel: 0.75, reach: 4.2, rad: 1.12, lean: 0.04, flame: false,
     four: true, wb: 4.1, rev: 3.2, probes: [-2.4, -0.8, 0.8, 2.4], exit: [2.6, 2.3], box: [0.55, 0, 1.15, 3.35],
-    on: 'The village minibus — stop at a 🚏 to pick people up (Shift for full speed, 80 km/h)', off: 'Out of the minibus', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster (80 km/h)'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn']], ask: 'drive the minibus' },
+    on: 'The village minibus — stop at a 🚏 to pick people up (Shift for full speed, 80 km/h)', off: 'Out of the minibus', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster (80 km/h)'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['L', 'lights']], ask: 'drive the minibus' },
   { obj: Object.assign(new ERickshaw(), { fare0: 10, fareK: 2 }), name: 'erick', park: { x: roadX(62) - 4.3, z: 62, rot: 0 }, walk: 6.5, run: 9, boost: 13, accel: 0.75, reach: 2.8, rad: 0.62, lean: 0.15, flame: false,
     four: true, wb: 1.8, rev: 3, probes: [-0.95, 0.05, 0.95], exit: [-1.05, 0.5], box: [0, -0.15, 0.62, 1.42],
-    on: 'The e-rickshaw — pick up to 4 riders at a 🚏 bus stop', off: 'Out of the e-rickshaw', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn']], ask: 'drive the e-rickshaw' },
+    on: 'The e-rickshaw — pick up to 4 riders at a 🚏 bus stop', off: 'Out of the e-rickshaw', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['L', 'lights']], ask: 'drive the e-rickshaw' },
   { obj: new RowBoat(), name: 'boat', water: true, park: { x: layout.boat.x, z: layout.boat.z, rot: layout.boat.rot }, walk: 1.8, run: 2.8, boost: 3.6, accel: 0.6, reach: 3.4, rad: 0.9, lean: 0,
     on: 'In the boat — row with W, A, D', off: 'Back on the bank', help: [['E', 'get out at a bank'], ['Shift', 'row harder']], ask: 'row the boat' },
 ];
@@ -405,6 +472,18 @@ scene.add(flames.mesh);
 const dust = new Puffs({ max: 120, color: '#c8a77a', dark: '#a8875a', opacity: 0.45, buoyancy: 0.2, drag: 1.8 });
 scene.add(dust.mesh);
 let ridePromptT = 0, ridePitch = 0;
+// headlights: L switches them on and off on anything with wheels. The lamps glow, and a real beam lights the road.
+const lamps = { on: false };
+const headlight = new THREE.SpotLight('#fff0cf', 0, 80, 0.5, 0.75, 1.3);
+headlight.position.set(0, 0.8, 0.9);
+headlight.target.position.set(0, -0.6, 16);
+boy.root.add(headlight, headlight.target);
+function toggleLamps() {
+  if (!ride || ride.fly || ride.water) return;
+  lamps.on = !lamps.on;
+  audio.tink(0.4);
+  toast(lamps.on ? 'Headlights on' : 'Headlights off');
+}
 let ride = null, bikeRoll = 0, bikeSteer = 0, lastFacing = 0, autoYaw = 0;
 const mopedSmoke = new Puffs({ max: 80, color: '#9a9690', dark: '#4a4744', opacity: 0.55, buoyancy: 0.4, drag: 1.2 });
 scene.add(mopedSmoke.mesh);
@@ -482,6 +561,7 @@ function toggleRide() {
     hornFor(v);
     ridePromptT = 4;
     toast(v.on);
+    lamps.on = !v.fly && !v.water && ATMO.glow > 0.5; // getting in after dark, the lights come on with the engine
     if (v.fly) {
       flight = v.heli ? heliFlight : planeFlight;
       flight.reset(player.x, groundHeight(player.x, player.z), player.z, player.facing);
@@ -513,11 +593,11 @@ const TAKE_TPL = {
   bus: { walk: 13, run: 22.2, boost: 22.2, accel: 0.65, reach: 5, rad: 1.25, lean: 0.03, flame: false,
     four: true, wb: 5.5, rev: 3, probes: [0.4, -1.6, -3.6, -5.6, -7.6], exit: [-1.6, 0.3], box: [0.6, -3.6, 1.25, 4.55],
     shapeOver: { half: [1.25, 1.5, 4.5], com: [0.6, 1.6, -3.6] },
-    off: 'Off the bus', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster (80 km/h)'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn']], ask: 'drive the bus' },
+    off: 'Off the bus', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster (80 km/h)'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['L', 'lights']], ask: 'drive the bus' },
   jeep: { walk: 11, run: 16, boost: 24, accel: 0.8, reach: 3, rad: 0.92, lean: 0.08, flame: true,
     four: true, wb: 2.45, rev: 4, probes: [-1.6, 0.1, 1.7], exit: [-1.3, 0], box: [0.38, 0.13, 0.92, 2.15],
     shapeOver: { half: [0.9, 0.9, 2.1], com: [0.38, 1.0, 0.13] },
-    off: 'Out of the jeep', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn']], ask: 'drive the jeep' },
+    off: 'Out of the jeep', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['L', 'lights']], ask: 'drive the jeep' },
 };
 const TAKE_NAME = { bicycle: 'bicycle', moped: 'motorbike', scooter: 'scooter', bus: 'bus', jeep: 'jeep' };
 const TAKE_SHOUT = {
@@ -684,7 +764,8 @@ function ejectRide(dv, spin) {
 }
 const knock = { on: false, vx: 0, vz: 0, down: 0 };
 function startKnock(vx, vy, vz) {
-  if ((ride && ride.fly) || drv) return;
+  if ((ride && ride.fly) || drv || pax) return;
+  if (sit.on) standUp();
   if (ride && !ride.water) ejectRide(new THREE.Vector3(vx * 0.5, vy * 0.3, vz * 0.5), tipSpin(new THREE.Vector3(vx, 0, vz).normalize(), 2, player.facing, !ride.four));
   if (ride) return; // in the boat: nothing to do
   knock.on = true; knock.vx = vx; knock.vz = vz; knock.down = 0;
@@ -812,7 +893,7 @@ function crashCheck(dt) {
       knockPerson(h, tdz * sd * 3 + b.vx * 0.3, -tdx * sd * 3 + b.vz * 0.3, sp * 1.5);
     }
     // and the boy, on foot or riding
-    if (drv) { /* in the cab */ } else if (ride && ride.fly) {
+    if (drv || pax) { /* aboard */ } else if (ride && ride.fly) {
       if (flight.ground && !flight.crashed && obbDist(player.x, player.z, b) < 2) { const ev = []; flight.crash('hit', ev); planeEvent({ ...ev[0], why: 'train' }); }
     } else if (!knock.on && obbDist(player.x, player.z, b) < (ride ? ride.rad : 0.3)) {
       const m = ride ? MASS[ride.name] ?? 300 : 45;
@@ -844,7 +925,13 @@ function crashCheck(dt) {
     if (h.person.fallT > 0) continue;
     if (Math.abs(h.x - player.x) + Math.abs(h.z - player.z) > 12) continue;
     let hit = false;
-    for (const [ax, az] of mine) if (Math.hypot(h.x - ax, h.z - az) < rP + 0.45) { hit = true; break; }
+    if (ride.box) {
+      // four-wheelers: the whole body, in the vehicle's own frame (the bus sits beside its driver's seat, so
+      // a line of circles down the seat's line missed people walking into the other side of it)
+      const [bx, bz, hw, hd] = ride.box, c = Math.cos(player.facing), sn = Math.sin(player.facing);
+      const dx = h.x - player.x, dz = h.z - player.z, lx = dx * c - dz * sn, lz = dx * sn + dz * c;
+      hit = Math.abs(lx - bx) < hw + 0.4 && Math.abs(lz - bz) < hd + 0.4;
+    } else for (const [ax, az] of mine) if (Math.hypot(h.x - ax, h.z - az) < rP + 0.45) { hit = true; break; }
     if (!hit) continue;
     knockPerson(h, player.dirX * player.speed + (h.x - player.x) * 0.5, player.dirZ * player.speed + (h.z - player.z) * 0.5, player.speed);
     if (four) drive.v *= 0.75; else player.speed *= 0.7;
@@ -938,6 +1025,188 @@ function splashAround(n, sp = 1) {
   }
 }
 
+// ---------------- being still: sitting, chai, small kindnesses ----------------
+// Q sits the boy down wherever he is: the corner clutter fades and the camera drifts slowly round. E does the small thing at hand: a cup of chai at the stall, the temple bell, a pat for the
+// dog, puffed rice for the fish, a diya set on the river at dusk.
+const sit = { on: false, t: 0, chai: 0 };
+const purse = { spent: 0 };
+const wallet = () => (passengers?.fare ?? 0) - purse.spent;
+const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.024, 0.07, 10), new THREE.MeshStandardMaterial({ color: '#b8683c', roughness: 0.8 }));
+cup.position.set(0, -0.07, 0.03); cup.visible = false;
+boy.arms[1].hand.add(cup);
+try { localStorage.removeItem('gaon-diary'); } catch { /* nothing stored */ }
+function sitDown(msg) {
+  if (sit.on || ride || drv || pax || swim.on || knock.on || !player.grounded) return;
+  sit.on = true; sit.t = 0; player.speed = 0;
+  document.body.classList.add('sitting');
+  toast(msg ?? 'Sitting a while');
+}
+function standUp() {
+  sit.on = false; sit.chai = 0; cup.visible = false;
+  document.body.classList.remove('sitting');
+}
+function updateSit(dt) {
+  sit.t += dt;
+  const moving = keys.KeyW || keys.KeyA || keys.KeyS || keys.KeyD || keys.ArrowUp || keys.ArrowDown || keys.ArrowLeft || keys.ArrowRight || jumpQueued;
+  jumpQueued = false;
+  if (sit.t > 0.5 && started && moving) { standUp(); return; }
+  sit.chai = Math.max(0, sit.chai - dt);
+  cup.visible = sit.chai > 0;
+  player.y = groundHeight(player.x, player.z, player.y); player.speed = 0;
+  boy.root.position.set(player.x, player.y, player.z);
+  boy.root.rotation.set(0, player.facing, 0);
+  boy.setGear('none');
+  boy.sit(dt, sit.chai > 0);
+  if (!dragging && performance.now() - autoYaw > 3500) yaw += dt * 0.03; // the view drifts slowly round him
+  for (const v of vehicles) if (!v.water) v.obj.update(dt, 0, 0, false, 0);
+  flames.update(dt); dust.update(dt); mopedSmoke.update(dt); swim.splash.update(dt);
+  audio.setRide(null, 0, false, false); audio.setReverse(false);
+  $('ridehud').classList.remove('show'); $('flyhud').classList.remove('show');
+  const html = '<span class="chip"><kbd>W</kbd>get up</span>';
+  if ($('prompt').dataset.html !== html) { $('prompt').innerHTML = html; $('prompt').dataset.html = html; }
+  $('prompt').classList.toggle('show', sit.t < 5);
+}
+// diyas set afloat: little clay lamps that drift away down the river
+const diyas = [];
+const diyaGeo = new THREE.CylinderGeometry(0.07, 0.04, 0.035, 10), flameGeo = new THREE.SphereGeometry(0.03, 8, 6).scale(1, 1.7, 1);
+const diyaMat = new THREE.MeshStandardMaterial({ color: '#a6512e', roughness: 0.8 }), flameMat = new THREE.MeshBasicMaterial({ color: '#ffb648' });
+function floatDiya() {
+  const side = Math.sign(player.x - riverX(player.z)) || 1;
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(diyaGeo, diyaMat));
+  const fl = new THREE.Mesh(flameGeo, flameMat); fl.position.y = 0.06; g.add(fl);
+  scene.add(g);
+  if (diyas.length >= 14) { const old = diyas.shift(); scene.remove(old.g); }
+  diyas.push({ g, fl, z: player.z, off: side * (RIVER_HALF - 0.6), want: side * RIVER_HALF * (0.15 + Math.random() * 0.45), ph: Math.random() * 6, life: 300 });
+  boy.greetT = 2.2;
+  audio.splash(0.12);
+  toast('A diya, set afloat 🪔');
+}
+function updateDiyas(dt) {
+  for (let i = diyas.length - 1; i >= 0; i--) {
+    const d = diyas[i];
+    d.life -= dt; d.z -= dt * 0.32; d.off += (d.want - d.off) * (1 - Math.exp(-dt * 0.08));
+    d.g.position.set(riverX(d.z) + d.off, WY() + 0.02 + Math.sin(time * 1.7 + d.ph) * 0.012, d.z);
+    d.g.rotation.y += dt * 0.15;
+    d.fl.scale.setScalar(Math.min(1, d.life / 20) * (0.85 + Math.sin(time * 13 + d.ph) * 0.15));
+    if (d.life <= 0 || Math.abs(d.z) > PLAY_RADIUS) { scene.remove(d.g); diyas.splice(i, 1); }
+  }
+}
+function feedFish() {
+  const side = Math.sign(player.x - riverX(player.z)) || 1;
+  boy.greetT = 0.8;
+  for (let k = 0; k < 6; k++) setTimeout(() => {
+    const x = riverX(player.z) + side * (RIVER_HALF - 1.2 - Math.random() * 2.2), z = player.z + (Math.random() - 0.5) * 3;
+    for (let i = 0; i < 4; i++) { const a = Math.random() * 6.28; swim.splash.emit(x, WY() + 0.04, z, Math.cos(a) * 0.5, 0.9 + Math.random() * 0.6, Math.sin(a) * 0.5, 0.5, 0.04, 0.16, 0.8); }
+    audio.splash(0.16 + Math.random() * 0.12);
+  }, 500 + k * 420 + Math.random() * 200);
+  toast('The fish come up for the puffed rice');
+}
+function haveChai() {
+  if (wallet() >= 10) { purse.spent += 10; toast('A hot cup of chai ☕ · ₹10'); }
+  else toast('“Pay me later, beta” — a hot cup of chai ☕');
+  audio.tink(0.5);
+  sitDown('');
+  sit.chai = 40;
+}
+// the small thing at hand, if the boy is standing somewhere that has one
+function nearAct() {
+  if (ride || drv || pax || swim.on || sit.on || knock.on) return null;
+  const px = player.x, pz = player.z;
+  if (Math.hypot(px - TEA.x, pz - TEA.z) < 6.5) return { ask: wallet() >= 10 ? 'have a cup of chai · ₹10' : 'have a cup of chai', run: haveChai };
+  const T = layout.temple;
+  if (T && Math.hypot(px - T.x, pz - T.z) < 8) return { ask: 'ring the temple bell', run: () => { audio.bell(1); boy.greetT = 2.4; toast('The bell rings out over the village 🔔'); } };
+  const dog = people?.dogs.find((d) => d.follower && Math.hypot(d.p.x - px, d.p.z - pz) < 1.9);
+  if (dog) return { ask: 'pat the dog', run: () => { dog.bark(); audio.bark(0.35); boy.greetT = 1; toast('The dog leans in, tail going'); } };
+  const rd = riverDist(px, pz);
+  if (rd < RIVER_HALF + 2.6 && rd > RIVER_HALF - 2.5) return ATMO.glow > 0.3 ? { ask: 'float a diya on the river', run: floatDiya } : { ask: 'scatter puffed rice for the fish', run: feedFish };
+  return null;
+}
+
+// ---------------- riding the train as a passenger ----------------
+// At a station, walk up to a coach and press E: the boy sits in the open doorway with his legs out, and the
+// train carries him off on its own. V changes the view; E again at any station to step down.
+let pax = null;
+function nearCoach() {
+  if (!train || ride || drv || pax || knock.on || swim.on) return null;
+  for (const tr of train.trains) {
+    if (tr.mode !== 'dwell' || !tr.at || tr.at.noStation) continue;
+    for (const c of tr.cars) {
+      if (!c.coach || !c.g.visible) continue;
+      c.g.updateMatrixWorld();
+      for (const sx of [-1, 1]) {
+        const q = c.g.localToWorld(_cw.set(sx * 2.7, 0, -6.4));
+        if (Math.hypot(q.x - player.x, q.z - player.z) < 3.4) return { tr, car: c, sx, view: 0 };
+      }
+    }
+  }
+  return null;
+}
+function boardTrain(pc) {
+  pax = pc;
+  pc.car.g.add(boy.root);
+  boy.root.position.set(pc.sx * 1.5, 1.5, -6.4);
+  boy.root.rotation.set(0, pc.sx > 0 ? Math.PI / 2 : -Math.PI / 2, 0);
+  boy.setGear('none');
+  pc.yaw0 = yaw; pitch = 0.3;
+  toast(`Aboard the ${pc.tr.name} — sit back, it leaves soon`);
+}
+function leaveTrain() {
+  const { tr, car, sx } = pax;
+  if (Math.abs(tr.v) > 0.05) { toast('Wait for the next station to step down'); return; }
+  car.g.updateMatrixWorld();
+  let best = null;
+  for (const s2 of [sx, -sx]) {
+    const q = car.g.localToWorld(new THREE.Vector3(s2 * 3.0, 0, -6.4)), g = groundHeight(q.x, q.z, 3);
+    if (!best || g > best.g + 0.2) best = { x: q.x, z: q.z, g };
+  }
+  pax = null;
+  scene.add(boy.root);
+  player.x = best.x; player.z = best.z; player.y = best.g + 0.05; player.vy = 0; player.grounded = true; player.speed = 0;
+  player.facing = car.g.rotation.y;
+  boy.root.rotation.set(0, player.facing, 0);
+  $('ridehud').classList.remove('show', 'bus', 'four');
+  toast(tr.at ? `Stepped down at ${tr.at.name}` : 'Stepped down from the train');
+}
+function updatePassenger(dt) {
+  const { tr } = pax;
+  boy.sit(dt, false, true);
+  boy.root.updateWorldMatrix(true, false);
+  boy.root.getWorldPosition(_cw);
+  player.x = _cw.x; player.z = _cw.z; player.y = _cw.y;
+  player.facing = pax.car.g.rotation.y; player.speed = Math.abs(tr.v);
+  player.dirX = Math.sin(player.facing); player.dirZ = Math.cos(player.facing);
+  player.grounded = true; player.vy = 0;
+  const hud = $('ridehud');
+  hud.classList.add('show', 'bus', 'nonitro'); hud.classList.remove('four', 'boat', 'boost', 'empty');
+  $('rh-name').textContent = 'Passenger';
+  $('rh-speed').textContent = Math.round(Math.abs(tr.v) * 3.6);
+  $('px-count').textContent = `🧍 ${tr.aboard} aboard`;
+  $('px-fare').textContent = tr.name;
+  let nxt = null, nd = Infinity;
+  for (const h of tr.halts) { const d = Math.abs(tr.stopFor(h) - tr.head); if (d < nd) { nd = d; nxt = h; } }
+  $('px-next').textContent = tr.at ? `Standing at ${tr.at.name}` : nxt ? `${nxt.name}: ${Math.round(nd)} m` : 'Open line';
+  const html = [['E', 'step down (at a station)'], ['V', 'change view']].map(([k, t]) => `<span class="chip"><kbd>${k}</kbd>${t}</span>`).join('');
+  if ($('prompt').dataset.html !== html) { $('prompt').innerHTML = html; $('prompt').dataset.html = html; }
+  $('prompt').classList.toggle('show', started && Math.abs(tr.v) < 0.3);
+  audio.setRide(null, 0, false, false); audio.setReverse(false);
+  flames.update(dt); dust.update(dt); mopedSmoke.update(dt); swim.splash.update(dt);
+  for (const o of vehicles) if (!o.water) o.obj.update(dt, 0, 0, false, 0);
+}
+function paxCamera(dt) {
+  const lg = pax.car.g, sx = pax.sx;
+  if (pax.view === 1) { trainCamera(dt, lg, 0); return; }
+  lg.updateMatrixWorld();
+  // from the doorway: looking out across the country, the mouse turns the head
+  const a = clamp(-(yaw - pax.yaw0) * sx, -1.35, 1.35);
+  camIn.set(sx * 1.62, 1.5 + 0.86, -6.4);
+  lookIn.set(camIn.x + sx * Math.cos(a) * 20, camIn.y + (0.3 - pitch) * 16, camIn.z + Math.sin(a) * 20);
+  lg.localToWorld(camIn); lg.localToWorld(lookIn);
+  camera.position.copy(camIn);
+  camera.lookAt(lookIn);
+  if (Math.abs(camera.fov - 64) > 0.05) { camera.fov = 64; camera.updateProjectionMatrix(); }
+}
+
 // ---------------- build ----------------
 async function build() {
   status('Shaping the land and hills…');
@@ -973,7 +1242,7 @@ async function build() {
     villageFor: (h) => h.village ?? (h.name.startsWith('Noorpur') ? NP : h.name === 'Mariapur' ? MP : null),
     onArrive: (st, n) => {
       const d = Math.hypot(player.x - st.h.yard.x, player.z - st.h.yard.z);
-      if (st.train === drv) queueToast(`${st.h.name} — ${n} getting off, ${st.waiting()} waiting to board`);
+      if (st.train === drv || st.train === pax?.tr) queueToast(`${st.h.name} — ${n} getting off, ${st.waiting()} waiting to board`);
       else if (d < 120) queueToast(`The ${st.train.name} is in at ${st.h.name}`);
     },
   });
@@ -1013,7 +1282,7 @@ async function build() {
     kites = buildKites(scene, layout.kites, { say: (hi, ro, d) => say(hi, ro, d, 1.9) });
     airstrip = AS ? buildAirstrip(scene, AS, groundHeight) : null;
     helipad = AS?.pad ? buildHelipad(scene, AS.pad, groundHeight) : null;
-    mela = buildMela(scene, layout.mela, { say: (hi, ro, d, pitch = 1) => say(hi, ro, d, pitch), pop: (v) => audio.tock(v * 0.6) });
+    mela = buildMela(scene, layout.mela, { say: (hi, ro, d, pitch = 1) => say(hi, ro, d, pitch), pop: () => {} });
   }
   farm = buildFarm(scene);
   wild = buildWildlife(scene);
@@ -1030,7 +1299,11 @@ async function build() {
   birds.onChirp = (v) => audio.sparrow(v);
   herds = buildHerds(scene, layout.pasture, {
     say: (hi, ro, d, pitch) => { if (d < 45) audio.say(hi, { roman: ro, pitch, rate: 1.05, volume: clamp(1 - d / 50, 0.2, 1) }); },
-    moo: (v) => audio.moo(v), cowbell: (v) => audio.cowbell(v), bleat: (v) => audio.bleat(v),
+    moo: (v) => audio.moo(v), cowbell: (v) => audio.cowbell(v), bleat: (v) => (Math.random() < 0.5 ? audio.baa(v) : audio.bleat(v)),
+  });
+  buffs = buildBuffaloes(scene, {
+    grunt: (v, calf) => audio.buffalo(v, calf),
+    ripple: (x, y, z, d) => { const a = Math.random() * 6.28; swim.splash.emit(x, y + 0.03, z, Math.cos(a) * 0.4, 0.5 + Math.random() * 0.4, Math.sin(a) * 0.4, 0.7, 0.05, 0.3, 0.6); if (d < 40 && Math.random() < 0.04) audio.splash(0.25 * (1 - d / 40)); },
   });
   hamlets = buildHamlets(scene, layout.newVillages ?? []);
   shrineLife = buildShrineLife(scene);
@@ -1042,7 +1315,14 @@ async function build() {
   status('Drawing the map…');
   await nextFrame();
   map = new MapUI();
-  applyPreset(presetIdx);
+  applySeason(true);
+  {
+    // grain on every plain hard surface; people keep their clean skin and clothes
+    const folk = new Set([boy.root, ...ALL_PEOPLE.map((q) => q.root)]);
+    const isFolk = (o) => { for (let q = o; q; q = q.parent) if (folk.has(q)) return true; return false; };
+    if (REAL) addSurfaceGrain(scene, isFolk);
+  }
+  tickClock(0);
   renderer.compile(scene, camera);
   status('Begin the walk');
   $('start').disabled = false;
@@ -1063,17 +1343,26 @@ window.addEventListener('keydown', (e) => {
   keys[e.code] = true;
   if (!started) return;
   if (e.code === 'KeyT') {
-    presetIdx = (presetIdx + 1) % PRESETS.length;
-    applyPreset(presetIdx);
-    toast(PRESETS[presetIdx].name);
+    timeIdx = (Math.max(0, TIMES.findIndex((t) => t.key === ATMO.key)) + 1) % TIMES.length;
+    setTimeOfDay(TIMES[timeIdx]);
   }
   if (e.code === 'KeyM') toggleMute();
   if (e.code === 'KeyU' && !e.repeat) toggleFullscreen();
-  if (e.code === 'KeyE') toggleRide();
+  if (e.code === 'KeyE' && !e.repeat) {
+    if (sit.on) standUp();
+    else if (pax) leaveTrain();
+    else if (!ride && !drv && !nearRide() && !nearCab()) { const pc = nearCoach(), act = pc ? null : nearAct(); if (pc) boardTrain(pc); else if (act) act.run(); }
+    else toggleRide();
+  }
+  if (e.code === 'KeyQ' && !e.repeat && !ride && !drv && !pax) { if (sit.on) standUp(); else sitDown(); }
+  if (e.code === 'KeyP' && !e.repeat && !(ride && ride.fly)) wantShot = true;
+  if (e.code === 'KeyV' && pax && !e.repeat) { pax.view = 1 - pax.view; pax.yaw0 = yaw; toast(pax.view ? 'Outside view' : 'From the doorway'); }
   if (e.code === 'KeyH') toggleHelp();
   if (e.code === 'KeyC') cycleCamera();
-  if (e.code === 'KeyY') { const k = Object.keys(SEASONS); season = k[(k.indexOf(season) + 1) % k.length]; applyPreset(presetIdx); applySeason(); }
+  if (e.code === 'KeyY') { const k = Object.keys(SEASONS); season = k[(k.indexOf(season) + 1) % k.length]; applySeason(); }
+  if (e.code === 'KeyJ' && !e.repeat) { const k = Object.keys(WEATHERS); setWeatherChoice(k[(k.indexOf(clock.wxChoice) + 1) % k.length]); }
   if (e.code === 'KeyB' && ride) hornFor(ride);
+  if (e.code === 'KeyL' && !e.repeat) toggleLamps();
   if (ride && ride.fly && !e.repeat) planeKey(e.code);
   if (drv && !e.repeat) { if (e.code === 'KeyB') audio.horn(1); if (e.code === 'KeyV') { drvView = 1 - drvView; toast(drvView ? "Driver's view" : 'Outside view'); } }
   if (e.code === 'KeyV' && ride && ride.four) { inside = (inside + 1) % 3; yaw = player.facing + Math.PI; pitch = 0.28; toast(['Outside view', ride.name === 'minibus' || ride.name === 'bus' ? 'Inside the bus' : ride.name === 'erick' ? 'With the passengers' : 'Back seat view', "Driver's view"][inside]); }
@@ -1112,6 +1401,7 @@ function toggleMute() {
   $('mute').textContent = audio.muted ? 'Sound off' : 'Sound on';
 }
 $('mute').addEventListener('click', toggleMute);
+
 // full screen: the whole page fills the screen (Esc or U again to leave)
 function toggleFullscreen() {
   const d = document, el = d.documentElement;
@@ -1126,14 +1416,15 @@ for (const ev of ['fullscreenchange', 'webkitfullscreenchange']) document.addEve
   $('fullscreen').textContent = on ? '⤡ Exit full screen' : '⛶ Full screen';
   window.dispatchEvent(new Event('resize'));
 });
-for (const p of PRESETS) $('atmo').add(new Option(p.name, p.key));
+for (const t of TIMES) $('atmo').add(new Option(t.name, t.key));
+for (const [k, w] of Object.entries(WEATHERS)) $('wx').add(new Option(w.name, k));
+$('wx').addEventListener('change', (e) => { setWeatherChoice(e.target.value); e.target.blur(); });
 for (const [k, v] of Object.entries(SEASONS)) $('season').add(new Option(v.name.split(' — ')[0], k));
-$('season').addEventListener('change', (e) => { season = e.target.value; applyPreset(presetIdx); applySeason(); e.target.blur(); });
+$('season').addEventListener('change', (e) => { season = e.target.value; applySeason(); e.target.blur(); });
 $('sound').add(new Option('Sound: match the weather', 'auto'));
 for (const [k, t] of Object.entries(THEMES)) $('sound').add(new Option('Sound: ' + t.label, k));
 $('atmo').addEventListener('change', (e) => {
-  presetIdx = PRESETS.findIndex((p) => p.key === e.target.value);
-  applyPreset(presetIdx);
+  setTimeOfDay(TIMES.find((t) => t.key === e.target.value));
   e.target.blur();
 });
 $('sound').addEventListener('change', (e) => {
@@ -1149,8 +1440,6 @@ $('start').addEventListener('click', () => {
   document.body.classList.add('started');
   canvas.requestPointerLock?.();
   setTimeout(() => toast('Gaon'), 900);
-  setTimeout(() => toggleHelp(true), 1600);
-  setTimeout(() => toggleHelp(false), 9000);
 });
 
 let toastTimer;
@@ -1188,6 +1477,8 @@ function lerpAngle(a, b, t) {
 function updatePlayer(dt) {
   if (knock.on) { updateKnock(dt); return; }
   if (drv) { updateTrainDrive(dt); return; }
+  if (pax) { updatePassenger(dt); return; }
+  if (sit.on) { updateSit(dt); return; }
   if (ride && ride.fly) { if (ride.heli) updateHeli(dt); else updateFlight(dt); return; }
   $('tunnel').classList.remove('show');
   if (planeSound) { planeSound = false; audio.setPlane(false); audio.setHeli(false, 0); }
@@ -1283,6 +1574,7 @@ function updatePlayer(dt) {
       for (const c of people.colliders()) pushOut(p, rad, c);
       for (const c of animals.colliders()) pushOut(p, rad, c);
       if (herds) for (const c of herds.colliders()) pushOut(p, rad, c);
+      if (buffs) for (const c of buffs.colliders()) pushOut(p, rad, c);
     }
     for (const b of train.boxes) pushOut(p, 0.3, b);
     for (const b of train.closedBoxes()) pushOut(p, rad, b);
@@ -1363,14 +1655,25 @@ function updatePlayer(dt) {
       const hf = groundHeight(player.x + fx * hl, player.z + fz * hl, player.y + 0.5), hb = groundHeight(player.x - fx * hl, player.z - fz * hl, player.y + 0.5);
       ridePitch += (-Math.atan2(hf - hb, hl * 2) - ridePitch) * (1 - Math.exp(-dt * 6));
     } else ridePitch *= 0.9;
-    boy.root.rotation.x = ridePitch;
+    // the body squats back under power and dips its nose under the brakes
+    const vNow = four ? drive.v : player.speed;
+    const acc = clamp((vNow - (drive.lastV ?? vNow)) / Math.max(dt, 1e-3), -12, 12);
+    drive.lastV = vNow;
+    drive.squat = (drive.squat ?? 0) + (clamp(-acc * (four ? 0.006 : 0.004), -0.05, 0.05) - (drive.squat ?? 0)) * (1 - Math.exp(-dt * 5));
+    boy.root.rotation.x = ridePitch + (ride.water ? 0 : drive.squat);
+    // wheels on dry earth raise a little dust
+    if (!ride.water && player.speed > 4 && !ATMO.rainy && Math.random() < dt * player.speed * 1.2) {
+      const side = (Math.random() - 0.5) * (four ? 1.3 : 0.2);
+      dust.emit(player.x - player.dirX * (four ? 1.2 : 0.6) + Math.cos(player.facing) * side, player.y + 0.08, player.z - player.dirZ * (four ? 1.2 : 0.6) - Math.sin(player.facing) * side,
+        -player.dirX * 0.6 + (Math.random() - 0.5) * 0.5, 0.25 + Math.random() * 0.35, -player.dirZ * 0.6 + (Math.random() - 0.5) * 0.5, 1.1 + Math.random() * 0.6, 0.15, 1.1, 0.28, 0.6);
+    }
     if (ride.water) {
       boy.setGear(gearMode === 'lantern' ? 'lantern' : 'none');
       bike.update(dt, player.speed, clamp(yawRate * 0.6, -1, 1), true);
       boy.row(dt, bike);
       for (const sx of bike.dips) { splashAround(3, 0.5); audio.splash(0.25); }
     } else {
-      boy.setGear(['auto', 'car', 'minibus', 'erick', 'bus', 'jeep'].includes(ride.name) ? (gearMode === 'umbrella' ? 'none' : gearMode) : gearMode);
+      boy.setGear(['auto', 'car', 'minibus', 'erick', 'bus', 'jeep'].includes(ride.name) ? 'none' : gearMode); // nobody holds an umbrella or a lantern at the wheel
       boy.ride(dt, bike, player.speed);
     }
     if (player.speed > 1.5 && !dragging && performance.now() - autoYaw > 1500) yaw = lerpAngle(yaw, player.facing + Math.PI, 1 - Math.exp(-dt * 1.4));
@@ -1383,7 +1686,7 @@ function updatePlayer(dt) {
   }
   lastFacing = player.facing;
   if (ride && ride.four) ride.obj.brake = drive.brake || (drive.v === 0 && keys.KeyS);
-  for (const v of vehicles) if (!(v === ride && v.water)) v.obj.update(dt, v === ride ? (v.four ? drive.v : player.speed) : 0, bikeSteer, v === ride, PRESETS[presetIdx].night ? 1 : 0);
+  for (const v of vehicles) if (!(v === ride && v.water)) v.obj.update(dt, v === ride ? (v.four ? drive.v : player.speed) : 0, bikeSteer, v === ride, v === ride && lamps.on ? 1 : 0);
   // nitro: exhaust flames on motor vehicles, a dust-and-wind trail behind the bicycle
   if (ride && boosting) {
     const o = ride.obj;
@@ -1445,6 +1748,7 @@ function updatePlayer(dt) {
   swim.splash.update(dt);
   let nv = !ride ? nearRide() : null;
   if (!nv && !ride && !swim.on) { const ct = nearCab(); if (ct) nv = { ask: 'drive the train 🚂', cab: ct }; }
+  if (!nv && !ride && !swim.on) { if (nearCoach()) nv = { ask: 'ride the train as a passenger 🚃' }; else { const act = nearAct(); if (act) nv = { ask: act.ask }; } }
   if (nv && swim.on && !nv.water) nv = null;
   const keyChips = (list) => list.map(([k, t]) => `<span class="chip"><kbd>${k}</kbd>${t}</span>`).join('');
   const html = ride ? keyChips(ride.help) : nv ? keyChips([['E', swim.on ? 'climb into the boat' : nv.ask]]) : swim.on ? keyChips([['W', 'swim'], ['Shift', 'swim faster']]) : '';
@@ -1553,12 +1857,11 @@ function updateTrainDrive(dt) {
   ridePromptT -= dt;
   audio.setRide(null, 0, false, false); audio.setReverse(false);
   flames.update(dt); dust.update(dt); mopedSmoke.update(dt);
-  for (const o of vehicles) if (!o.water) o.obj.update(dt, 0, 0, false, PRESETS[presetIdx].night ? 1 : 0);
+  for (const o of vehicles) if (!o.water) o.obj.update(dt, 0, 0, false, 0);
 }
-function trainCamera(dt) {
-  const lg = drvLoco.g;
+function trainCamera(dt, lg = drvLoco.g, view = drvView) {
   lg.updateMatrixWorld();
-  if (drvView === 1) {
+  if (view === 1) {
     const off = Math.atan2(Math.sin(yaw - lg.rotation.y - Math.PI), Math.cos(yaw - lg.rotation.y - Math.PI));
     camIn.set(1.05, 3.8, -3.9);
     lookIn.set(1.05 + Math.sin(-off) * 20, 3.5 + (0.3 - pitch) * 14, -3.9 + Math.cos(-off) * 20);
@@ -1713,9 +2016,9 @@ function updateFlight(dt) {
   boy.root.quaternion.copy(F.q);
   boy.setGear('none');
   boy.ride(dt, v.obj, 0);
-  const night = PRESETS[presetIdx].night ? 1 : 0;
+  const night = ATMO.night ? 1 : 0;
   v.obj.animate(dt, { throttle: F.throttle, pitch: inp.pitch, roll: inp.roll, yaw: inp.yaw + (F.ground ? inp.roll * 0.7 : 0), flaps: F.flaps, gear: F.gear, night, speed: F.ground ? F.v : 0, engine: F.engine });
-  for (const o of vehicles) if (o !== v && !o.water) o.obj.update(dt, 0, 0, false, night);
+  for (const o of vehicles) if (o !== v && !o.water) o.obj.update(dt, 0, 0, false, 0);
   // effects: the smoke trail, prop-wash dust on the ground, fire and smoke from a wreck
   if (flyFx.smoke && !F.ground && F.airspeed > 8) {
     flyFx.smokeAcc += dt * 34;
@@ -1828,9 +2131,9 @@ function updateHeli(dt) {
   boy.root.quaternion.copy(F.q);
   boy.setGear('none');
   boy.ride(dt, v.obj, 0);
-  const night = PRESETS[presetIdx].night ? 1 : 0;
+  const night = ATMO.night ? 1 : 0;
   v.obj.animate(dt, { collective: F.collective, pitch: -inp.fwd, roll: inp.side, yaw: inp.yaw, night, engine: F.engine });
-  for (const o of vehicles) if (o !== v && !o.water) o.obj.update(dt, 0, 0, false, night);
+  for (const o of vehicles) if (o !== v && !o.water) o.obj.update(dt, 0, 0, false, 0);
   // the downwash kicks up dust when it's low
   if (!F.crashed && F.rotorRpm > 0.5 && F.agl < 9) {
     flyFx.dustAcc += dt * 26 * (1 - F.agl / 9) * F.rotorRpm;
@@ -1994,6 +2297,10 @@ function insideCamera(dt) {
     // on the passenger bench looking over the boy's shoulder, or the driver's own eyes above the handlebar
     if (inside === 1) { camIn.set(0.3, 1.46, -0.62); lookIn.set(-0.05, 1.12, 3.0); }
     else { camIn.set(0, 1.52, 0.36); lookIn.set(0, 1.3, 6); }
+  } else if (ride.name === 'car') {
+    // from the middle of the back seat, or the driver's own eyes
+    if (inside === 1) { camIn.set(0.36, 1.16, -0.72); lookIn.set(0.2, 1.02, 3.0); }
+    else { camIn.set(0, 1.18, -0.12); lookIn.set(0, 1.04, 6); }
   } else if (ride.name === 'erick' && inside === 1) { camIn.set(0.3, 1.52, -1.22); lookIn.set(0.05, 1.05, 1.6); }
   else if (inside === 1) { camIn.set(0.25, S.y + 0.95, S.z - 1.0); lookIn.set(0, S.y + 0.55, S.z + 3); }
   else { camIn.set(0, S.y + 0.7, S.z + 0.02); lookIn.set(0, S.y + 0.1, S.z + 6); }
@@ -2010,9 +2317,10 @@ function insideCamera(dt) {
 }
 
 function updateCamera(dt) {
-  boy.head.visible = !(inside === 2 && ride && ride.four) && !(ride && ride.fly && flyView === 1);
+  boy.head.visible = !(inside === 2 && ride && ride.four) && !(ride && ride.fly && flyView === 1) && !(pax && pax.view === 0 && camMode < 3);
   if (ride && ride.fly && camMode < 3) { flightCamera(dt); return; }
   if (drv && camMode < 3) { trainCamera(dt); return; }
+  if (pax && camMode < 3) { paxCamera(dt); return; }
   if (inside && ride && ride.four) { insideCamera(dt); return; }
   if (camMode === 3) { cinematicCamera(dt); return; }
   if (camMode === 4) {
@@ -2090,7 +2398,7 @@ function villageVoices(dt) {
     audio.say(hi, { roman: ro, pitch: 0.8 + Math.random() * 0.6, rate: 1.1, volume: 1 - dMk / 32 });
   }
   // namaste: anyone the boy walks past greets him (once a minute each), and he greets them back
-  if (ride && player.speed > 6) return;
+  if ((ride && player.speed > 6) || pax) return;
   for (const v of people.villagers) {
     if (!v.person.root.visible) continue;
     const d = Math.hypot(v.p.x - player.x, v.p.z - player.z);
@@ -2119,7 +2427,7 @@ const wildEvents = {
   snort: (d) => audio.snort(d),
   trumpet: (d) => { audio.trumpet(d); if (d < 30) scare.shake = Math.max(scare.shake, 0.4); },
   snap: (x, z, kind) => {
-    if ((ride && ride.fly) || drv) return;
+    if ((ride && ride.fly) || drv || pax) return;
     if (scare.cool > 0) return;
     scare.cool = 2.5;
     const dx = player.x - x, dz = player.z - z, d = Math.hypot(dx, dz) || 1;
@@ -2208,6 +2516,23 @@ function updateStorm(dt) {
   }
 }
 
+// the trains as the map draws them: where each coach is, the engine, speed, and the station it's at or bound for
+function mapTrains() {
+  const out = [];
+  for (const tr of train.trains) {
+    if (!tr.boxes.length) continue;
+    const cars = tr.boxes.map((b) => ({ x: b.x, z: b.z }));
+    const lb = tr.boxes.find((b) => b.loco) ?? tr.boxes[0];
+    // the engine that leads in the direction it's moving (the station trains have one at each end)
+    let head = lb;
+    if (tr.locos?.length > 1 && tr.v !== 0) { const ends = [tr.boxes[0], tr.boxes[tr.boxes.length - 1]]; head = (tr.termini ? Math.sign(tr.v) : 1) > 0 ? ends[0] : ends[1]; }
+    const nh = tr.loopLine ? tr.nextLoopStop?.() : tr.termini ? tr.nextStop?.(tr.m) : tr.nextHalt?.();
+    const at = tr.at && !tr.at.noStation ? tr.at.name : null;
+    out.push({ name: tr.name, color: tr.color, cars, head: { x: head.x, z: head.z }, v: tr.v, at, next: nh && !nh.h.noStation ? nh.h.name : null, driven: tr === drv });
+  }
+  return out;
+}
+
 function loop(now) {
   // schedule the next frame first: a bug in one frame must never freeze the whole game
   requestAnimationFrame(loop);
@@ -2225,6 +2550,16 @@ function frame(now) {
   const gust = 0.5 + 0.5 * (noise2(time * 0.09, 3.7) * 0.7 + noise2(time * 0.31, 9.1) * 0.3);
   windUniforms.uWind.value = windBase * (0.55 + gust * 0.75);
 
+  tickClock(dt);
+  {
+    const want = lamps.on && ride && !ride.fly && !ride.water ? (ride.four ? 260 : ride.name === 'bicycle' ? 60 : 150) : 0;
+    headlight.intensity += (want - headlight.intensity) * (1 - Math.exp(-dt * 10));
+    headlight.position.x = ride?.box ? ride.box[0] : 0;
+    headlight.position.z = ride?.probes ? Math.max(...ride.probes) + 0.7 : 0.9; // just ahead of the nose
+    headlight.target.position.x = headlight.position.x;
+    headlight.target.position.z = headlight.position.z + 15;
+    headlight.visible = headlight.intensity > 0.5 || !started;
+  }
   if (!started) yaw += dt * 0.04;
   collectHittables();
   people.update(dt, player);
@@ -2234,6 +2569,7 @@ function frame(now) {
   mela?.update(dt, player);
   airstrip?.update(dt, windUniforms.uWind.value);
   updateRobbed(dt);
+  updateDiyas(dt);
   pumpToasts(dt);
   {
     const carriers = vehicles.filter((v) => v.obj.seats);
@@ -2248,13 +2584,16 @@ function frame(now) {
     X.bellT = (X.bellT ?? 0) - dt;
     if (X.bellT <= 0) { X.bellT = 0.45; const d = Math.hypot(player.x - X.cx, player.z - X.cz); if (d < 90) audio.tink(clamp(1 - d / 90, 0.1, 1) * 0.8); }
   }
-  stations?.update(dt, player, !!PRESETS[presetIdx].night);
+  stations?.update(dt, player, !!ATMO.night);
   updatePlayer(dt);
   crashCheck(dt);
   crashes.update(dt);
   updateCamera(dt);
   updateShadows();
 
+  updateVegetation(camera.position, scene.fog.density);
+  terrainObj.userData.update(camera.position);
+  updateCull(camera.position);
   grass.userData.setCenter(player.x, player.z);
   river.material.uniforms.uTime.value = time;
   const mu = motes.material.uniforms;
@@ -2270,14 +2609,16 @@ function frame(now) {
   scare.cool -= dt;
   updateStorm(dt);
   if (started) villageVoices(dt);
-  if (started) map.update(player, yaw, vehicles.map((v) => ({ name: v.name, x: v === ride ? player.x : v.park.x, z: v === ride ? player.z : v.park.z, ridden: v === ride })));
+  if (started) map.update(player, yaw, vehicles.map((v) => ({ name: v.name, x: v === ride ? player.x : v.park.x, z: v === ride ? player.z : v.park.z, ridden: v === ride })), mapTrains());
   flocks.update(time, dt, player);
-  birds.update(dt, player, !!PRESETS[presetIdx].night);
+  birds.update(dt, player, !!ATMO.night);
   herds?.update(dt, player);
+  buffs?.update(dt, player, time);
   hamlets?.update(dt, player);
   shrineLife?.update(dt, player);
-  trackside?.update(dt, player, !!PRESETS[presetIdx].night);
+  trackside?.update(dt, player, !!ATMO.night);
   clouds.material.uniforms.uTime.value = time;
+  sky.position.copy(camera.position);
   clouds.position.x = camera.position.x;
   clouds.position.z = camera.position.z;
   nightSky.position.copy(camera.position);
@@ -2309,24 +2650,22 @@ function frame(now) {
       currentRegion = r;
       $('pl-name').textContent = r;
     }
-    const meta = `${PRESETS[presetIdx].name} · ${SEASONS[season].name.split(' — ')[0]}${ride ? ' · ' + Math.round(player.speed * 3.6) + ' km/h' : ''}`;
+    const meta = `${clockText(clock.hour)} · ${ATMO.weather === 'clear' ? ATMO.name : ATMO.weatherName} · ${SEASONS[season].name.split(' — ')[0]}${ride ? ' · ' + Math.round(player.speed * 3.6) + ' km/h' : ''}`;
     if ($('pl-meta').textContent !== meta) $('pl-meta').textContent = meta;
-    audio.update(windUniforms.uWind.value, Math.min(riverDist(player.x, player.z), Math.hypot(player.x - WF.lipX, player.z - WF.z) * 0.8), {
+    audio.update(windUniforms.uWind.value, Math.min(riverDist(player.x, player.z), streamDist(player.x, player.z) * 1.3), {
       temple: Math.hypot(player.x - layout.temple.x, player.z - layout.temple.z),
       cow: nearest(layout.cows, player.x, player.z),
     }, { active: train.active, distance: train.distanceTo(player.x, player.z) });
     audio.setTractor(farm.tractorDistance(player.x, player.z));
+    audio.setFalls(waterfall ? Math.hypot(player.x - waterfall.impact.x, player.y - waterfall.impact.y, player.z - waterfall.impact.z) : 999);
     {
       // village life around you: how close the nearest village is, and the goats
       let dv = Infinity;
       for (const v of [{ x: 0, z: 10 }, layout.nv, layout.rv, layout.bv, layout.tv, layout.mh, layout.ne, layout.pg, layout.eh ?? { x: 131, z: 80 }]) if (v) dv = Math.min(dv, Math.hypot(player.x - v.x, player.z - v.z));
-      audio.setVillageLife(dv, PRESETS[presetIdx], season, animals.goats ? nearest(animals.goats.filter((g) => g.species === 'goat').map((g) => g.p), player.x, player.z) : 999);
+      audio.setVillageLife(dv, ATMO, season, animals.goats ? nearest(animals.goats.filter((g) => g.species === 'goat').map((g) => g.p), player.x, player.z) : 999);
     }
-    audio.setFolk(layout.rv ? Math.hypot(player.x - layout.rv.chhatri.x, player.z - layout.rv.chhatri.z) : 999);
     {
       const dMela = mela?.distTo(player.x, player.z) ?? 999;
-      audio.setMarket(Math.min(dMela * 0.8, Math.abs(player.z - MARKET.z) < 12 && player.x > MARKET.x0 - 5 && player.x < MARKET.x1 + 5 ? 0 : Math.hypot(player.x - MARKET.x, player.z - MARKET.z) - 12));
-      audio.setMela(dMela, !!PRESETS[presetIdx].night);
     }
   }
 
@@ -2344,11 +2683,37 @@ function frame(now) {
     }
     const tc = tunnelAt(cp.x, cp.z), camIn = !!tc && cp.y < heightAt(cp.x, cp.z, false) - 0.5;
     tunnelK += ((pin || camIn ? 0.22 : 1) - tunnelK) * (1 - Math.exp(-dt * 3));
-    const pr = PRESETS[presetIdx];
-    sun.intensity = pr.sunI * tunnelK;
+    sun.intensity = ATMO.sunI * tunnelK;
     hemi.intensity *= 0.35 + 0.65 * tunnelK; // (the storm code sets it afresh every frame)
   }
   composer.render();
+  if (wantShot) { wantShot = false; postcard(); }
+}
+// P: a postcard of what the boy is looking at, with the place and the hour written along the bottom
+let wantShot = false;
+function postcard() {
+  const src = renderer.domElement, c = document.createElement('canvas');
+  c.width = src.width; c.height = src.height;
+  const g = c.getContext('2d'), w = c.width, h = c.height, u = h / 100;
+  g.drawImage(src, 0, 0);
+  const gr = g.createLinearGradient(0, h - 18 * u, 0, h);
+  gr.addColorStop(0, 'rgba(15,11,8,0)'); gr.addColorStop(1, 'rgba(15,11,8,0.72)');
+  g.fillStyle = gr; g.fillRect(0, h - 18 * u, w, 18 * u);
+  g.fillStyle = '#fbf3e4'; g.textBaseline = 'alphabetic';
+  g.font = `italic ${4.6 * u}px 'Cormorant Garamond', serif`;
+  g.fillText((currentRegion || 'Gaon').split(' — ')[0], 4 * u, h - 6.4 * u);
+  g.font = `${2.1 * u}px Inter, sans-serif`; g.fillStyle = 'rgba(251,243,228,0.78)';
+  g.fillText(`${SEASONS[season].name.split(' — ')[0]} · ${clockText(clock.hour)} · ${ATMO.weather === 'clear' ? ATMO.name : ATMO.weatherName}`, 4 * u, h - 3.2 * u);
+  g.textAlign = 'right'; g.fillStyle = '#f2b544'; g.font = `${4.4 * u}px 'Tiro Devanagari Hindi', serif`;
+  g.fillText('गाँव', w - 4 * u, h - 4 * u);
+  c.toBlob((b) => {
+    if (!b) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(b); a.download = `gaon-${(currentRegion || 'gaon').split(' — ')[0].toLowerCase().replace(/[^a-z0-9]+/g, '-')}.jpg`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }, 'image/jpeg', 0.92);
+  toast('Postcard saved 📷');
 }
 
 // the minibus: toasts, the conductor's bell, and what the passengers say
@@ -2377,7 +2742,10 @@ function busEvents(evs) {
 window.__gaon = {
   player,
   view(y, p, d) { yaw = y; pitch = p; targetDist = dist = d; },
-  preset(i) { presetIdx = i; applyPreset(i); },
+  // the old preset numbers still work: 0 golden, 1 morning, 2 noon, 3 dusk, 4 night, 5 moonless, 6 windy, 7 storm, 8 rain
+  preset(i) { const k = ['golden', 'morning', 'noon', 'dusk', 'night', 'newmoon'][i]; if (k) { setTimeOfDay(TIMES.find((t) => t.key === k), false); setWeatherChoice('clear', false); } else setWeatherChoice(['windy', 'storm', 'rain'][i - 6], false); },
+  clock, get atmo() { return ATMO; },
+  hour(h) { clock.hour = h; clock.envT = 0; }, weather(k) { setWeatherChoice(k, false); clock.wx = k; clock.wxW = 1; },
   setTime(t) { time = t; },
   keys,
   get train() { return train; },

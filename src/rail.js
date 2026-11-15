@@ -1,8 +1,9 @@
 // The railway: ballast, sleepers, rails, a girder bridge over the river, tunnel portals in the hills,
 // a level crossing with a gatekeeper's hut — and a passenger train that passes once a minute.
 import * as THREE from 'three';
+import { cullBeyond } from './perf.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { TRACK, TRACK3, TRACKS, RING, TRACK_Y, riverX, RIVER_HALF, WATER_Y, CROSSING, CROSSING3, heightAt, colliders, roadX, BORE_HALF, ROAD_X } from './world.js';
+import { TRACK, TRACK3, TRACK5, OUTER_LOOP, TRACKS, RING, TRACK_Y, riverX, RIVER_HALF, WATER_Y, CROSSING, CROSSING3, heightAt, colliders, roadX, BORE_HALF, ROAD_X } from './world.js';
 import { toTexture } from './textures.js';
 import { lathe, boulder } from './shapes.js';
 import { Puffs } from './particles.js';
@@ -346,7 +347,11 @@ export function buildRailway(scene) {
   const third = RING.path.L / 3, s0 = RING.halts[0].s;
   const E = new Train(scene, RING, { livery: { base: '#2a6a9a', line: '#f2efe2', dark: '#1a4466', door: '#1f5580' }, end: '#2a6a9a', coaches: 4, startS: s0 + third, boiler: '#1c2026', name: 'Neeli Gol Gaadi — the blue ring train' });
   const F = new Train(scene, RING, { livery: { base: '#3c7a3c', line: '#f2e6b0', dark: '#265426', door: '#2e662e' }, end: '#3c7a3c', coaches: 4, startS: s0 + third * 2, boiler: '#1c221c', name: 'Hari Gol Gaadi — the green ring train' });
-  return new Railway([A, B, C, D, E, F]);
+  // and two on the outer line's loop: out past the three new villages, back into the ring and round to it again
+  const LL = OUTER_LOOP.path.L;
+  const G = new Train(scene, TRACK5, { service: OUTER_LOOP, livery: { base: '#6a2e62', line: '#f2e2c0', dark: '#46193f', door: '#552350' }, end: '#6a2e62', coaches: 4, startS: 40, boiler: '#221a20', name: 'Kinara Express — the outer line' });
+  const H = new Train(scene, TRACK5, { service: OUTER_LOOP, livery: { base: '#9a7414', line: '#2a2010', dark: '#6a4f0c', door: '#7a5c10' }, end: '#9a7414', coaches: 4, startS: LL / 2, boiler: '#201c14', name: 'Sarson Gaadi — the mustard train' });
+  return new Railway([A, B, C, D, E, F, G, H]);
 }
 
 // a level crossing: a plank-and-concrete deck across the line, striped barrier booms on both sides of the
@@ -462,7 +467,7 @@ function updateCrossing(X, dt, trains) {
   // close when any train on these lines is within ~80 m of the road; open once it's clear
   let near = false;
   for (const tr of trains) {
-    if (!X.tracks.includes(tr.tk)) continue;
+    if (!X.tracks.some((T) => (tr.lines ?? [tr.tk]).includes(T))) continue;
     for (const b of tr.boxes) if (Math.hypot(b.x - X.cx, b.z - X.cz) - b.hd < 80) near = true;
   }
   if (near !== X.closed) { X.closed = near; X.t = 0; if (X.onBell) X.onBell(X, near); }
@@ -605,23 +610,26 @@ function buildLine(group, T) {
   }
   // concrete sleepers with dark rail pads and clips
   const slG = mergeGeometries([new THREE.BoxGeometry(0.26, 0.15, 2.6), ...[-GAUGE, GAUGE].flatMap((s2) => [new THREE.BoxGeometry(0.2, 0.03, 0.22).translate(0, 0.085, s2), new THREE.BoxGeometry(0.06, 0.06, 0.06).translate(0.09, 0.1, s2 + 0.1), new THREE.BoxGeometry(0.06, 0.06, 0.06).translate(-0.09, 0.1, s2 - 0.1)])]);
-  const sleepers = new THREE.InstancedMesh(slG, std('#a39d92', { roughness: 0.9 }), Math.max(1, ss.length));
-  ss.forEach((t, i) => {
-    P.at(t, q);
-    d.position.set(q.x, onBridge(t) ? RAIL_TOP - 0.2 : TRACK_Y + 0.3, q.z);
-    d.rotation.set(0, Math.atan2(q.tx, q.tz) - Math.PI / 2, 0);
-    d.updateMatrix();
-    sleepers.setMatrixAt(i, d.matrix);
-  });
-  sleepers.receiveShadow = true;
-  sleepers.computeBoundingSphere();
-  group.add(sleepers);
-  if (ssT.length) {
-    const sT = new THREE.InstancedMesh(slG, new THREE.MeshBasicMaterial({ color: '#4c4842' }), ssT.length);
-    ssT.forEach((t, i) => { P.at(t, q); d.position.set(q.x, TRACK_Y + 0.3, q.z); d.rotation.set(0, Math.atan2(q.tx, q.tz) - Math.PI / 2, 0); d.updateMatrix(); sT.setMatrixAt(i, d.matrix); });
-    sT.computeBoundingSphere();
-    group.add(sT);
-  }
+  // laid in runs of 160 so the stretches out of view (or too far off to make out) are skipped
+  const layRun = (list, mat, yAt, shadow) => {
+    for (let i0 = 0; i0 < list.length; i0 += 160) {
+      const run = list.slice(i0, i0 + 160);
+      const m = new THREE.InstancedMesh(slG, mat, run.length);
+      run.forEach((t, i) => {
+        P.at(t, q);
+        d.position.set(q.x, yAt(t), q.z);
+        d.rotation.set(0, Math.atan2(q.tx, q.tz) - Math.PI / 2, 0);
+        d.updateMatrix();
+        m.setMatrixAt(i, d.matrix);
+      });
+      m.receiveShadow = shadow;
+      m.computeBoundingSphere();
+      group.add(m);
+      cullBeyond(m, 320);
+    }
+  };
+  layRun(ss, std('#a39d92', { roughness: 0.9 }), (t) => (onBridge(t) ? RAIL_TOP - 0.2 : TRACK_Y + 0.3), true);
+  layRun(ssT, new THREE.MeshBasicMaterial({ color: '#4c4842' }), () => TRACK_Y + 0.3, false);
 
   // girder bridges over the river: a concrete deck, steel trusses either side, piers in the water
   const steel = std('#56606a', { metalness: 0.4, roughness: 0.6 }), concrete = std('#9c968c');
@@ -671,40 +679,83 @@ function buildLine(group, T) {
 
   // level crossings on the main road (the old one, spanning the main and Mail lines; the Mariapur line's)
 
-  // telegraph poles along the station lines and the ring
+  // The lines are electrified: a steel portal over the track every 45 m — a mast either side and a lattice
+  // beam across — carrying the contact wire with its sagging catenary and droppers over the rails, and a
+  // feeder wire along the mast tops on both sides. (Not at stations, crossings, bridges or in tunnels.)
   if (T.name === 'mail') return;
-  const pg = mergeGeometries([new THREE.CylinderGeometry(0.07, 0.09, 6, 6).translate(0, 3, 0), new THREE.BoxGeometry(1.0, 0.08, 0.08).translate(0, 5.6, 0)]);
-  const poleTs = [];
-  for (const [a, b] of T.segs) for (let t = a + 10; t < b - 10; t += 45) {
-    P.at(t, q);
-    if (onBridge(t) || ROAD_X.some((X) => Math.hypot(q.x - X.x, q.z - X.z) < 16)) continue;
-    poleTs.push(t);
+  const MAST_X = 3.5, MAST_H = 7.2, WIRE_Y = RAIL_TOP + 5.45, CAT_Y = RAIL_TOP + 6.55;
+  const steelM = std('#6f7880', { metalness: 0.55, roughness: 0.5 }), insM = std('#7a3b2a', { roughness: 0.35 });
+  const mastParts = [], insParts = [];
+  for (const sx of [-1, 1]) {
+    // an H-section mast on a concrete footing, sunk well into the ground whatever the bank does
+    mastParts.push(new THREE.BoxGeometry(0.2, MAST_H + 4, 0.05).translate(sx * MAST_X, MAST_H / 2 - 2.42, -0.1), new THREE.BoxGeometry(0.2, MAST_H + 4, 0.05).translate(sx * MAST_X, MAST_H / 2 - 2.42, 0.1), new THREE.BoxGeometry(0.04, MAST_H + 4, 0.2).translate(sx * MAST_X, MAST_H / 2 - 2.42, 0));
+    // the feeder wire's insulator on top
+    insParts.push(new THREE.CylinderGeometry(0.07, 0.07, 0.34, 8).translate(sx * MAST_X, MAST_H - 0.25, 0));
   }
-  const poles = new THREE.InstancedMesh(pg, std('#5a5048'), Math.max(1, poleTs.length));
-  const wirePts = [];
-  poleTs.forEach((t, i) => {
-    P.at(t, q);
-    const px = q.x - q.tz * 5, pz = q.z + q.tx * 5, py = heightAt(px, pz);
-    d.position.set(px, py, pz);
-    d.rotation.set(0, Math.atan2(-q.tz, q.tx), 0);
-    d.updateMatrix();
-    poles.setMatrixAt(i, d.matrix);
-    wirePts.push(new THREE.Vector3(px, py + 5.65, pz));
-  });
-  poles.castShadow = true;
-  poles.computeBoundingSphere();
-  group.add(poles);
-  const wv = [];
-  for (let i = 0; i < wirePts.length - 1; i++) {
-    const a = wirePts[i], b = wirePts[i + 1];
-    if (a.distanceTo(b) > 60) continue;
-    for (let k = 0; k < 8; k++) {
-      const t0 = k / 8, t1 = (k + 1) / 8, sag = (t) => -Math.sin(t * Math.PI) * 0.6;
-      wv.push(a.x + (b.x - a.x) * t0, a.y + (b.y - a.y) * t0 + sag(t0), a.z + (b.z - a.z) * t0, a.x + (b.x - a.x) * t1, a.y + (b.y - a.y) * t1 + sag(t1), a.z + (b.z - a.z) * t1);
+  // the lattice beam: two chords and the zig-zag bracing between them
+  for (const y of [MAST_H - 0.75, MAST_H - 1.35]) mastParts.push(new THREE.BoxGeometry(MAST_X * 2, 0.07, 0.07).translate(0, y - 0.42, 0));
+  for (let i = 0; i < 10; i++) {
+    const x0 = -MAST_X + (i / 10) * MAST_X * 2, x1 = x0 + (MAST_X * 2) / 10, up = i % 2 === 0;
+    const len = Math.hypot(x1 - x0, 0.6);
+    mastParts.push(new THREE.BoxGeometry(len, 0.04, 0.04).rotateZ(Math.atan2(0.6, x1 - x0) * (up ? 1 : -1)).translate((x0 + x1) / 2, MAST_H - 1.05 - 0.42, 0));
+  }
+  // the drop arm that holds the two wires over the track centre, and its insulators
+  mastParts.push(new THREE.BoxGeometry(0.05, 0.75, 0.05).translate(0, CAT_Y - RAIL_TOP + 0.38, 0), new THREE.BoxGeometry(0.04, 0.04, 0.9).translate(0, WIRE_Y - RAIL_TOP + 0.02, 0).rotateY(0.5));
+  insParts.push(new THREE.CylinderGeometry(0.06, 0.06, 0.3, 8).translate(0, CAT_Y - RAIL_TOP + 0.15, 0));
+  const mastG = mergeGeometries(mastParts), insG = mergeGeometries(insParts);
+  const farFrom = (x, z, list, r) => !list.some((o) => Math.hypot(x - o.x, z - o.z) < r);
+  const stops = (T.halts ?? []).map((h) => P.at(h.s));
+  const wire = [];
+  const seg = (a, b) => wire.push(a.x, a.y, a.z, b.x, b.y, b.z);
+  const at = (t, y, lat = 0) => { P.at(t, q); return new THREE.Vector3(q.x - q.tz * lat, y, q.z + q.tx * lat); };
+  for (const [a, b] of T.segs) {
+    const ok = (t) => { P.at(t, q); return !onBridge(t) && farFrom(q.x, q.z, ROAD_X, 16) && farFrom(q.x, q.z, stops, 70); };
+    const n = Math.floor((b - a - 20) / 45);
+    let run = [], prev = null;
+    const flush = () => {
+      if (!run.length) return;
+      for (const [g, m] of [[mastG, steelM], [insG, insM]]) {
+        const im = new THREE.InstancedMesh(g, m, run.length);
+        run.forEach((t, i) => {
+          P.at(t, q);
+          d.position.set(q.x, RAIL_TOP, q.z);
+          d.rotation.set(0, Math.atan2(q.tx, q.tz), 0);
+          d.updateMatrix();
+          im.setMatrixAt(i, d.matrix);
+        });
+        im.castShadow = g === mastG;
+        im.computeBoundingSphere();
+        group.add(im);
+        cullBeyond(im, 700);
+      }
+      for (const t of run) for (const sx of [-1, 1]) { P.at(t, q); colliders.push({ kind: 'c', x: q.x - q.tz * sx * MAST_X, z: q.z + q.tx * sx * MAST_X, r: 0.16 }); }
+      run = [];
+    };
+    for (let i = 0; i <= n; i++) {
+      const t = a + 10 + i * 45;
+      if (!ok(t)) { flush(); prev = null; continue; }
+      // the span on from the last mast: the contact wire level, the catenary sagging, a dropper every 9 m
+      if (prev !== null) {
+        const t0 = prev, K = 5;
+        const sag = (u) => CAT_Y - Math.sin(u * Math.PI) * 0.85;
+        for (let k = 0; k < K; k++) {
+          const u0 = k / K, u1 = (k + 1) / K, ta = t0 + (t - t0) * u0, tb = t0 + (t - t0) * u1;
+          seg(at(ta, WIRE_Y), at(tb, WIRE_Y));
+          seg(at(ta, sag(u0)), at(tb, sag(u1)));
+          if (k) seg(at(ta, WIRE_Y), at(ta, sag(u0)));
+          for (const sx of [-1, 1]) seg(at(ta, RAIL_TOP + MAST_H - 0.1 - Math.sin(u0 * Math.PI) * 0.5, sx * MAST_X), at(tb, RAIL_TOP + MAST_H - 0.1 - Math.sin(u1 * Math.PI) * 0.5, sx * MAST_X));
+        }
+      }
+      run.push(t); prev = t;
+      if (run.length >= 10) flush();
     }
+    flush();
   }
-  if (wv.length) { const wg = new THREE.BufferGeometry(); wg.setAttribute('position', new THREE.Float32BufferAttribute(wv, 3)); group.add(new THREE.LineSegments(wg, new THREE.LineBasicMaterial({ color: '#2a2622' }))); }
-  if (!poleTs.length) poles.visible = false;
+  if (wire.length) {
+    const wg = new THREE.BufferGeometry();
+    wg.setAttribute('position', new THREE.Float32BufferAttribute(wire, 3));
+    group.add(new THREE.LineSegments(wg, new THREE.LineBasicMaterial({ color: '#1f1d1b' })));
+  }
 }
 
 // All the trains behind one interface for the rest of the game.
@@ -746,6 +797,7 @@ class Train {
   constructor(scene, track, o) {
     this.tk = track;
     this.name = o.name ?? 'Passenger';
+    this.color = o.livery?.base ?? '#8a2a1e'; // for its marker on the map
     const side = toTexture(coachTexture(false, o.livery));
     const glow = toTexture(coachTexture(true, o.livery));
     this.mats = {
@@ -795,6 +847,10 @@ class Train {
     this.sE = this.path.L;
     this.loopLine = !!track.loop;
     this.halts = (track.halts ?? []).map((h) => ({ ...h }));
+    // a service that runs a loop over more than one line (the outer trains: the outer line, then the ring)
+    if (o.service) { this.path = o.service.path; this.svcOpen = o.service.open; this.loopLine = true; this.sE = this.path.L; this.halts = o.service.halts.map((h) => ({ ...h })); }
+    // every line it can be on (for the level crossings to close as it comes)
+    this.lines = o.service ? [TRACK5, RING] : track.drive ? [track, RING] : [track];
     this.layover = o.layover ?? 25;
     this.startDir = o.startDir ?? 1;
     this.dir = this.startDir;
@@ -834,7 +890,7 @@ class Train {
     const q = this.path.at(s);
     return new THREE.Vector3(q.x, RAIL_TOP, q.z);
   }
-  openAt(s) { const q = s - this.sOff; return q < 0 || q > this.tk.path.L ? true : this.tk.openS(q); }
+  openAt(s) { if (this.svcOpen) return this.svcOpen(s); const q = s - this.sOff; return q < 0 || q > this.tk.path.L ? true : this.tk.openS(q); }
   get tail() { return this.head - this.dir * this.length; }
   // where the head stops so the train stands centred on a platform
   stopFor(h) { const s = h.s + this.sOff; return this.termini || this.loopLine ? s + this.length / 2 : s + this.dir * this.length / 2 - this.dir * 6; }
@@ -1012,16 +1068,19 @@ class Train {
       const sg = Math.sign(this.head - prevHead), ends = [this.head, this.tail];
       const fs = sg > 0 ? Math.max(...ends) : Math.min(...ends);
       const f = this.path.at(fs + sg * 1.5);
-      let hit = false;
+      let hit = false, by = null;
       for (const o of this.others) {
         if (o === this) continue;
+        // where two lines merge, two trains could each be waiting for the other: the earlier one in the list goes
+        if (o.blockedBy === this && this.others.indexOf(this) < this.others.indexOf(o)) continue;
         for (const b of o.boxes) {
           const dx = f.x - b.x, dz = f.z - b.z, c = Math.cos(b.rot), sn = Math.sin(b.rot);
           const lz = dx * sn + dz * c, lx = dx * c - dz * sn;
-          if (Math.abs(lx) < 2.4 && Math.abs(lz) < b.hd + 3) { hit = true; break; }
+          if (Math.abs(lx) < 2.4 && Math.abs(lz) < b.hd + 3) { hit = true; by = o; break; }
         }
         if (hit) break;
       }
+      this.blockedBy = by;
       if (hit) { this.head = prevHead; this.v = 0; this.bumped = true; }
     }
     const ds = this.head - prevHead;

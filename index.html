@@ -161,6 +161,13 @@
       #rh-pax .px-next { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       #ridehud.bus { width: 230px; }
       #toast { font-size: 28px; }
+      #caption { position: absolute; left: 50%; bottom: 112px; transform: translate(-50%, 6px); display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 6px 16px 7px; border-radius: 14px; background: rgba(18, 14, 10, 0.42); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); opacity: 0; transition: opacity .5s, transform .5s; white-space: nowrap; pointer-events: none; }
+      #caption.show { opacity: 1; transform: translate(-50%, 0); }
+      #caption .cap-hi { font-family: 'Tiro Devanagari Hindi', serif; font-size: 17px; }
+      #caption .cap-ro { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 15px; color: var(--muted); }
+      body.cine #caption { bottom: 12vh; }
+      #minimap, .btns, .hint, #place { transition: opacity 1.6s; }
+      body.sitting #minimap, body.sitting .btns, body.sitting .hint, body.sitting #place { opacity: 0; }
     </style>
   </head>
   <body>
@@ -171,13 +178,14 @@
         <p>A quiet walk through an Indian village — wind in the neem trees, a river slipping past, a train far off in the hills, nowhere to be.</p>
         <button id="start" disabled>Preparing the village…</button>
         <div class="keys">
-          <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk &nbsp;·&nbsp; <kbd>Shift</kbd> run &nbsp;·&nbsp; <kbd>Space</kbd> jump &nbsp;·&nbsp; mouse to look &nbsp;·&nbsp; scroll to zoom<br />
-          <kbd>E</kbd> ride any vehicle — even take a bike, bus or jeep off the road — or fly the little plane or the helicopter from the airstrip &nbsp;·&nbsp; <kbd>H</kbd> all controls &nbsp;·&nbsp; <kbd>B</kbd> bell / horn &nbsp;·&nbsp; <kbd>N</kbd> nitro on the motorbike, scooter and car &nbsp;·&nbsp; walk into the river to swim &nbsp;·&nbsp; <kbd>Tab</kbd> map &nbsp;·&nbsp; <kbd>C</kbd> camera &nbsp;·&nbsp; <kbd>Y</kbd> season &nbsp;·&nbsp; <kbd>T</kbd> time &amp; weather &nbsp;·&nbsp; <kbd>M</kbd> sound &nbsp;·&nbsp; <kbd>U</kbd> full screen &nbsp;·&nbsp; <kbd>Esc</kbd> free the cursor
+          <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk &nbsp;·&nbsp; mouse to look &nbsp;·&nbsp; <kbd>E</kbd> ride, or do the small thing at hand &nbsp;·&nbsp; <kbd>Q</kbd> sit a while<br />
+          <kbd>Tab</kbd> map &nbsp;·&nbsp; <kbd>T</kbd> time of day &nbsp;·&nbsp; <kbd>J</kbd> weather &nbsp;·&nbsp; <kbd>Y</kbd> season &nbsp;·&nbsp; <kbd>H</kbd> everything else
         </div>
       </div>
     </div>
     <div id="hud">
       <div id="toast"></div>
+      <div id="caption"></div>
       <div id="place" class="glass"><span class="pl-name" id="pl-name">Gaon</span><span class="pl-meta" id="pl-meta"></span></div>
       <div id="lockhint">Click to look around</div>
       <div id="prompt"></div>
@@ -220,6 +228,9 @@
         <div class="row"><span><kbd>Shift</kbd> · <kbd>Space</kbd></span><span>run · jump</span></div>
         <div class="row"><span><kbd>E</kbd></span><span>get on / into a ride nearby</span></div>
         <div class="row"><span>river</span><span>walk in to swim</span></div>
+        <div class="row"><span><kbd>Q</kbd></span><span>sit a while</span></div>
+        <div class="row"><span><kbd>E</kbd> here and there</span><span>chai at the stall · the temple bell · pat the dog · feed the fish · float a diya at dusk</span></div>
+        <div class="row"><span><kbd>P</kbd></span><span>save a postcard</span></div>
         <h3>Bikes &amp; scooter</h3>
         <div class="row"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span>ride where you point</span></div>
         <div class="row"><span><kbd>N</kbd> · <kbd>B</kbd></span><span>nitro · bell / horn</span></div>
@@ -227,6 +238,7 @@
         <div class="row"><span><kbd>W</kbd> / <kbd>S</kbd></span><span>accelerate · brake, then reverse</span></div>
         <div class="row"><span><kbd>A</kbd> / <kbd>D</kbd></span><span>steer (flips when reversing)</span></div>
         <div class="row"><span><kbd>V</kbd></span><span>inside view · driver's view</span></div>
+        <div class="row"><span><kbd>L</kbd></span><span>headlights on / off (bikes, scooters, cars, buses)</span></div>
         <div class="row"><span>🚏 bus stop</span><span>stop the minibus (or the e-rickshaw, 4 riders max) there to pick people up</span></div>
         <div class="row"><span>E by traffic</span><span>take any bike, scooter, bus or jeep on the road; park it back by its owner to return it</span></div>
         <h3>The little plane ✈ (at the airstrip by the mela)</h3>
@@ -242,6 +254,7 @@
         <div class="row"><span><kbd>W</kbd> / <kbd>S</kbd> · <kbd>A</kbd> / <kbd>D</kbd></span><span>fly forward · back · turn left / right</span></div>
         <div class="row"><span><kbd>Z</kbd> / <kbd>X</kbd> · <kbd>V</kbd> · <kbd>K</kbd></span><span>slide sideways · cockpit view · hover assist</span></div>
         <h3>Trains 🚂 (Sonpur — Gaon — Noorpur Junction — Mariapur)</h3>
+        <div class="row"><span>as a passenger</span><span>walk up to a coach at a station and press <kbd>E</kbd> — sit in the doorway and be carried</span></div>
         <div class="row"><span>at a station</span><span>walk to the engine cab while it stands there, press <kbd>E</kbd> to drive</span></div>
         <div class="row"><span><kbd>W</kbd> / <kbd>S</kbd> · <kbd>Space</kbd></span><span>go · brake, then reverse · brake</span></div>
         <div class="row"><span><kbd>B</kbd> · <kbd>V</kbd> · <kbd>E</kbd></span><span>whistle · driver's view · climb down (stopped)</span></div>
@@ -249,15 +262,17 @@
         <div class="row"><span>ring line</span><span>Gol Gaadi circles the whole land: Purab Jn · Khetpura · Mariapur Road · Paschim Jn · Rannvas</span></div>
         <div class="row"><span>junctions</span><span>drive any station train on past the end of its line, onto the ring — it stops short of other trains</span></div>
         <div class="row"><span>tunnels</span><span>real tunnels with lamps — trains and the boy go right through (the Mail line's, and the ring's hill tunnel)</span></div>
+        <div class="row"><span>outer line</span><span>two trains loop out past Dhaniyapur, Nadipar and Pathargaon and back round the ring; it runs beside the ring for a stretch, over twin river bridges</span></div>
+        <div class="row"><span>little river</span><span>Choti Nadi, out past Nadipar — take the lane from the village down to its ghat</span></div>
         <div class="row"><span>viaduct</span><span>the ring crosses the Ghati valley on a tall bridge, just past its tunnel</span></div>
         <h3>The wild 🦁</h3>
         <div class="row"><span>the jungle</span><span>beyond the ring in the south-east: lions, hyenas, monkeys, snakes; wild buffalo in the valley</span></div>
         <div class="row"><span>rhino hills</span><span>inside the ring in the north-east — rhinos charge if you get close</span></div>
         <h3>World</h3>
         <div class="row"><span><kbd>Tab</kbd> map</span><span><kbd>C</kbd> camera · <kbd>H</kbd> this help</span></div>
-        <div class="row"><span><kbd>Y</kbd> season</span><span><kbd>T</kbd> time &amp; weather · <kbd>M</kbd> sound · <kbd>U</kbd> full screen</span></div>
+        <div class="row"><span><kbd>Y</kbd> season</span><span><kbd>T</kbd> time of day · <kbd>J</kbd> weather · <kbd>M</kbd> sound · <kbd>U</kbd> full screen</span></div>
       </div>
-      <div class="btns"><label title="Season">🍃<select id="season"></select></label><label title="Time &amp; weather">🌤<select id="atmo"></select></label><label title="Sound theme">🎵<select id="sound"></select></label><button id="mute">Sound on</button><button id="fullscreen" title="Full screen (U)">⛶ Full screen</button></div>
+      <div class="btns"><label title="Season">🍃<select id="season"></select></label><label title="Time of day (T)">🌤<select id="atmo"></select></label><label title="Weather (J)">☁<select id="wx"></select></label><label title="Sound theme">🎵<select id="sound"></select></label><button id="mute">Sound on</button><button id="fullscreen" title="Full screen (U)">⛶ Full screen</button></div>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>

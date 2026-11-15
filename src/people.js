@@ -37,17 +37,27 @@ function headGeo(fine) {
   const bump = (x, y, z, cx, cy, cz, r) => Math.exp(-((x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2) / r);
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-    let X = x * 0.094, Y = y * 0.113 + 0.008, Z = z * 0.102;
+    let X = x * 0.092, Y = y * 0.116 + 0.008, Z = z * 0.102;
     // the jaw: below the cheekbones the face narrows toward the chin
     const low = Math.min(1, Math.max(0, (-y - 0.12) / 0.85));
     const lowS = low * low * (3 - 2 * low);
-    X *= 1 - (fine ? 0.36 : 0.3) * lowS;
+    // (only a little: a real jaw stays broad down to its angle below the ear, then turns in to the chin)
+    X *= 1 - (fine ? 0.2 : 0.1) * lowS;
+    const axJ = Math.abs(x);
+    X += Math.sign(x) * (fine ? 0.0025 : 0.0065) * bump(axJ, y, z, 0.72, -0.56, 0.05, 0.06); // the angle of the jaw
+    // a chin with some shape to it: forward at the front, and flat underneath rather than coming to a point
+    Z += (fine ? 0.004 : 0.007) * bump(axJ, y, z, 0.0, -0.84, 0.5, 0.04);
+    if (y < -0.8) Y += (-0.8 - y) * (z > 0 ? 0.045 : 0.07);
+    // fuller cheeks on the finer (women's and children's) head
+    if (fine) { const ck = bump(axJ, y, z, 0.5, -0.42, 0.7, 0.05); X += Math.sign(x) * 0.004 * ck; Z += 0.003 * ck; }
     // the chin comes forward a little; the throat side goes back
     if (z > 0) Z += 0.014 * lowS * z * (fine ? 0.7 : 1);
     else Z *= 1 - 0.18 * lowS;
     // the forehead slopes back above the brow; the back of the skull is fuller
     if (z > 0 && y > 0.32) Z *= 1 - 0.07 * (y - 0.32);
-    if (z < 0 && y > -0.2) { Z *= 1.06; Y += 0.004 * Math.max(0, -z); }
+    if (z < 0 && y > -0.2) { Z *= 1.08; Y += 0.004 * Math.max(0, -z); }
+    // the crown is highest a little behind the middle, and the skull narrows a touch toward the top
+    if (y > 0.5) { Y += 0.004 * (y - 0.5) * (1 - z * 0.6); X *= 1 - 0.05 * (y - 0.5); }
     // brow ridge, eye sockets, cheekbones
     const ax = Math.abs(x);
     Z += 0.0045 * bump(ax, y, z, 0.32, 0.27, 0.9, 0.03) * (fine ? 0.5 : 1);
@@ -65,11 +75,71 @@ function headGeo(fine) {
   return g;
 }
 
+// Hair, modelled as hair: a shell over the skull with a real hairline — across the forehead, down past the
+// temples into sideburns, round behind the ears and down to the nape — some body to it, locks and a parting.
+// style: 'man' short with a side parting; 'kid' a thick uneven fringe; 'woman' centre-parted and drawn back.
+const HAIRS = new Map();
+function hairGeo(style) {
+  if (HAIRS.has(style)) return HAIRS.get(style);
+  const g = new THREE.SphereGeometry(1, 44, 30);
+  const p = g.attributes.position;
+  const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const S = { man: { yf: 0.6, ys: 0.16, yb: -0.44, jag: 0.02, vol: 0.05, burn: 0.3 }, kid: { yf: 0.44, ys: 0.14, yb: -0.4, jag: 0.06, vol: 0.085, burn: 0.12 }, woman: { yf: 0.6, ys: -0.02, yb: -0.52, jag: 0.012, vol: 0.05, burn: 0.1 } }[style];
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const az = Math.atan2(x, z), a = Math.abs(az);
+    // where the hair stops, going round the head from the forehead to the nape
+    let line = S.yf + (S.ys - S.yf) * sm(0.75, 1.3, a) + (S.yb - S.ys) * sm(1.75, 2.5, a);
+    line -= S.burn * Math.exp(-((a - 1.22) ** 2) / 0.012); // sideburns in front of the ears
+    line += S.jag * (Math.sin(az * 13 + 1) + 0.6 * Math.sin(az * 29)) * (1 - sm(1.2, 2.2, a) * 0.6); // uneven ends
+    if (style === 'woman') line += 0.07 * Math.exp(-(az * az) / 0.02); // a little peak where the parting starts
+    const on = sm(line - 0.05, line + 0.03, y);
+    // body: thicker on top, with locks running back from the front
+    let s = 1.045 + S.vol * Math.max(0, y) + 0.012 * Math.sin(az * 9 + y * 6) * Math.max(0, y + 0.2);
+    if (style === 'man') s -= 0.022 * Math.exp(-((x - 0.3) ** 2) / 0.004) * sm(-0.3, 0.2, z) * sm(0.45, 0.7, y); // the parting
+    if (style === 'woman') s -= 0.02 * Math.exp(-(x * x) / 0.0025) * sm(-0.4, 0.1, z) * sm(0.4, 0.7, y);
+    if (style === 'kid') s += 0.02 * sm(0.3, 0.8, z) * sm(0.3, 0.6, y); // the fringe stands off the forehead
+    // below the hairline the shell is drawn inside the head, out of sight
+    const k = 0.86 + (s - 0.86) * on;
+    p.setXYZ(i, x * 0.092 * k, y * 0.116 * k + 0.008, z * 0.102 * (z < 0 ? 1.08 : 1) * k);
+  }
+  g.computeVertexNormals();
+  HAIRS.set(style, g);
+  return g;
+}
+let hairTex = null;
+const HAIR_MATS = new Map();
+function hairMaterial(color) {
+  if (HAIR_MATS.has(color)) return HAIR_MATS.get(color);
+  if (!hairTex) {
+    // fine strands running from the crown down
+    const c = document.createElement('canvas'); c.width = 256; c.height = 256;
+    const x = c.getContext('2d');
+    x.fillStyle = '#8a8a8a'; x.fillRect(0, 0, 256, 256);
+    let seed = 7;
+    const R = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 2600; i++) {
+      const v = R();
+      x.strokeStyle = v < 0.5 ? `rgba(255,255,255,${0.1 + R() * 0.3})` : `rgba(0,0,0,${0.15 + R() * 0.35})`;
+      x.lineWidth = 0.5 + R() * 1.2;
+      const px = R() * 256, py = R() * 256, len = 30 + R() * 90;
+      x.beginPath(); x.moveTo(px, py); x.lineTo(px + (R() - 0.5) * 5, py + len); x.stroke();
+    }
+    hairTex = new THREE.CanvasTexture(c);
+    hairTex.wrapS = hairTex.wrapT = THREE.RepeatWrapping; hairTex.repeat.set(5, 1.6); hairTex.anisotropy = 4;
+  }
+  const col = new THREE.Color(color);
+  const m = new THREE.MeshPhysicalMaterial({ color: col.clone().multiplyScalar(1.5).lerp(new THREE.Color('#ffffff'), 0.04), map: hairTex, bumpMap: hairTex, bumpScale: 0.6, roughness: 0.42, sheen: 0.5, sheenRoughness: 0.4, sheenColor: col.clone().lerp(new THREE.Color('#c8b49a'), 0.5) });
+  HAIR_MATS.set(color, m);
+  return m;
+}
+
 export function buildHuman(o) {
   const k = o.k ?? 1, hs = o.headScale ?? 1;
   const skinC = o.skin ?? '#8a5a3c';
-  const skin = mat(skinC, 0.62);
-  const lip = mat('#' + new THREE.Color(skinC).multiplyScalar(0.7).getHexString(), 0.5);
+  // skin: soft, with a warm glow at glancing angles rather than a plastic highlight
+  const skin = new THREE.MeshPhysicalMaterial({ color: skinC, roughness: 0.58, sheen: 0.45, sheenRoughness: 0.5, sheenColor: new THREE.Color(skinC).lerp(new THREE.Color('#ff9c78'), 0.55) });
+  const lip = mat('#' + new THREE.Color(skinC).lerp(new THREE.Color('#a4524c'), 0.42).multiplyScalar(0.92).getHexString(), 0.42);
   const top = mat(o.top ?? '#efe9dc', 0.9);
   const topDS = new THREE.MeshStandardMaterial({ color: o.top ?? '#efe9dc', roughness: 0.9, side: THREE.DoubleSide });
   const bottom = mat(o.bottom ?? '#eeeae0', 0.9);
@@ -162,13 +232,14 @@ export function buildHuman(o) {
     // eyes set into their sockets: the white, a brown iris, the pupil and a glint; lids over and under
     const ex = s * 0.036, ey = 0.014, ez = 0.084;
     part(new THREE.SphereGeometry(0.0128, 14, 10), sclera, head, ex, ey, ez);
-    part(ellipsoid(0.0072, 0.0072, 0.0026, 12, 8), iris, head, ex, ey - 0.0004, ez + 0.0118);
-    part(ellipsoid(0.0034, 0.0034, 0.0016, 8, 6), pupil, head, ex, ey - 0.0004, ez + 0.0136);
-    part(new THREE.SphereGeometry(0.0012, 5, 4), shine, head, ex + 0.0024, ey + 0.0026, ez + 0.0142);
-    const upper = part(ellipsoid(0.0156, 0.0078, 0.0126, 14, 8), lidM, head, ex, ey + 0.0086, ez + 0.0008);
+    part(ellipsoid(0.0078, 0.0078, 0.0024, 14, 8), dark, head, ex, ey + 0.0004, ez + 0.0114);
+    part(ellipsoid(0.0068, 0.0068, 0.0026, 14, 8), iris, head, ex, ey + 0.0004, ez + 0.0119);
+    part(ellipsoid(0.0031, 0.0031, 0.0016, 10, 6), pupil, head, ex, ey + 0.0004, ez + 0.0137);
+    part(new THREE.SphereGeometry(0.0013, 6, 5), shine, head, ex + 0.0024, ey + 0.003, ez + 0.0144);
+    const upper = part(ellipsoid(0.0156, 0.0072, 0.0126, 14, 8), skin, head, ex, ey + 0.0128, ez + 0.0004);
     upper.rotation.x = -0.12;
-    part(ellipsoid(0.0156, 0.0014, 0.0116, 10, 4), dark, head, ex, ey + 0.0058, ez + 0.0042); // the lash line
-    part(ellipsoid(0.0146, 0.0038, 0.0108, 12, 6), lidM, head, ex, ey - 0.0108, ez + 0.0006);
+    part(ellipsoid(0.0152, 0.0012, 0.0112, 12, 4), dark, head, ex, ey + 0.0078, ez + 0.0046).rotation.z = -s * 0.06; // the lash line
+    part(ellipsoid(0.0146, 0.0036, 0.0108, 12, 6), skin, head, ex, ey - 0.0124, ez + 0.0004);
     // brows: an arch of hair over each eye, finer for the women
     const bw = fem ? 0.0024 : 0.0036;
     const brow = new THREE.CatmullRomCurve3([new THREE.Vector3(s * 0.016, 0.034, 0.097), new THREE.Vector3(s * 0.034, 0.041, 0.095), new THREE.Vector3(s * 0.054, 0.036, 0.083)]);
@@ -178,19 +249,18 @@ export function buildHuman(o) {
     ear.rotation.y = s * 0.35;
     part(ellipsoid(0.005, 0.016, 0.011, 8, 6), lidM, head, s * 0.1, -0.001, -0.004).rotation.y = s * 0.35;
     // the sides of the nose and the nostrils
-    part(ellipsoid(0.0088, 0.0078, 0.0092, 10, 6), skin, head, s * 0.0118, -0.0335, 0.1);
-    part(ellipsoid(0.0028, 0.0016, 0.0026, 6, 4), dark, head, s * 0.0058, -0.0418, 0.1032);
+    part(ellipsoid(0.0072, 0.0064, 0.0082, 10, 6), skin, head, s * 0.0104, -0.0335, 0.0995);
+    part(ellipsoid(0.0024, 0.0013, 0.0022, 6, 4), dark, head, s * 0.0052, -0.0402, 0.1026);
   }
   // the nose: a bridge running down from between the brows to a rounded tip
-  part(ellipsoid(0.0098, 0.03, 0.011, 10, 8), skin, head, 0, -0.006, 0.0985).rotation.x = -0.28;
-  part(new THREE.SphereGeometry(0.0125, 12, 10), skin, head, 0, -0.031, 0.1075);
+  part(ellipsoid(0.0082, 0.03, 0.0105, 10, 8), skin, head, 0, -0.006, 0.0982).rotation.x = -0.28;
+  part(ellipsoid(0.0102, 0.0092, 0.0102, 12, 10), skin, head, 0, -0.031, 0.1062);
   // lips: a shaped upper lip, a fuller lower one, the line of the mouth between
   const lipC = fem ? mat('#' + new THREE.Color(skinC).lerp(new THREE.Color('#9a3438'), 0.45).multiplyScalar(0.85).getHexString(), 0.45) : lip;
   part(ellipsoid(0.021, 0.0052, 0.0085, 12, 6), lipC, head, 0, -0.0535, 0.0935);
   part(ellipsoid(0.0185, 0.0066, 0.0092, 12, 6), lipC, head, 0, -0.0615, 0.0915);
-  part(ellipsoid(0.0195, 0.0011, 0.004, 10, 4), dark, head, 0, -0.0575, 0.0985);
-  // a small chin pad and soft cheeks
-  part(ellipsoid(0.014, 0.009, 0.008, 10, 6), skin, head, 0, -0.083, 0.08);
+  part(ellipsoid(0.0185, 0.0009, 0.0036, 10, 4), dark, head, 0, -0.0575, 0.0985);
+  for (const sx of [-1, 1]) part(ellipsoid(0.0034, 0.001, 0.002, 6, 4), dark, head, sx * 0.0195, -0.0566, 0.0925).rotation.z = sx * 0.5;
   if (o.beard) {
     // a full beard along the jaw and chin
     const bm = o.hair && o.hair !== '#17110d' ? hairCol : dark;
@@ -214,10 +284,10 @@ export function buildHuman(o) {
     part(cap(1, Math.PI / 2).scale(0.104, 0.055, 0.112), mat(o.turban ?? '#f4f2ec', 0.95), head, 0, 0.07, -0.005);
     part(ellipsoid(0.024, 0.006, 0.02), hairCol, head, 0, 0.03, -0.1);
   } else if (!saree) {
-    part(cap(0.108, Math.PI * 0.52), hairCol, head, 0, 0.018, -0.008).rotation.x = -0.3;
+    part(hairGeo((o.k ?? 1) < 0.8 ? 'kid' : 'man'), hairMaterial(o.hair ?? '#17110d'), head);
   }
   if (saree) {
-    part(cap(0.108, Math.PI * 0.53), hairCol, head, 0, 0.016, -0.005).rotation.x = -0.22;
+    part(hairGeo('woman'), hairMaterial(o.hair ?? '#17110d'), head);
     if (o.braids) for (const sx of [-1, 1]) part(limb(0.03, 0.018, 0.2, 8), hairCol, head, sx * 0.07, -0.04, -0.07);
     else part(new THREE.SphereGeometry(0.048, 12, 10), hairCol, head, 0, -0.02, -0.105);
     if (o.hijab) {
@@ -410,14 +480,18 @@ export class Person {
     const b = this.walkB;
     this.phase += (speed * dt * (this.female ? 5.8 : 5.0)) / this.k;
     const amp = this.female ? 0.3 : 0.42;
+    const gait = (this.gait ??= 0.85 + Math.random() * 0.3); // everyone walks a little differently
     for (let i = 0; i < 2; i++) {
       const ph = this.phase + i * Math.PI;
-      P['hip' + i] = Math.sin(ph) * amp * b;
+      P['hip' + i] = Math.sin(ph) * amp * gait * b;
       P['knee' + i] = b * (0.06 + Math.max(0, -Math.cos(ph)) * 0.7);
-      P['sh' + i] = -Math.sin(ph) * 0.32 * b;
+      // the arm swings from the shoulder and bends a little at the elbow as it comes forward
+      P['sh' + i] = -Math.sin(ph) * 0.32 * gait * b;
+      P['el' + i] = -0.12 - Math.max(0, Math.sin(ph)) * 0.3 * b;
     }
     P.bodyY = Math.abs(Math.cos(this.phase)) * 0.025 * b;
-    P.torsoY = Math.sin(this.phase) * 0.05 * b;
+    P.torsoY = Math.sin(this.phase) * 0.085 * b;
+    P.torsoX = 0.035 * b;
     const idle = 1 - b;
     P.headY = idle * (Math.sin(t * 0.37) * 0.35 + Math.sin(t * 0.13) * 0.2);
 
@@ -543,8 +617,16 @@ export class Person {
     this.arms[0].shoulder.rotation.z = c.shz0; this.arms[1].shoulder.rotation.z = c.shz1;
     this.arms[0].elbow.rotation.x = c.el0; this.arms[1].elbow.rotation.x = c.el1;
     this.torso.rotation.x = c.torsoX; this.torso.rotation.y = c.torsoY;
-    this.head.rotation.x = c.headX; this.head.rotation.y = c.headY;
+    // the head stays facing where they are going while the shoulders turn under it
+    this.head.rotation.x = c.headX; this.head.rotation.y = c.headY - c.torsoY * 0.7;
     this.body.position.y = c.bodyY;
+    // weight shifting from foot to foot, and breathing when standing still
+    const sway = Math.sin(this.phase) * b;
+    this.torso.rotation.z = sway * 0.03;
+    this.head.rotation.z = -sway * 0.02;
+    this.body.position.x = sway * 0.012 * this.k;
+    const br = 1 + Math.sin(t * 1.7 + this.k * 9) * 0.007 * (1 - b);
+    this.torso.scale.set(br, 1, br);
     if (this.skirt) {
       this.skirt.visible = c.bodyY > -0.2;
       this.skirt.rotation.x = c.hip0 * 0.1;
@@ -1233,28 +1315,29 @@ function buildTravellers(scene, hooks) {
     if (r.bag) part(new THREE.BoxGeometry(0.22, 0.26, 0.1), mat('#b8322b'), person.torso, 0, 0.3, -0.16);
     list.push({ kind: 'bike', holder, bike, person, loop: roadLoop(r.off), s: r.s0, v: r.v, speed: r.v, heading: 0, p: { x: 0, z: 0 }, bellCool: 0 });
   }
-  // a bullock cart creaking along with a farmer and his stick
-  {
+  // bullock carts creaking along, each with a farmer and his stick
+  const addCart = (loop, s0, coat = '#ece6da', look = {}) => {
     const holder = new THREE.Group();
     scene.add(holder);
     const cart = cartModel();
     cart.g.position.z = -2.2;
     holder.add(cart.g);
     const bulls = [-0.55, 0.55].map((x) => {
-      const c = makeCow('#ece6da');
+      const c = makeCow(coat);
       c.g.position.set(x, 0, 2.0);
       c.g.scale.setScalar(0.92);
       holder.add(c.g);
       return c;
     });
-    const driver = new Person({ dress: 'dhoti', top: '#e9dcc3', bottom: '#f0ebe0', headwear: 'turban', turban: '#e07a1e', mustache: true, skin: '#6e4530', sleeves: 'short' }); driver.noHit = true;
+    const driver = new Person({ dress: 'dhoti', top: '#e9dcc3', bottom: '#f0ebe0', headwear: 'turban', turban: '#e07a1e', mustache: true, skin: '#6e4530', sleeves: 'short', ...look }); driver.noHit = true;
     driver.seatH = 0;
     driver.root.position.set(0, 1.0, -1.1);
     cart.g.add(driver.root);
     driver.root.position.z = 0.85;
     driver.prop('stick', true);
-    list.push({ kind: 'cart', holder, cart, bulls, person: driver, loop: roadLoop(1.6), s: 260, v: 1.15, speed: 1.15, heading: 0, p: { x: 0, z: 0 } });
-  }
+    list.push({ kind: 'cart', holder, cart, bulls, person: driver, loop, s: s0, v: 1.15, speed: 1.15, heading: 0, p: { x: 0, z: 0 } });
+  };
+  addCart(roadLoop(1.6), 260);
   // the new roads out to the far villages: cyclists, motorbikes and scooters, and people walking
   const along = (z0, z1, step = 10) => { const o = []; for (let z = z0; Math.sign(z1 - z0) * (z1 - z) > 0; z += Math.sign(z1 - z0) * step) o.push([roadX(z), z]); return o; };
   const [B1, B2, B3] = BRIDGES;
@@ -1269,6 +1352,7 @@ function buildTravellers(scene, hooks) {
   // the long lanes out to the new villages by the ring line
   if (layout.newRoads?.khet) routes.khet = layout.newRoads.khet;
   if (layout.newRoads?.rann) routes.rann = layout.newRoads.rann;
+  if (layout.newRoads?.outer) routes.outer = layout.newRoads.outer;
   // the buses and jeeps take longer runs, linking several villages
   routes.busA = [...along(30, 150), [roadX(150) + 2, 150], [40, 152], [B1.aw.x, B1.aw.z], [B1.w.x, B1.w.z], [B1.e.x, B1.e.z], [B1.ae.x, B1.ae.z], [150, 158], [210, 145], [313, 179], [RV.x - 16, RV.z], [RV.x - 6, RV.z - 16], [326, -181], [BV.x + 14, BV.z + 6], [BV.x - 16, BV.z], [221, -286], [130, -228], [B2.ae.x, B2.ae.z], [B2.e.x, B2.e.z], [B2.w.x, B2.w.z], [B2.aw.x, B2.aw.z], [20, -175], [roadX(-150) + 2, -150], ...along(-150, 10)];
   routes.busB = routes.west;
@@ -1283,6 +1367,7 @@ function buildTravellers(scene, hooks) {
     { route: 'north', kind: Bicycle, o: { dress: 'shorts', k: 0.72, headScale: 1.2, top: '#e0612b', bottom: '#2a3a6a', skin: '#8a5a3c', sleeves: 'short' }, v: 4.4, s0: 120 },
     { route: 'east', kind: Bicycle, o: { dress: 'saree', k: 0.92, top: '#2e8b57', bottom: '#c2185b', veil: false, skin: '#86573b' }, v: 3.4, s0: 150 },
     ...(routes.khet ? [{ route: 'khet', kind: Moped, o: { dress: 'kurta', top: '#f4f2ec', bottom: '#f4f1e8', skin: '#7a4c33', beard: true, mustache: true, headwear: 'turban', turban: '#f2a41a' }, v: 8, s0: 200 }] : []),
+    ...(routes.outer ? [{ route: 'outer', kind: Moped, o: { dress: 'kurta', top: '#c9d8e8', bottom: '#f4f1e8', skin: '#7f5238', mustache: true, headwear: 'cap', turban: '#f2efe6' }, v: 7.5, s0: 600 }, { route: 'outer', kind: Bicycle, o: { dress: 'dhoti', top: '#f4f1e8', bottom: '#2e8b57', skin: '#6e4530', sleeves: 'short', mustache: true }, v: 3.6, s0: 1500 }] : []),
     ...(routes.rann ? [{ route: 'rann', kind: Bicycle, o: { dress: 'dhoti', top: '#f4f1e8', bottom: '#f4f1e8', skin: '#6e4530', headwear: 'turban', turban: '#c4241c', mustache: true }, v: 3.8, s0: 300 }] : []),
   ];
   for (const r of motorRiders) {
@@ -1309,6 +1394,7 @@ function buildTravellers(scene, hooks) {
   const extra = ['main', 'main', 'main', 'main', 'west', 'west', 'west', 'ne', 'ne', 'east', 'east', 'south', 'south', 'north', 'north', 'main'];
   if (routes.khet) extra.push('khet', 'khet');
   if (routes.rann) extra.push('rann', 'rann');
+  if (routes.outer) extra.push('outer', 'outer', 'outer');
   extra.forEach((route, i) => {
     const female = i % 2 === 0;
     const [top, bottom] = SAREES[i % SAREES.length];
@@ -1329,6 +1415,9 @@ function buildTravellers(scene, hooks) {
     { Kind: VillageBus, opt: { color: '#2e6aa8', band: '#f2e6c8', dest: ['गाँव – छोटा गाँव – विट्ठलवाडी', 'GAON-VITTHALWADI'] }, route: 'busB', v: 7, s0: 200 },
     { Kind: Jeep, opt: { color: '#f2efe6' }, route: 'jeepA', v: 9, s0: 50 },
     { Kind: Jeep, opt: { color: '#4a5a3a' }, route: 'jeepB', v: 9.5, s0: 120 },
+    // out to the far villages, unhurried
+    ...(routes.outer ? [{ Kind: Jeep, opt: { color: '#2e4a6a' }, route: 'outer', v: 8, s0: 900 }] : []),
+    ...(routes.rann ? [{ Kind: Jeep, opt: { color: '#8a2a22' }, route: 'rann', v: 8, s0: 200 }] : []),
   ];
   for (const tr of traffic) {
     const holder = new THREE.Group();
@@ -1349,6 +1438,11 @@ function buildTravellers(scene, hooks) {
     const loop = polyLoop(routes[tr.route], tr.Kind === VillageBus ? 1.8 : 1.5);
     list.push({ kind: tr.Kind === VillageBus ? 'bus' : 'jeep', holder, veh, person: driver, riders, loop, s: tr.s0, v: tr.v, speed: tr.v, heading: 0, p: { x: 0, z: 0 }, wait: 0, pitch: 0, bellCool: 0, nightOff: traffic.indexOf(tr) % 2 === 1 });
   }
+  // more bullock carts out on the country roads, plodding at walking pace
+  if (routes.outer) addCart(polyLoop(routes.outer, 1.6), 300, '#b98e64', { turban: '#c4241c', skin: '#7a4c33' });
+  if (routes.outer) addCart(polyLoop(routes.outer, 1.6), 2200, '#d8cfc0', { headwear: 'cap', turban: '#f2efe6', top: '#dfe6ea' });
+  if (routes.khet) addCart(polyLoop(routes.khet, 1.6), 150, '#ece6da', { turban: '#f2a41a', beard: true });
+  if (routes.west) addCart(polyLoop(routes.west, 1.6), 400, '#8a6a4a', { turban: '#ffffff' });
   let weather = { rain: false, night: false };
   const tmp = { x: 0, z: 0 }, ahead = { x: 0, z: 0 };
   // a quiet start: only cyclists, people on foot and the bullock cart are about at first. The motorbikes,
@@ -1449,7 +1543,7 @@ function buildTravellers(scene, hooks) {
         t.holder.position.set(tmp.x, groundHeight(tmp.x, tmp.z), tmp.z);
         t.holder.rotation.y = t.heading;
         if (big) {
-          t.veh.update(dt, t.speed);
+          t.veh.update(dt, t.speed, 0, false, weather.night ? 1 : 0); // headlights on after dark
           // tilt with the road
           const back = { x: 0, z: 0 }; t.loop.at(t.s - t.veh.len / 2, back);
           const hf = groundHeight(ahead.x, ahead.z), hb = groundHeight(back.x, back.z);
@@ -1467,7 +1561,7 @@ function buildTravellers(scene, hooks) {
           continue;
         }
         if (t.kind === 'bike') {
-          t.bike.update(dt, t.speed, dh * 0.8, true);
+          t.bike.update(dt, t.speed, dh * 0.8, true, weather.night ? 1 : 0);
           poseRider(t.person, t.bike, t.motor ? 0.18 : 0.3);
           t.person.head.rotation.y = Math.sin(performance.now() * 0.0004 + t.s) * 0.4;
           t.person.setGear(weather.rain ? 'umbrella' : weather.night ? 'lantern' : 'none');
@@ -1491,7 +1585,7 @@ function buildTravellers(scene, hooks) {
   };
 }
 
-// ---------------- kids at play: a cricket match, a boy and his tyre, a kite flyer ----------------
+// ---------------- kids at play: a cricket match and a kite flyer ----------------
 function buildPlay(scene, village, hooks) {
   const C = CRICKET;
   const lw = (lx, lz) => localToWorld(C, lx, lz);
@@ -1528,13 +1622,6 @@ function buildPlay(scene, village, hooks) {
     if (phase === 'bowl') { const a = Math.min(1, T / 0.35); P.sh1 = -0.5 - a * 3.6; P.el1 = -0.1; P.sh0 = -1.4 + a * 1.2; P.torsoX = 0.1 + a * 0.4; }
   };
   R.bowl.poseRate = 18;
-  // the tyre boy runs alongside the road, keeping an old tyre rolling with a stick
-  const tyreKid = boyKid(4);
-  tyreKid.prop('stick', true);
-  const tyre = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.07, 8, 20), mat('#1c1a19', 0.9));
-  tyre.castShadow = true;
-  scene.add(tyre);
-  const tk = { s: 0, dir: 1 };
   // the kite flyer, string up to the kite
   const kiteKid = kid({ dress: 'shorts', top: '#f4f4f0', bottom: '#5b5246', skin: '#86573b', sleeves: 'short' });
   const kitePos = { x: 15, z: -42 };
@@ -1544,7 +1631,7 @@ function buildPlay(scene, village, hooks) {
   string.frustumCulled = false;
   scene.add(string);
   let mode = 'day';
-  const all = [...Object.values(R), tyreKid, kiteKid];
+  const all = [...Object.values(R), kiteKid];
   const _v = new THREE.Vector3();
   const move = (s, x, z, v, dt) => {
     const d = Math.hypot(x - s.x, z - s.z);
@@ -1558,7 +1645,7 @@ function buildPlay(scene, village, hooks) {
     update(dt, boy) {
       const show = mode !== 'night';
       for (const p of all) p.root.visible = show;
-      ball.visible = tyre.visible = string.visible = show;
+      ball.visible = string.visible = show;
       if (!show) return;
       const nearC = Math.abs(boy.x - C.x) + Math.abs(boy.z - C.z) < 160;
       if (nearC) {
@@ -1626,19 +1713,6 @@ function buildPlay(scene, village, hooks) {
           s.p.setGear('none');
           s.p.update(dt, s.speed, s.speed > 0 ? 'walk' : s.action);
         }
-      }
-      // tyre boy: up and down the road between the square and the footbridge lane
-      if (Math.abs(boy.z - 40) < 180) {
-        tk.s += dt * 2.6 * tk.dir;
-        if (tk.s > 34) tk.dir = -1;
-        if (tk.s < 0) tk.dir = 1;
-        const z = 18 + tk.s, x = roadX(z) - 1.4;
-        tyreKid.root.position.set(x, groundHeight(x, z), z - tk.dir * 0.8);
-        tyreKid.root.rotation.y = tk.dir > 0 ? 0 : Math.PI;
-        tyreKid.setGear('none');
-        tyreKid.update(dt, 2.6, 'walk');
-        tyre.position.set(x + 0.35, groundHeight(x, z) + 0.39, z + tk.dir * 0.3);
-        tyre.rotation.set(tk.s / 0.39, Math.PI / 2, 0, 'YXZ');
       }
       // kite flyer
       const kgy = groundHeight(kitePos.x, kitePos.z);

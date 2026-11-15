@@ -23,7 +23,31 @@ export class Ambience {
     this.master = ctx.createGain();
     this.master.gain.value = 0;
     this.master.gain.linearRampToValueAtTime(this.muted ? 0 : 0.9, ctx.currentTime + 3);
-    this.master.connect(ctx.destination);
+    // Everything goes out through one bus: a little open-air reverb (so nothing sounds like it is inside your
+    // head, and the mono layers spread across the stereo field), a soft top-end roll-off to take the edge off
+    // the synthetic highs, and a gentle compressor so loud things never jump out.
+    {
+      const out = ctx.createDynamicsCompressor();
+      out.threshold.value = -20; out.knee.value = 18; out.ratio.value = 3; out.attack.value = 0.012; out.release.value = 0.35;
+      out.connect(ctx.destination);
+      const tone = ctx.createBiquadFilter(); tone.type = 'lowpass'; tone.frequency.value = 9000; tone.Q.value = 0.4;
+      const warm = ctx.createBiquadFilter(); warm.type = 'lowshelf'; warm.frequency.value = 220; warm.gain.value = 2.5;
+      tone.connect(warm).connect(out);
+      this.master.connect(tone);
+      const N = Math.floor(ctx.sampleRate * 2.6), ir = ctx.createBuffer(2, N, ctx.sampleRate);
+      for (let ch = 0; ch < 2; ch++) {
+        const d = ir.getChannelData(ch);
+        let lp = 0;
+        for (let i = 0; i < N; i++) {
+          const k = i / N, early = i < ctx.sampleRate * 0.03 ? 0.25 : 1;
+          lp += ((Math.random() * 2 - 1) - lp) * (0.55 - 0.42 * k); // the tail gets darker as it dies away
+          d[i] = lp * Math.pow(1 - k, 3.4) * early;
+        }
+      }
+      const rev = ctx.createConvolver(); rev.buffer = ir;
+      const send = ctx.createGain(); send.gain.value = 0.3;
+      this.master.connect(send).connect(rev).connect(tone);
+    }
 
     const len = ctx.sampleRate * 4;
     const white = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -253,7 +277,8 @@ export class Ambience {
       if (near.temple > 14) this.atTemple = false;
       if (near.temple < 40 && Math.random() < 0.002) this.bell(1 - near.temple / 40);
     }
-    if (near.cow < 35 && Math.random() < 0.0009) this.moo(1 - near.cow / 35);
+    // the cows near you low every so often
+    if (near.cow < 40 && t > (this.nextMoo ?? 0)) { this.moo(Math.max(0.25, 1 - near.cow / 40)); this.nextMoo = t + 14 + Math.random() * 22; }
 
     // train: rumble by distance, clack-clack of the bogies
     const td = train.distance;
@@ -691,6 +716,40 @@ export class Ambience {
       this.melaT += 0.15;
     }
   }
+  // The falls: a deep roar you hear (and almost feel) from far off, a broad rush of white noise closer in, and
+  // the hiss of spray right beside the pool. Each band falls away with distance at its own rate — the high
+  // frequencies die first, which is how distance actually sounds. The level wavers slowly, like real water.
+  setFalls(dist) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    if (!this.fallsG) {
+      const mk = (buf, type, f, q, gain) => {
+        const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true; src.start(0, Math.random() * 3);
+        const fl = ctx.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q;
+        // a slow, irregular surge — on its own stage, so it scales with the distance level instead of being
+        // added on top of it (which is what let the roar be heard from the far side of the map)
+        const surge = ctx.createGain(); surge.gain.value = 1;
+        const g = ctx.createGain(); g.gain.value = 0;
+        src.connect(fl).connect(surge).connect(g).connect(this.master);
+        for (const [rate, depth] of [[0.13, 0.25], [0.37, 0.12]]) { const l = ctx.createOscillator(); l.frequency.value = rate * (0.8 + Math.random() * 0.4); const lg = ctx.createGain(); lg.gain.value = depth; l.connect(lg).connect(surge.gain); l.start(); }
+        return { g, gain };
+      };
+      const len = ctx.sampleRate * 3, brown = ctx.createBuffer(1, len, ctx.sampleRate), pink = ctx.createBuffer(1, len, ctx.sampleRate);
+      const bd = brown.getChannelData(0), pd = pink.getChannelData(0);
+      let last = 0, b0 = 0, b1 = 0, b2 = 0;
+      for (let i = 0; i < len; i++) { const w = Math.random() * 2 - 1; last = (last + 0.02 * w) / 1.02; bd[i] = last * 3.5; b0 = 0.99765 * b0 + w * 0.099; b1 = 0.963 * b1 + w * 0.2965; b2 = 0.57 * b2 + w * 1.0526; pd[i] = (b0 + b1 + b2 + w * 0.1848) * 0.2; }
+      this.fallsG = { roar: mk(brown, 'lowpass', 220, 0.6, 0.55), rush: mk(pink, 'bandpass', 900, 0.5, 0.35), hiss: mk(this.white, 'highpass', 3800, 0.4, 0.06) };
+    }
+    // only heard near the falls: full within ~55 m of the pool, fading to silence by 100 m
+    const REACH = 100, u = Math.max(0, Math.min(1, (REACH - dist) / 45)), win = u * u * (3 - 2 * u);
+    const k = (r) => win / (1 + (dist / r) ** 2);
+    const F = this.fallsG;
+    F.roar.g.gain.setTargetAtTime(F.roar.gain * k(90), t, 0.4);
+    F.rush.g.gain.setTargetAtTime(F.rush.gain * k(45), t, 0.4);
+    F.hiss.g.gain.setTargetAtTime(F.hiss.gain * k(18), t, 0.4);
+    // splashes slapping into the pool when you are right there
+    if (dist < 30 && Math.random() < 0.25) this.splash(0.15 + Math.random() * 0.2 * (1 - dist / 30));
+  }
   setTractor(dist) {
     if (!this.ctx) return;
     const v = Math.max(0, Math.min(1, 1 - dist / 140));
@@ -774,13 +833,80 @@ export class Ambience {
       src.connect(bp).connect(lp).connect(am).connect(this.lifeG); src.start();
       this.nextRooster = t + 3; this.nextCowbell = t + 2; this.nextFarDog = t + 8; this.nextBleat = t + 5;
     }
-    this.lifeG.gain.setTargetAtTime(preset.night ? near * 0.004 : near * 0.012, t, 2);
+    this.lifeG.gain.setTargetAtTime(0, t, 2); // no background murmur: it read as a hiss
     const morning = preset.key === 'morning';
     if (t > this.nextRooster && near > 0.2 && !preset.night) { this.rooster(near * (morning ? 1 : 0.5)); this.nextRooster = t + (morning ? 6 + Math.random() * 10 : 25 + Math.random() * 40); }
     if (t > this.nextFarDog && preset.night) { this.bark(0.12 + Math.random() * 0.15); this.nextFarDog = t + 12 + Math.random() * 25; }
     if (t > this.nextBleat && dGoat < 25) { this.bleat(1 - dGoat / 25); this.nextBleat = t + 5 + Math.random() * 9; }
     if (t > this.nextCowbell && near > 0.3 && !preset.night) { this.cowbell(near * 0.5); this.nextCowbell = t + 3 + Math.random() * 6; }
+    if (t > (this.nextCluck ?? 0) && near > 0.45 && !preset.night) { this.cluck(near * 0.8); this.nextCluck = t + 7 + Math.random() * 16; }
     void season;
+  }
+  // a hen pottering about: a few soft clucks, the last one rising
+  cluck(v = 1) {
+    if (!this.ctx || v <= 0.03) return;
+    const ctx = this.ctx;
+    let t = ctx.currentTime + 0.02;
+    const n = 2 + Math.floor(Math.random() * 4);
+    for (let i = 0; i < n; i++) {
+      const last = i === n - 1, f0 = 420 + Math.random() * 90;
+      const o = ctx.createOscillator(); o.type = 'triangle';
+      o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(last ? f0 * 1.7 : f0 * 0.72, t + (last ? 0.16 : 0.06));
+      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1100; f.Q.value = 3;
+      const g = ctx.createGain(); this.env(g, 0.03 * v, 0.006, last ? 0.16 : 0.055, t);
+      o.connect(f).connect(g).connect(this.master); o.start(t); o.stop(t + 0.25);
+      t += 0.13 + Math.random() * 0.12;
+    }
+  }
+  // a camel: a long gargling groan
+  camel(v = 1) {
+    if (!this.ctx || v <= 0.03) return;
+    const ctx = this.ctx, t = ctx.currentTime, d = 1.3 + Math.random() * 0.6;
+    const o = ctx.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(95, t); o.frequency.linearRampToValueAtTime(140, t + d * 0.35); o.frequency.linearRampToValueAtTime(80, t + d);
+    const gar = ctx.createOscillator(); gar.frequency.value = 23; const gg = ctx.createGain(); gg.gain.value = 22; gar.connect(gg).connect(o.frequency);
+    const f1 = ctx.createBiquadFilter(); f1.type = 'bandpass'; f1.frequency.value = 520; f1.Q.value = 2.2;
+    const f2 = ctx.createBiquadFilter(); f2.type = 'bandpass'; f2.frequency.value = 1150; f2.Q.value = 3;
+    const g = ctx.createGain(); this.env(g, 0.07 * v, 0.18, d, t);
+    o.connect(f1).connect(g); o.connect(f2).connect(g); g.connect(this.master);
+    o.start(t); gar.start(t); o.stop(t + d + 0.3); gar.stop(t + d + 0.3);
+  }
+  // a sheep: lower and broader than the goats — "baaa"
+  baa(v = 1) {
+    if (!this.ctx || v <= 0.03) return;
+    const p = 0.9 + Math.random() * 0.25;
+    this.voice({ dur: 0.7 + Math.random() * 0.4, amp: 0.12 * v, vib: 0.035, rough: 0.12, attack: 0.1,
+      pitch: [[0, 225 * p], [0.3, 250 * p], [1, 205 * p]], f1: [[0, 420], [0.25, 700], [1, 620]], f2: [[0, 1300], [0.25, 1500], [1, 1400]], f3: [[0, 2600], [1, 2600]] });
+  }
+  // a bansuri somewhere across the fields: a slow phrase in a pentatonic raga, breathy, with a little vibrato
+  flute(v = 1) {
+    if (!this.ctx || v <= 0.03 || (this.fluteUntil ?? 0) > this.ctx.currentTime) return;
+    const ctx = this.ctx;
+    const scale = [0, 2, 4, 7, 9, 12, 14, 16, 19], base = 392; // Bhoopali on G
+    let t = ctx.currentTime + 0.1, deg = 2 + Math.floor(Math.random() * 4);
+    const out = ctx.createGain(); out.gain.value = 0.085 * v; out.connect(this.master);
+    const n = 6 + Math.floor(Math.random() * 6);
+    for (let i = 0; i < n; i++) {
+      deg = Math.max(0, Math.min(scale.length - 1, deg + [-2, -1, -1, 1, 1, 2][Math.floor(Math.random() * 6)]));
+      const f = base * Math.pow(2, scale[deg] / 12), last = i === n - 1;
+      const d = last ? 1.9 : [0.38, 0.55, 0.8, 1.1][Math.floor(Math.random() * 4)];
+      const o = ctx.createOscillator(); o.type = 'sine';
+      // each note slides up into pitch (a meend) and wavers once it is held
+      o.frequency.setValueAtTime(f * 0.94, t); o.frequency.exponentialRampToValueAtTime(f, t + 0.09);
+      const o2 = ctx.createOscillator(); o2.type = 'triangle'; o2.frequency.setValueAtTime(f * 2, t);
+      const vib = ctx.createOscillator(); vib.frequency.value = 5.2; const vg = ctx.createGain();
+      vg.gain.setValueAtTime(0, t); vg.gain.linearRampToValueAtTime(f * 0.012, t + Math.min(d, 0.5)); vib.connect(vg).connect(o.frequency);
+      const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + 0.07); g.gain.setValueAtTime(0.85, t + d * 0.7); g.gain.linearRampToValueAtTime(0, t + d + 0.12);
+      const g2 = ctx.createGain(); g2.gain.value = 0.12;
+      // the breath: a thin band of noise riding on the note
+      const br = ctx.createBufferSource(); br.buffer = this.white; br.loop = true;
+      const bf = ctx.createBiquadFilter(); bf.type = 'bandpass'; bf.frequency.value = f * 2.4; bf.Q.value = 1.2;
+      const bg = ctx.createGain(); bg.gain.value = 0.05;
+      o.connect(g); o2.connect(g2).connect(g); br.connect(bf).connect(bg).connect(g); g.connect(out);
+      for (const x of [o, o2, vib, br]) { x.start(t); x.stop(t + d + 0.2); }
+      t += d + (Math.random() < 0.25 ? 0.35 : 0.02);
+    }
+    this.fluteUntil = t + 4;
   }
   rooster(v) {
     if (!this.ctx || v <= 0.03) return;
@@ -805,32 +931,16 @@ export class Ambience {
       o.connect(bp).connect(g).connect(this.master); o.start(t); o.stop(t + 0.4);
     }
   }
+  // a goat: a nasal, wavering "meh-eh-eh"
   bleat(v) {
     if (!this.ctx || v <= 0.03) return;
-    const ctx = this.ctx, t = ctx.currentTime;
-    const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(380, t); o.frequency.linearRampToValueAtTime(340, t + 0.5);
-    const vib = ctx.createOscillator(); vib.frequency.value = 18; const vg = ctx.createGain(); vg.gain.value = 30; vib.connect(vg).connect(o.frequency);
-    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1200; f.Q.value = 2.5;
-    const g = ctx.createGain(); this.env(g, 0.06 * v, 0.04, 0.5, t);
-    o.connect(f).connect(g).connect(this.master); o.start(t); vib.start(t); o.stop(t + 0.6); vib.stop(t + 0.6);
+    const p = 0.9 + Math.random() * 0.3;
+    this.voice({ dur: 0.55 + Math.random() * 0.35, amp: 0.11 * v, vib: 0.045, breath: 0.03, attack: 0.08,
+      pitch: [[0, 330 * p], [0.3, 380 * p], [1, 320 * p]], f1: [[0, 560], [0.3, 720], [1, 600]], f2: [[0, 1750], [0.3, 1900], [1, 1800]], f3: [[0, 2900], [1, 2900]] });
   }
-
-  // voices: the browser's speech synthesis, a Hindi voice if one is installed
-  say(text, { pitch = 1, rate = 1, volume = 1, roman = null } = {}) {
-    if (!this.ctx || this.muted || !window.speechSynthesis || volume <= 0.03) return;
-    const ss = window.speechSynthesis;
-    if (!this.voicesList?.length) this.voicesList = ss.getVoices();
-    const hi = this.voicesList.find((v) => /hi[-_]IN/i.test(v.lang)) || null;
-    const en = this.voicesList.find((v) => /en[-_]IN/i.test(v.lang)) || null;
-    if (ss.pending || (ss.speaking && this.speakingUntil > performance.now() + 200)) return;
-    // speak only the words: some voices read punctuation aloud ("exclamation mark")
-    const clean = (hi || !roman ? text : roman).replace(/[!?.,।:;"“”'‘’—-]+/g, ' ').replace(/\s+/g, ' ').trim();
-    const u = new SpeechSynthesisUtterance(clean);
-    if (hi) u.voice = hi; else if (en) u.voice = en;
-    u.lang = hi ? 'hi-IN' : 'en-IN';
-    u.pitch = pitch; u.rate = rate; u.volume = Math.min(1, volume) * 0.9;
-    this.speakingUntil = performance.now() + 1600;
-    ss.speak(u);
+  // No synthetic voices: what someone says is handed on as a line of text (a caption), and they act it out.
+  say(text, { volume = 1, roman = null } = {}) {
+    if (volume > 0.3) this.onSay?.(text, roman);
   }
 
   env(node, peak, a, d, t0) {
@@ -1114,23 +1224,59 @@ export class Ambience {
     }
   }
 
+  // An animal's voice, built the way a throat makes one: a buzzing source (the vocal folds — a little unsteady,
+  // with some breath in it) shaped by three resonances of the mouth that move as it opens and closes.
+  // pitch / f1 / f2 / f3: [[time 0–1, Hz], …] across the call; amp: loudness; rough: a low growly flutter.
+  voice({ dur, pitch, f1, f2, f3 = [[0, 2400], [1, 2300]], amp = 0.1, rough = 0, breath = 0.03, vib = 0, attack = 0.12, release = 0.3 }) {
+    const ctx = this.ctx, t = ctx.currentTime + 0.02;
+    const ramp = (param, pts, k = 1) => { param.setValueAtTime(pts[0][1] * k, t); for (const [u, v] of pts.slice(1)) param.linearRampToValueAtTime(v * k, t + u * dur); };
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0, t); out.gain.linearRampToValueAtTime(amp, t + attack * dur); out.gain.setValueAtTime(amp * 0.9, t + (1 - release) * dur); out.gain.exponentialRampToValueAtTime(0.0002, t + dur);
+    out.connect(this.master);
+    const src = ctx.createGain(); src.gain.value = 1;
+    const stops = [];
+    // two slightly detuned saws make a fuller, less electronic buzz than one
+    for (const det of [1, 1.006]) {
+      const o = ctx.createOscillator(); o.type = 'sawtooth';
+      ramp(o.frequency, pitch, det * (0.97 + Math.random() * 0.06));
+      if (vib) { const l = ctx.createOscillator(); l.frequency.value = 5 + Math.random() * 2; const lg = ctx.createGain(); lg.gain.value = pitch[0][1] * vib; l.connect(lg).connect(o.frequency); l.start(t); stops.push(l); }
+      const g = ctx.createGain(); g.gain.value = 0.5; o.connect(g).connect(src); o.start(t); stops.push(o);
+    }
+    // breath through the nose and lips
+    const br = ctx.createBufferSource(); br.buffer = this.white; br.loop = true;
+    const bg = ctx.createGain(); bg.gain.value = breath * 6; br.connect(bg).connect(src); br.start(t, Math.random() * 2); stops.push(br);
+    // the flutter of a big, slack throat
+    if (rough) { const l = ctx.createOscillator(); l.frequency.value = 24 + Math.random() * 10; const lg = ctx.createGain(); lg.gain.value = rough; l.connect(lg).connect(src.gain); l.start(t); stops.push(l); }
+    for (const [pts, q, lvl] of [[f1, 5, 1], [f2, 7, 0.55], [f3, 8, 0.2]]) {
+      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = q; ramp(f.frequency, pts);
+      const g = ctx.createGain(); g.gain.value = lvl;
+      src.connect(f).connect(g).connect(out);
+    }
+    for (const n of stops) n.stop(t + dur + 0.1);
+  }
+  // a cow: "mmm-ooo-uh" — lips closed, opening wide and round, the pitch rising then sagging away
   moo(v) {
-    const ctx = this.ctx;
-    const t = ctx.currentTime;
-    const o = ctx.createOscillator(); o.type = 'sawtooth';
-    o.frequency.setValueAtTime(130, t);
-    o.frequency.linearRampToValueAtTime(150, t + 0.4);
-    o.frequency.linearRampToValueAtTime(105, t + 1.5);
-    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 3;
-    f.frequency.setValueAtTime(350, t);
-    f.frequency.linearRampToValueAtTime(700, t + 0.5);
-    f.frequency.linearRampToValueAtTime(400, t + 1.5);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.09 * v, t + 0.25);
-    g.gain.linearRampToValueAtTime(0.07 * v, t + 1.1);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.6);
-    o.connect(f).connect(g).connect(this.master);
-    o.start(t); o.stop(t + 1.7);
+    if (!this.ctx || v <= 0.03) return;
+    const long = Math.random() < 0.6, dur = long ? 1.7 + Math.random() * 0.7 : 0.9 + Math.random() * 0.3, p = 0.9 + Math.random() * 0.25;
+    this.voice({ dur, amp: 0.2 * v, rough: 0.22, breath: 0.02,
+      pitch: [[0, 92 * p], [0.25, 128 * p], [0.6, 122 * p], [1, 84 * p]],
+      f1: [[0, 240], [0.18, 300], [0.4, 520], [0.75, 480], [1, 300]],
+      f2: [[0, 880], [0.18, 820], [0.4, 760], [0.75, 900], [1, 980]],
+      f3: [[0, 2300], [0.4, 2150], [1, 2300]] });
+  }
+  // a calf: the same word, higher and thinner
+  mooCalf(v) {
+    if (!this.ctx || v <= 0.03) return;
+    this.voice({ dur: 0.8 + Math.random() * 0.3, amp: 0.13 * v, rough: 0.1, vib: 0.01,
+      pitch: [[0, 210], [0.3, 285], [1, 200]], f1: [[0, 320], [0.3, 640], [1, 420]], f2: [[0, 1100], [0.3, 1050], [1, 1250]], f3: [[0, 2700], [1, 2700]] });
+  }
+  // a water buffalo: a short, deep, closed-mouth grunt — "uunh" — or a calf's bawl
+  buffalo(v, calf = false) {
+    if (!this.ctx || v <= 0.03) return;
+    if (calf) { this.mooCalf(v * 0.8); return; }
+    const p = 0.9 + Math.random() * 0.2, dur = 0.55 + Math.random() * 0.5;
+    this.voice({ dur, amp: 0.22 * v, rough: 0.4, breath: 0.04, attack: 0.2,
+      pitch: [[0, 70 * p], [0.35, 88 * p], [1, 62 * p]],
+      f1: [[0, 230], [0.4, 360], [1, 260]], f2: [[0, 700], [0.4, 640], [1, 760]], f3: [[0, 1900], [1, 1900]] });
   }
 }

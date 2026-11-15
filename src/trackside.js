@@ -3,7 +3,7 @@
 // from the line, and the walkers stop and step back to watch it pass. Something to see from the train.
 import { Goat } from './animals.js';
 import { Person } from './people.js';
-import { TRACK, TRACK3, RING, TRACK_Y, heightAt, groundHeight, riverDist, RIVER_HALF, CROSSING, CROSSING3, jungleMask, RING_SIGHTS, resolveCollisions } from './world.js';
+import { TRACK, TRACK3, TRACK5, RING, TRACK_Y, heightAt, groundHeight, riverDist, RIVER_HALF, CROSSING, CROSSING3, jungleMask, RING_SIGHTS, resolveCollisions } from './world.js';
 import { rng } from './noise.js';
 
 const damp = (dt, r) => 1 - Math.exp(-dt * r);
@@ -28,9 +28,9 @@ export function buildTrackside(scene, railway, hooks = {}) {
   const R = rng(5150);
   // places along the open lines, well away from stations, crossings, bridges, tunnels, rivers and the jungle
   const yards = [];
-  for (const T of [TRACK, TRACK3, RING]) for (const h of T.halts ?? []) if (h.yard) yards.push(h.yard);
+  for (const T of [TRACK, TRACK3, RING, TRACK5]) for (const h of T.halts ?? []) if (h.yard) yards.push(h.yard);
   const spots = [];
-  for (const T of [TRACK, TRACK3, RING]) {
+  for (const T of [TRACK, TRACK3, RING, TRACK5]) {
     const P = T.path, q = {};
     for (let s = 40; s < P.L - 40; s += 55) {
       if (!T.openS(s, 40) || T.bridges.some(([a, b]) => s > a - 40 && s < b + 40)) continue;

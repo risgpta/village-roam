@@ -492,7 +492,9 @@ export function buildStations(scene, railway, hooks = {}) {
     if (!lines.has(tr.tk)) lines.set(tr.tk, []);
     lines.get(tr.tk).push(tr);
   }
-  for (const line of lines.values()) for (const h of line[0].halts) if (!h.noStation) stations.push(buildStation(scene, line[0], h, hooks, line));
+  // trains whose loop runs over another line's stations (the outer trains round the ring) serve those too
+  for (const tr of railway.trains) if (tr.halts.some((h) => h.shared)) for (const [T, line] of lines) if (T !== tr.tk && T.name === 'ring') line.push(tr);
+  for (const line of lines.values()) for (const h of line[0].halts) if (!h.noStation && !h.shared) stations.push(buildStation(scene, line[0], h, hooks, line));
   return {
     stations,
     update(dt, player, night) { for (const s of stations) s.update(dt, player, night); },

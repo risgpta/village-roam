@@ -2,11 +2,11 @@
 // a painted picture of the whole area baked once at load, with places, rides and the boy marked on it.
 import {
   heightAt, riverDist, fieldType, dirtMask, trackDist, layout, WATER_Y, RIVER_HALF, PLAY_RADIUS,
-  WILD, STATION, TRACK3, NEW_VILLAGES, SQUARE, TEA, GHAT, WF, FOOT, EH, NV, SCHOOL, GARDEN, MARKET, CRICKET, PUMP, TANK, CROSSING, HILLTOP, TRACKS, JUNGLE_HOMES, RING_SIGHTS, riverX, RBRIDGE, BRIDGES, desertMask, NP, MP, PEAK,
+  WILD, STATION, TRACK3, NEW_VILLAGES, SQUARE, TEA, GHAT, WF, FOOT, EH, NV, SCHOOL, GARDEN, MARKET, CRICKET, PUMP, TANK, CROSSING, HILLTOP, TRACKS, JUNGLE_HOMES, RING_SIGHTS, tribDist, TRIB, riverX, RBRIDGE, BRIDGES, desertMask, NP, MP, PEAK,
 } from './world.js';
 
-const E = 1950; // half extent of the map, metres
-const N = 2048; // baked image size, px
+const E = 2960; // half extent of the map, metres (out past the edge of the land)
+const N = 2560; // baked image size, px
 const toU = (x) => ((x + E) / (2 * E)) * N;
 const toV = (z) => ((z + E) / (2 * E)) * N; // north (-z) at the top
 
@@ -27,7 +27,7 @@ function bake() {
     const h = H[j * N + i];
     let col;
     const d = Math.hypot(x, z);
-    if ((riverDist(x, z) < RIVER_HALF - 0.5 && Math.abs(z) < 1000) || (layout.bv && Math.hypot(x - layout.bv.pond.x, z - layout.bv.pond.z) < layout.bv.pond.r)) col = [74, 140, 168];
+    if (riverDist(x, z) < RIVER_HALF - 0.5 || tribDist(x, z) < TRIB.half - 0.3 || (layout.bv && Math.hypot(x - layout.bv.pond.x, z - layout.bv.pond.z) < layout.bv.pond.r)) col = [74, 140, 168];
     else {
       const hill = Math.min(1, Math.max(0, (h - 4) / 50));
       col = [128 - hill * 30, 160 - hill * 40, 92 - hill * 30];
@@ -35,7 +35,7 @@ function bake() {
       if (ft) col = FIELD_COL[ft].slice();
       const dsm = desertMask(x, z);
       if (dsm > 0) col = col.map((c0, k) => c0 + ([222, 186, 130][k] - c0) * dsm);
-      if (d < 820) {
+      if (d < PLAY_RADIUS) {
         const dm = dirtMask(x, z);
         if (dm > 0.35) col = [196, 160, 112];
       }
@@ -88,7 +88,7 @@ function places() {
     ['Marudhar', L.rv, '🐪', 1], ...BRIDGES.map((b) => ['Road bridge', b, '🌉', 0]),
     ['Banglagram', L.bv, '🪷', 1], ['Thennoor', L.tv, '🛕', 1], ['Pond', L.bv?.pond, '', 0],
     ['Vitthalwadi', L.mh, '🪔', 1], ['Bamboo hill', L.ne, '🎋', 1], ['Tea garden', L.ne && { x: (L.ne.tea.x0 + L.ne.tea.x1) / 2, z: (L.ne.tea.z0 + L.ne.tea.z1) / 2 }, '🍃', 0],
-    ['Tiger country', WILD.tiger, '🐅', 1], ['Wolf hills', WILD.wolf, '🐺', 1], ['Elephant forest', WILD.elephant, '🐘', 1], ...WILD.leopards.map((l) => ['Leopard rocks', l, '🐆', 1]), ...WILD.deer.map((d) => ['Deer meadow', d, '🦌', 0]), ...[...new Map(TRACKS.flatMap((T) => T.halts.filter((h) => !h.noStation && !h.island).map((h) => [h.name, [h.big ? `${h.name} station` : h.name, h.yard ?? h, '🚉', h.big || h.W ? 1 : 0]]))).values()], ...NEW_VILLAGES.map((v) => [v.name, v, v.style === 'kutch' ? '🛖' : '🌾', 1]), ['Pahadi Gaon', L.pg, '🏔', 1], ['Jungle', JUNGLE_HOMES.monkeys, '🦁', 1], ['Rhino hills', JUNGLE_HOMES.rhinos, '🦏', 1], ['Viaduct', RING_SIGHTS.dip, '🌉', 0], ['Ring tunnel', RING_SIGHTS.hill, '⛰', 0],
+    ['Tiger country', WILD.tiger, '🐅', 1], ['Wolf hills', WILD.wolf, '🐺', 1], ['Elephant forest', WILD.elephant, '🐘', 1], ...WILD.leopards.map((l) => ['Leopard rocks', l, '🐆', 1]), ...WILD.deer.map((d) => ['Deer meadow', d, '🦌', 0]), ...[...new Map(TRACKS.flatMap((T) => T.halts.filter((h) => !h.noStation && !h.island).map((h) => [h.name, [h.big ? `${h.name} station` : h.name, h.yard ?? h, '🚉', h.big || h.W ? 1 : 0]]))).values()], ...NEW_VILLAGES.map((v) => [v.name, v, v.icon ?? '🌾', 1]), ...(layout.tribGhat ? [['Choti Nadi ghat', layout.tribGhat, '🏞', 0]] : []), ['Pahadi Gaon', L.pg, '🏔', 1], ['Jungle', JUNGLE_HOMES.monkeys, '🦁', 1], ['Rhino hills', JUNGLE_HOMES.rhinos, '🦏', 1], ['Viaduct', RING_SIGHTS.dip, '🌉', 0], ['Ring tunnel', RING_SIGHTS.hill, '⛰', 0],
     ['Noorpur', NP, '🕌', 1], ['Kabristan', NP.kab, '⚱', 0], ['Mariapur', MP, '⛪', 1], ['Cemetery', MP.cem, '✝', 0], ['Shikhar summit', PEAK, '🗻', 1],
     ...(L.busStops || []).map((b) => ['', b, '🚏', 0]),
     ['Crocodiles', { x: riverX(380) + 18, z: 380 }, '🐊', 1], ['Crocodiles', { x: riverX(-400) + 18, z: -400 }, '🐊', 1],
@@ -98,6 +98,34 @@ function places() {
   return P.filter((p) => p[1]).map(([name, o, icon, big]) => ({ name, x: o.x, z: o.z, icon, big }));
 }
 const RIDE_ICON = { bicycle: '🚲', moped: '🏍', scooter: '🛵', auto: '🛺', car: '🚗', boat: '🛶', minibus: '🚌', erick: '🛺', bus: '🚌', jeep: '🚙', plane: '✈️', heli: '🚁' };
+
+// live trains: the chain of coaches in the train's own colours, an engine badge, and on the big map a label
+// with its name, speed and where it's standing or heading
+function drawTrain(g, t, toPx, s, label) {
+  const pts = t.cars.map((c) => toPx(c.x, c.z));
+  if (!pts.length) return;
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  g.strokeStyle = 'rgba(20,16,12,0.85)'; g.lineWidth = s * 2 + 3;
+  g.beginPath(); pts.forEach(([u, v], i) => (i ? g.lineTo(u, v) : g.moveTo(u, v))); g.stroke();
+  g.strokeStyle = t.color; g.lineWidth = s * 2;
+  g.beginPath(); pts.forEach(([u, v], i) => (i ? g.lineTo(u, v) : g.moveTo(u, v))); g.stroke();
+  // the engine at the front
+  const [hu, hv] = toPx(t.head.x, t.head.z), r = s + 5;
+  g.fillStyle = t.driven ? '#ffb22e' : '#fff6e0'; g.strokeStyle = t.color; g.lineWidth = 2.5;
+  g.beginPath(); g.arc(hu, hv, r, 0, 7); g.fill(); g.stroke();
+  g.font = `${Math.round(r * 1.25)}px system-ui, "Apple Color Emoji", sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('🚂', hu, hv + 0.5);
+  if (!label) return;
+  const line1 = t.name.split(' — ')[0], line2 = t.at ? `at ${t.at}` : `${Math.round(Math.abs(t.v) * 3.6)} km/h${t.next ? ' → ' + t.next : ''}`;
+  g.font = '600 11px Inter, sans-serif';
+  const w = Math.max(g.measureText(line1).width, g.measureText(line2).width) + 12;
+  // the label sits to the right of the engine, or to the left when that would run off the map
+  const bx = hu + r + 4 + w > g.canvas.width - 4 ? hu - r - 4 - w : hu + r + 4, by = Math.max(4, hv - 15);
+  g.fillStyle = 'rgba(20,16,12,0.78)'; g.beginPath(); g.roundRect ? g.roundRect(bx, by, w, 30, 6) : g.rect(bx, by, w, 30); g.fill();
+  g.fillStyle = t.color; g.fillRect(bx, by + 4, 3, 22);
+  g.textAlign = 'left'; g.fillStyle = '#fff6e0'; g.fillText(line1, bx + 8, by + 9);
+  g.font = '500 10px Inter, sans-serif'; g.fillStyle = 'rgba(255,246,224,0.8)'; g.fillText(line2, bx + 8, by + 22);
+}
 
 export class MapUI {
   constructor() {
@@ -142,8 +170,9 @@ export class MapUI {
     g.fill(); g.stroke();
     g.restore();
   }
-  update(player, yaw, rides) {
+  update(player, yaw, rides, trains = []) {
     if (++this.frame % 2) return;
+    this.trains = trains;
     if (!this.collapsed) this.drawMini(player, yaw, rides);
     if (this.open) this.drawBig(player, yaw, rides);
   }
@@ -178,6 +207,12 @@ export class MapUI {
       g.fillStyle = 'rgba(255,255,255,0.85)'; g.beginPath(); g.arc(u, v, 8, 0, 7); g.fill();
       g.font = '11px system-ui, "Apple Color Emoji", sans-serif'; g.fillText(RIDE_ICON[r.name], u, v + 0.5);
     }
+    for (const t of this.trains ?? []) {
+      if (t.driven) continue; // that's the boy's own train: his arrow is on it
+      const [u, v] = px(t.head.x, t.head.z);
+      if (Math.hypot(u - R, v - R) > R + 60) continue;
+      drawTrain(g, t, px, 2.2, false);
+    }
     this.arrow(g, R, R, player.facing, yaw, 8);
     g.restore();
     // rim and compass
@@ -208,6 +243,8 @@ export class MapUI {
       g.fillStyle = 'rgba(255,255,255,0.9)'; g.beginPath(); g.arc(u, v, 10, 0, 7); g.fill();
       g.font = '13px system-ui, "Apple Color Emoji", sans-serif'; g.fillText(RIDE_ICON[r.name], u, v + 0.5);
     }
+    // the trains, live
+    for (const t of this.trains ?? []) drawTrain(g, t, (x, z) => [toU(x) * s, toV(z) * s], 2.5, true);
     // the boy, pulsing
     const u = toU(player.x) * s, v = toV(player.z) * s;
     const pulse = 10 + Math.sin(performance.now() * 0.006) * 3;

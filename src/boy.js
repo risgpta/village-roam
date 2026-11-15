@@ -78,6 +78,35 @@ export class Boy {
     }
   }
 
+  // sitting: cross-legged on the ground, or (perch) on an edge with the legs hanging; sip: a cup in the right hand
+  sit(dt, sip = false, perch = false) {
+    this.t += dt;
+    const t = this.t, breathe = Math.sin(t * 1.8) * 0.005;
+    this.sitB = (this.sitB ?? 0) + (1 - (this.sitB ?? 0)) * (1 - Math.exp(-dt * 5));
+    const b = this.sitB;
+    this.body.position.set(0, (-this.hipY + 0.1) * b, 0);
+    this.body.rotation.x = 0;
+    this.torso.rotation.set(0.06 * b, 0, 0);
+    this.torso.scale.set(1 + breathe, 1 + breathe, 1 + breathe);
+    this.legs.forEach((l, i) => {
+      const s = i ? 1 : -1;
+      if (perch) { l.hip.rotation.set(-1.45 * b, 0, 0); l.knee.rotation.x = (1.45 + Math.sin(t * 1.3 + i * 2) * 0.12) * b; }
+      else { l.hip.rotation.set(-1.5 * b, 0, s * 0.72 * b); l.knee.rotation.x = 2.25 * b; }
+    });
+    // a sip every few seconds: the cup comes up, tips, and goes back to rest on the knee
+    const cyc = (t % 6) / 6, up = sip ? Math.max(0, Math.sin(Math.min(1, cyc / 0.45) * Math.PI)) : 0;
+    this.arms.forEach((a, i) => {
+      const s = i ? 1 : -1, lift = i === 1 ? up : 0;
+      a.shoulder.rotation.x = (-0.55 - lift * 0.55) * b;
+      a.shoulder.rotation.z = s * (0.18 - lift * 0.3) * b;
+      a.elbow.rotation.x = (-0.75 - lift * 1.35) * b;
+    });
+    this.head.rotation.y = Math.sin(t * 0.23) * 0.5 + Math.sin(t * 0.11) * 0.25;
+    this.head.rotation.x = -0.05 + up * -0.18 + Math.sin(t * 0.17) * 0.05;
+    this.blend = 0;
+    this.gearB = 0;
+  }
+
   update(dt, speed, airborne = false, vy = 0) {
     this.t += dt;
     this.air = (this.air || 0) + ((airborne ? 1 : 0) - (this.air || 0)) * (1 - Math.exp(-dt * 14));
@@ -107,6 +136,7 @@ export class Boy {
 
     const bob = Math.abs(Math.cos(this.phase)) * (0.03 + run * 0.03) * b;
     const breathe = Math.sin(this.t * 2.2) * 0.006 * (1 - b);
+    this.sitB = 0;
     this.body.position.y = bob - 0.015 * b;
     this.body.position.z = 0;
     this.body.rotation.x = 0;

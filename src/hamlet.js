@@ -15,6 +15,18 @@ const LOOKS = {
     man: (i) => ({ dress: 'kurta', top: ['#f4f2ec', '#e9dcc3', '#c9d8e8'][i % 3], bottom: '#f4f1e8', skin: SKIN[i % 6], beard: i % 2 === 0, mustache: true, headwear: 'turban', turban: ['#f2a41a', '#1e6fa8', '#c2185b', '#2e8b57'][i % 4] }),
     woman: (i) => ({ dress: 'saree', top: ['#e85fc8', '#f2b705', '#2eb84a'][i % 3], bottom: ['#7a2b6e', '#c4241c', '#1e6fa8'][i % 3], veil: true, skin: SKIN[(i + 2) % 6] }),
   },
+  bihar: {
+    man: (i) => ({ dress: 'dhoti', top: ['#f4f1e8', '#e9dcc3', '#dfe6ea'][i % 3], bottom: '#f4f1e8', skin: SKIN[(i + 2) % 6], mustache: true, headwear: i % 2 ? 'turban' : undefined, turban: ['#f2efe6', '#c4241c'][i % 2], sleeves: 'short' }),
+    woman: (i) => ({ dress: 'saree', top: ['#f2b705', '#c4241c', '#2e8b57'][i % 3], bottom: ['#c4241c', '#f2b705', '#7a2b6e'][i % 3], veil: true, skin: SKIN[(i + 1) % 6] }),
+  },
+  bengal: {
+    man: (i) => ({ dress: 'dhoti', top: ['#f4f1e8', '#dfe6ea', '#e9dcc3'][i % 3], bottom: '#f4f1e8', skin: SKIN[(i + 3) % 6], mustache: i % 2 === 0, sleeves: 'short' }),
+    woman: (i) => ({ dress: 'saree', top: ['#f6f2e8', '#f6f2e8', '#e85fc8'][i % 3], bottom: ['#c4241c', '#c4241c', '#2a6aa8'][i % 3], veil: true, skin: SKIN[(i + 4) % 6] }), // the white saree with a red border
+  },
+  pahadi: {
+    man: (i) => ({ dress: 'kurta', top: ['#6a5a4a', '#8a7a6a', '#4a4a52'][i % 3], bottom: '#3a3a42', skin: SKIN[(i + 3) % 6], mustache: true, headwear: 'topi', turban: '#2a5a3a' }),
+    woman: (i) => ({ dress: 'saree', top: ['#7a2b6e', '#2a5a3a', '#c4241c'][i % 3], bottom: ['#3a2a4a', '#6a2a2a', '#2a3a5a'][i % 3], veil: true, skin: SKIN[(i + 5) % 6] }),
+  },
   kutch: {
     man: (i) => ({ dress: 'dhoti', top: '#f4f1e8', bottom: '#f4f1e8', skin: SKIN[(i + 1) % 6], mustache: true, headwear: 'turban', turban: ['#ffffff', '#c4241c', '#f2efe6'][i % 3] }),
     woman: (i) => ({ dress: 'saree', top: ['#1a1a1a', '#c4241c', '#2a2a6a'][i % 3], bottom: ['#c4241c', '#1a1a1a', '#e0612b'][i % 3], veil: true, skin: SKIN[(i + 3) % 6] }),

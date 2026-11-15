@@ -3,9 +3,10 @@
 import * as THREE from 'three';
 import { fbm, noise2, smoothstep } from './noise.js';
 import {
-  INNER_HALF, OUTER_HALF, MID_HALF, DATA_HALF, WATER_Y, RIVER_HALF, heightAt, riverX, dirtMask, fieldType, isBund, trackDist, waterfallMask, fallsRock, roadX, GARDEN, desertMask, TRACKS, LID_W, tunnelMask, dipMask, jungleMask,
+  INNER_HALF, OUTER_HALF, MID_HALF, DATA_HALF, WATER_Y, RIVER_HALF, heightAt, riverX, dirtMask, fieldType, isBund, trackDist, waterfallMask, fallsRock, roadX, GARDEN, desertMask, TRACKS, LID_W, tunnelMask, dipMask, jungleMask, tribDist, TRIB,
 } from './world.js';
 import { detailCanvas, toTexture } from './textures.js';
+import { microBumpGLSL } from './realism.js';
 
 const C = {
   g1: [78, 112, 46], g2: [108, 136, 58], dry: [158, 148, 88], dirt: [178, 134, 90], dirt2: [150, 108, 72],
@@ -52,6 +53,7 @@ export function terrainColor(x, z, out) {
     }
   }
   mix(c, C.sand, (1 - smoothstep(RIVER_HALF + 1.5, RIVER_HALF + 5, dr)) * 0.9, c);
+  { const td = tribDist(x, z); if (td < TRIB.half + 5) mix(c, C.sand, (1 - smoothstep(TRIB.half + 0.5, TRIB.half + 4.5, td)) * 0.85, c); } // the little river's sandy banks
   if (h < WATER_Y + 0.1 && dipMask(x, z) < 0.05) mix(c, C.mud, smoothstep(WATER_Y + 0.1, WATER_Y - 1.0, h), c);
   { const wm = waterfallMask(x, z); if (wm > 0) mix(c, C.mud, wm * 0.85, c); const fr = fallsRock(x, z); if (fr > 0) mix(c, C.rock, fr, c); }
   { const dm2 = desertMask(x, z); if (dm2 > 0) mix(c, mix(C.desert, C.desert2, noise2(x * 0.08, z * 0.08) * 0.5 + 0.5, [0, 0, 0]), dm2 * 0.9, c); }
@@ -70,7 +72,12 @@ function detailMaterial(params) {
       .replace('#include <common>', '#include <common>\nvarying vec2 vWXZ;')
       .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
     s.fragmentShader = s.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform sampler2D uDetail;\nvarying vec2 vWXZ;')
+      .replace('#include <common>', `#include <common>\nuniform sampler2D uDetail;\nvarying vec2 vWXZ;\n${microBumpGLSL}`)
+      // the ground has real relief up close: clods, grit and pebbles catch the low sun
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+         float gNear = 1.0 - smoothstep(20.0, 60.0, length(vViewPosition));
+         float gH = texture2D(uDetail, vWXZ * 0.28).r * 0.6 + texture2D(uDetail, vWXZ * 0.61).r * 0.4;
+         normal = microBump(normal, -vViewPosition, gH * 0.02 * gNear);`)
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
@@ -79,7 +86,7 @@ function detailMaterial(params) {
          diffuseColor.rgb *= (0.55 + dt1 * 0.9) * (0.75 + dt2 * 0.5);`
       );
   };
-  mat.customProgramCacheKey = () => 'terrain-detail-' + (params.map ? 'map' : 'vc');
+  mat.customProgramCacheKey = () => 'terrain-detail2-' + (params.map ? 'map' : 'vc');
   return mat;
 }
 
@@ -92,7 +99,7 @@ function freeAfterUpload(geo) {
 export function buildTerrain() {
   const group = new THREE.Group();
   // --- inner: baked color map ---
-  const N = 3072;
+  const N = 3840; // the colour map (~1.54 m a pixel over the whole land)
   const cv = document.createElement('canvas');
   cv.width = cv.height = N;
   const g = cv.getContext('2d');
@@ -112,16 +119,56 @@ export function buildTerrain() {
   map.wrapS = map.wrapT = THREE.ClampToEdgeWrapping;
   map.anisotropy = 16;
 
-  const geo = new THREE.PlaneGeometry(INNER_HALF * 2, INNER_HALF * 2, 1440, 1440);
-  geo.rotateX(-Math.PI / 2);
-  const pos = geo.attributes.position;
-  for (let i = 0; i < pos.count; i++) pos.setY(i, heightAt(pos.getX(i), pos.getZ(i)));
-  geo.computeVertexNormals();
-  geo.computeBoundingSphere();
-  freeAfterUpload(geo);
-  const inner = new THREE.Mesh(geo, detailMaterial({ map }));
-  inner.receiveShadow = true;
-  group.add(inner);
+  // The inner land is cut into square tiles that share one colour map: tiles out of view are skipped, and
+  // far tiles draw every third vertex (same vertices, a lighter index list).
+  const GRID = 1968, TILES = 16, TN = GRID / TILES, STEP = (INNER_HALF * 2) / GRID, COARSE = 3;
+  const W = GRID + 1, hgt = new Float32Array(W * W);
+  for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) hgt[j * W + i] = heightAt(-INNER_HALF + i * STEP, -INNER_HALF + j * STEP);
+  const H = (i, j) => hgt[Math.min(GRID, Math.max(0, j)) * W + Math.min(GRID, Math.max(0, i))];
+  const indexFor = (st) => {
+    const idx = [], w = TN + 1;
+    for (let j = 0; j < TN; j += st) for (let i = 0; i < TN; i += st) {
+      const p0 = j * w + i, p1 = p0 + st, p2 = p0 + st * w, p3 = p2 + st;
+      idx.push(p0, p2, p1, p1, p2, p3);
+    }
+    return new THREE.BufferAttribute(new Uint16Array(idx), 1);
+  };
+  const fineIdx = indexFor(1), coarseIdx = indexFor(COARSE);
+  const mat = detailMaterial({ map });
+  const tiles = [];
+  for (let tj = 0; tj < TILES; tj++) for (let ti = 0; ti < TILES; ti++) {
+    const w = TN + 1, P = new Float32Array(w * w * 3), Nn = new Float32Array(w * w * 3), U = new Float32Array(w * w * 2);
+    for (let j = 0; j < w; j++) for (let i = 0; i < w; i++) {
+      const gi = ti * TN + i, gj = tj * TN + j, o = j * w + i;
+      P[o * 3] = -INNER_HALF + gi * STEP; P[o * 3 + 1] = H(gi, gj); P[o * 3 + 2] = -INNER_HALF + gj * STEP;
+      // the normal from the heights either side, so neighbouring tiles agree along their shared edge
+      const nx = H(gi - 1, gj) - H(gi + 1, gj), nz = H(gi, gj - 1) - H(gi, gj + 1), ny = 2 * STEP, l = Math.hypot(nx, ny, nz);
+      Nn[o * 3] = nx / l; Nn[o * 3 + 1] = ny / l; Nn[o * 3 + 2] = nz / l;
+      U[o * 2] = gi / GRID; U[o * 2 + 1] = 1 - gj / GRID;
+    }
+    const attrs = { position: new THREE.BufferAttribute(P, 3), normal: new THREE.BufferAttribute(Nn, 3), uv: new THREE.BufferAttribute(U, 2) };
+    const make = (index) => {
+      const tg = new THREE.BufferGeometry();
+      for (const [k, a] of Object.entries(attrs)) tg.setAttribute(k, a);
+      tg.setIndex(index);
+      tg.computeBoundingSphere();
+      const m = new THREE.Mesh(tg, mat);
+      m.receiveShadow = true;
+      group.add(m);
+      return m;
+    };
+    const fine = make(fineIdx), coarse = make(coarseIdx);
+    for (const at of Object.values(attrs)) at.onUpload(function () { this.array = new Float32Array(0); });
+    coarse.visible = false;
+    tiles.push({ fine, coarse, c: fine.geometry.boundingSphere.center, r: fine.geometry.boundingSphere.radius });
+  }
+  for (const a of [fineIdx, coarseIdx]) a.onUpload(function () { this.array = new Uint16Array(0); });
+  group.userData.update = (camPos) => {
+    for (const t of tiles) {
+      const near = camPos.distanceTo(t.c) - t.r < 380;
+      t.fine.visible = near; t.coarse.visible = !near;
+    }
+  };
 
   // --- rings round it: mid-detail out to the edge of the walkable land, then coarse far hills & mountains ---
   const ring = (half, S, hole, dy) => {
@@ -189,7 +236,7 @@ export function buildTerrain() {
 
 // RGBA half-float: r = height, g = grass density, b = type (0 grass, 0.5 wheat, 1 mustard)
 export function buildGrassData() {
-  const N = 2560;
+  const N = 3200;
   const data = new Uint16Array(N * N * 4);
   const toH = THREE.DataUtils.toHalfFloat;
   for (let py = 0; py < N; py++) {
@@ -200,6 +247,7 @@ export function buildGrassData() {
       const dr = Math.abs(x - riverX(z));
       let dens = 1 - dirtMask(x, z) * 1.15;
       dens *= smoothstep(RIVER_HALF + 1.5, RIVER_HALF + 4.5, dr);
+      dens *= smoothstep(TRIB.half + 0.5, TRIB.half + 3.5, tribDist(x, z));
       dens *= smoothstep(3.0, 5.0, trackDist(x, z));
       if (tunnelMask(x, z)) dens = 0;
       { const jm = jungleMask(x, z); if (jm > 0) dens *= 1 - jm * 0.7; } // under the jungle canopy the grass grows thin
