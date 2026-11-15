@@ -69,6 +69,8 @@ function materials() {
     biscuit: std('#c98b3c'),
     red: std('#b8322b'), yellow: std('#e6b422'), green: std('#2e8b57'), cream: std('#efe6d0'),
   };
+  // the painted textures also give relief: daubed mud, the lie of the thatch, the ridges of the tiles, the weave
+  for (const [k, b] of [['mudA', 0.7], ['mudB', 0.7], ['mudRoundA', 0.7], ['mudRoundB', 0.7], ['thatch', 2.2], ['thatchCone', 2.2], ['tile', 2.6], ['jute', 1.2]]) { M[k].bumpMap = M[k].map; M[k].bumpScale = b; }
 }
 
 function mesh(geo, mat, x = 0, y = 0, z = 0, parent) {

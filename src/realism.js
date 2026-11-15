@@ -109,7 +109,7 @@ function grainMaterial(m) {
         float grAmt = smoothstep(0.42, 0.8, roughness) * (1.0 - metalness * 0.5);
         diffuseColor.rgb *= 1.0 + ((grV.g - 0.5) * 0.3 + (grV.r - 0.5) * 0.16 * grNear) * grAmt;`)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = clamp(roughnessFactor + (grV.g - 0.5) * 0.3 * grAmt, 0.05, 1.0);')
-      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = microBump(normal, -vViewPosition, grV.r * 0.0045 * grAmt * grNear);');
+      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = microBump(normal, -vViewPosition, grV.r * 0.003 * grAmt * grNear);');
   };
   m.customProgramCacheKey = () => 'grain';
   m.needsUpdate = true;

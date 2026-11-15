@@ -63,12 +63,84 @@ function shadeCanopy(geo) {
   return geo;
 }
 
+// ---------------- foliage made of leaves ----------------
+// A crown is built the way real-time foliage usually is: many small flat cards, each showing a spray of leaves
+// (drawn once into a texture, with see-through gaps between them), set at all angles round each bough, over a
+// small dark core so you never see straight through. The cards are lit as if they were the rounded mass they
+// make up, so the crown shades softly while its edge is broken into real leaf shapes.
+let leafTex = null;
+function leafTexture() {
+  if (leafTex) return leafTex;
+  const N = 512, c = document.createElement('canvas'); c.width = c.height = N;
+  const g = c.getContext('2d');
+  let seed = 4242;
+  const R = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  // four different sprays, one per quarter of the sheet
+  for (let ty = 0; ty < 2; ty++) for (let tx = 0; tx < 2; tx++) {
+    const cx = tx * 256 + 128, cy = ty * 256 + 128;
+    g.fillStyle = '#7d8c64'; g.beginPath(); g.arc(cx, cy, 30, 0, 7); g.fill(); // the solid heart of the spray
+    const leaves = 95;
+    for (let i = 0; i < leaves; i++) {
+      // leaves fan out from twigs near the middle; the later (top) ones are lighter, as if catching the light
+      const a = R() * Math.PI * 2, d = Math.pow(R(), 0.7) * 96, x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d;
+      const len = 20 + R() * 16, wid = len * (0.34 + R() * 0.14), rot = a + (R() - 0.5) * 1.5;
+      const v = 185 + (i / leaves) * 55 + R() * 15;
+      g.save(); g.translate(x, y); g.rotate(rot);
+      g.fillStyle = `rgb(${v * 0.86},${v},${v * 0.72})`;
+      g.beginPath(); g.moveTo(-len / 2, 0); g.quadraticCurveTo(0, -wid, len / 2, 0); g.quadraticCurveTo(0, wid, -len / 2, 0); g.fill();
+      g.strokeStyle = `rgba(${v * 0.6},${v * 0.72},${v * 0.5},0.9)`; g.lineWidth = 1; g.beginPath(); g.moveTo(-len / 2, 0); g.lineTo(len / 2, 0); g.stroke(); // midrib
+      g.fillStyle = 'rgba(40,60,20,0.18)'; g.beginPath(); g.moveTo(-len / 2, 0); g.quadraticCurveTo(0, wid, len / 2, 0); g.closePath(); g.fill(); // the shaded half
+      g.restore();
+    }
+  }
+  leafTex = new THREE.CanvasTexture(c);
+  leafTex.colorSpace = THREE.SRGBColorSpace; leafTex.anisotropy = 4;
+  return leafTex;
+}
+// lumps: [{ c: Vector3, r, sy, color }] — the boughs of the crown. per: cards on each; size: card size relative to the bough.
+function leafCards(lumps, { per = 14, size = 1, seed = 1 } = {}) {
+  let sd = seed * 7919 + 13;
+  const R = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
+  const pos = [], nor = [], uv = [], col = [];
+  const cc = new THREE.Color(), up = new V3(0, 1, 0), n = new V3(), t = new V3(), b = new V3(), d = new V3(), p = new V3(), q = new V3(), sn = new V3();
+  const push = (v, nn, u, w, k) => { pos.push(v.x, v.y, v.z); nor.push(nn.x, nn.y, nn.z); uv.push(u, w); col.push(cc.r * k, cc.g * k, cc.b * k); };
+  for (const L of lumps) {
+    cc.set(L.color);
+    // the dark core: a low-poly ball mapped onto the solid heart of a spray
+    const core = new THREE.IcosahedronGeometry(L.r * 0.62, 0).scale(1, L.sy, 1).toNonIndexed(), cp = core.attributes.position;
+    for (let i = 0; i < cp.count; i++) { p.fromBufferAttribute(cp, i); sn.copy(p).normalize(); p.add(L.c); push(p, sn, 0.25, 0.25, 0.8); }
+    for (let k = 0; k < per; k++) {
+      // a card somewhere in the outer shell of the bough, facing roughly outward, twisted at random
+      d.set(R() * 2 - 1, R() * 1.5 - 0.45, R() * 2 - 1).normalize();
+      p.copy(d).multiplyScalar(L.r * (0.55 + R() * 0.5)); p.y *= L.sy; p.add(L.c);
+      n.copy(d).add(q.set(R() - 0.5, R() - 0.5, R() - 0.5).multiplyScalar(1.1)).normalize();
+      t.crossVectors(n, Math.abs(n.y) > 0.9 ? q.set(1, 0, 0) : up).normalize(); b.crossVectors(n, t);
+      const roll = R() * 6.28, cs = Math.cos(roll), sr = Math.sin(roll), s = L.r * size * (0.62 + R() * 0.36);
+      const tx = t.clone().multiplyScalar(cs).addScaledVector(b, sr), bx = b.clone().multiplyScalar(cs).addScaledVector(t, -sr);
+      // shaded as part of the rounded crown, not as a flat card
+      sn.copy(d).multiplyScalar(0.75).add(q.set(0, 0.35, 0)).normalize();
+      const u0 = R() < 0.5 ? 0 : 0.5, v0 = R() < 0.5 ? 0 : 0.5, kk = 1.25 + R() * 0.4;
+      const corner = (a, c2) => q.copy(p).addScaledVector(tx, a * s).addScaledVector(bx, c2 * s).clone();
+      const A = corner(-1, -1), B = corner(1, -1), C = corner(1, 1), D = corner(-1, 1);
+      push(A, sn, u0, v0, kk); push(B, sn, u0 + 0.5, v0, kk); push(C, sn, u0 + 0.5, v0 + 0.5, kk);
+      push(A, sn, u0, v0, kk); push(C, sn, u0 + 0.5, v0 + 0.5, kk); push(D, sn, u0, v0 + 0.5, kk);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  return g;
+}
+const leafMaterial = (o) => applyFoliageWind(new THREE.MeshLambertMaterial({ map: leafTexture(), vertexColors: true, alphaTest: 0.4, alphaToCoverage: true, side: THREE.DoubleSide, emissive: '#22381a' }), { ...o, cards: true });
+
 const GREENS = ['#4a7a2c', '#5a8832', '#669036', '#3f6c2a', '#6e963a', '#527d2e'];
 const BARK = '#5a4330';
 
 // lod 1: the full tree; lod 0: the same tree (same random numbers) in a quarter of the triangles, for far away
 function broadleaf(R, lod = 1) {
-  const trunk = [], leaves = [];
+  const trunk = [], lumps = [];
   const th = 2.4 + R() * 1.4;
   trunk.push(paint(new THREE.CylinderGeometry(0.2, 0.36, th, lod ? 7 : 4).translate(0, th / 2, 0), BARK, R));
   const nb = 3 + Math.floor(R() * 3);
@@ -81,12 +153,12 @@ function broadleaf(R, lod = 1) {
     const nl = 2 + Math.floor(R() * 2);
     for (let k = 0; k < nl; k++) {
       const r = 0.95 + R() * 0.8;
-      leaves.push(paint(lumpy(r, R() * 10, lod).scale(1, 0.78, 1)
-        .translate(end.x + (R() - 0.5) * 1.3, end.y + (R() - 0.2) * 0.8, end.z + (R() - 0.5) * 1.3), GREENS[Math.floor(R() * GREENS.length)], R));
+      R();
+      lumps.push({ r, sy: 0.78, c: new V3(end.x + (R() - 0.5) * 1.3, end.y + (R() - 0.2) * 0.8, end.z + (R() - 0.5) * 1.3), color: GREENS[Math.floor(R() * GREENS.length)] });
     }
   }
-  leaves.push(paint(lumpy(1.7 + R() * 0.7, R() * 10, lod).scale(1, 0.8, 1).translate(0, th + 1.5 + R() * 0.5, 0), GREENS[Math.floor(R() * GREENS.length)], R));
-  return { trunk: mergeGeometries(trunk), leaves: shadeCanopy(mergeGeometries(leaves)) };
+  { const r = 1.7 + R() * 0.7; R(); lumps.push({ r, sy: 0.8, c: new V3(0, th + 1.5 + R() * 0.5, 0), color: GREENS[Math.floor(R() * GREENS.length)] }); }
+  return { trunk: mergeGeometries(trunk), leaves: shadeCanopy(leafCards(lumps, lod ? { per: 15, size: 1 } : { per: 6, size: 1.35 })) };
 }
 
 function frond(a, e0, L, n = 10) {
@@ -136,16 +208,19 @@ function palm(R, lod = 1) {
 }
 
 function bush(R, lod = 1) {
-  const leaves = [];
+  const leaves = [], lumps = [];
   const n = 2 + Math.floor(R() * 3);
   for (let i = 0; i < n; i++) {
     const r = 0.5 + R() * 0.5;
-    leaves.push(paint(lumpy(r, R() * 10, lod).scale(1, 0.75, 1).translate((R() - 0.5) * 1.1, r * 0.55, (R() - 0.5) * 1.1), ['#3a5f25', '#4a6e2a', '#5a7a30'][i % 3], R));
+    R();
+    lumps.push({ r, sy: 0.75, c: new V3((R() - 0.5) * 1.1, r * 0.55, (R() - 0.5) * 1.1), color: ['#3a5f25', '#4a6e2a', '#5a7a30'][i % 3] });
   }
   if (R() < 0.3) {
-    for (let i = 0; i < 6; i++) leaves.push(paint(new THREE.IcosahedronGeometry(0.09, 0).translate((R() - 0.5) * 1.2, 0.5 + R() * 0.5, (R() - 0.5) * 1.2), R() < 0.5 ? '#e05a7a' : '#f0a020', R, 0));
+    // a few flowers: tiny bright balls, mapped onto the solid heart of a spray so they stay whole
+    for (let i = 0; i < 6; i++) { const f = paint(new THREE.IcosahedronGeometry(0.09, 0).translate((R() - 0.5) * 1.2, 0.5 + R() * 0.5, (R() - 0.5) * 1.2), R() < 0.5 ? '#ff8aa8' : '#ffd060', R, 0); const fu = f.attributes.uv; for (let k = 0; k < fu.count; k++) fu.setXY(k, 0.25, 0.25); leaves.push(f); }
   }
-  return shadeCanopy(mergeGeometries(leaves));
+  const cards = shadeCanopy(leafCards(lumps, lod ? { per: 9, size: 1.1, seed: 3 } : { per: 4, size: 1.5, seed: 3 }));
+  return leaves.length ? mergeGeometries([cards, ...leaves]) : cards;
 }
 
 const dummy = new THREE.Object3D();
@@ -201,13 +276,13 @@ export function buildVegetation() {
   const R = rng(77);
 
   const trunkMat = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true }), { height: 8, amp: 0.32, flutter: 0 });
-  const leafMat = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true, emissive: '#22381a' }), { height: 8, amp: 0.32, flutter: 0.05, backlight: 0.55, leafy: 0.85 });
+  const leafMat = leafMaterial({ height: 8, amp: 0.32, flutter: 0.06, backlight: 0.5 });
   glowMats.push(leafMat);
   leafMats.push(leafMat);
   const palmTrunkMat = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true }), { height: 9, amp: 0.75, flutter: 0 });
   const palmLeafMat = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, emissive: '#22381a' }), { height: 9, amp: 0.75, flutter: 0.1, backlight: 0.55 });
   glowMats.push(palmLeafMat);
-  const bushMat = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true }), { height: 1.4, amp: 0.1, flutter: 0.03, leafy: 1.6 });
+  const bushMat = leafMaterial({ height: 1.4, amp: 0.1, flutter: 0.04, backlight: 0.4 });
 
   for (let v = 0; v < 3; v++) {
     const t = broadleaf(rng(770 + v)), tFar = broadleaf(rng(770 + v), 0);
@@ -253,7 +328,7 @@ function buildBanyan() {
   thread.rotation.x = Math.PI / 2; thread.position.y = 1.6;
   g.add(thread);
 
-  const trunk = [], leaves = [], roots = [];
+  const trunk = [], lumps = [], roots = [];
   const BK = '#6a5948';
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2;
@@ -272,7 +347,8 @@ function buildBanyan() {
     const a = R() * Math.PI * 2, d = Math.sqrt(R()) * 15;
     const yy = 8.5 + (1 - d / 15) * 3.5 + R() * 1.4;
     const r = 2.1 + R() * 1.3;
-    leaves.push(paint(lumpy(r, R() * 10).scale(1, 0.68, 1).translate(Math.cos(a) * d, yy, Math.sin(a) * d), GREENS[Math.floor(R() * GREENS.length)], R));
+    R();
+    lumps.push({ r, sy: 0.68, c: new V3(Math.cos(a) * d, yy, Math.sin(a) * d), color: GREENS[Math.floor(R() * GREENS.length)] });
   }
   for (let i = 0; i < 26; i++) {
     const a = R() * Math.PI * 2, d = 5.4 + R() * 8;
@@ -281,13 +357,13 @@ function buildBanyan() {
     roots.push(paint(new THREE.CylinderGeometry(0.02, 0.04, len, 4).translate(Math.cos(a) * d, top - len / 2, Math.sin(a) * d), '#9a8770', R));
   }
   const tm = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true }), { height: 14, amp: 0.1, flutter: 0 });
-  const lm = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true, emissive: '#22381a' }), { height: 14, amp: 0.1, flutter: 0.06, backlight: 0.55, leafy: 0.6 });
+  const lm = leafMaterial({ height: 14, amp: 0.1, flutter: 0.06, backlight: 0.5 });
   glowMats.push(lm);
   leafMats.push(lm);
   const rm = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true }), { height: 14, amp: 0.1, flutter: 0.03 });
-  for (const [geos, mat, shade] of [[trunk, tm], [leaves, lm, true], [roots, rm]]) {
-    let geo = mergeGeometries(geos);
-    if (shade) geo = shadeCanopy(geo);
+  for (const [geos, mat] of [[trunk, tm], [null, lm], [roots, rm]]) {
+    // the great crown: many smaller sprays on each bough, so the leaves stay leaf-sized
+    const geo = geos ? mergeGeometries(geos) : shadeCanopy(leafCards(lumps, { per: 34, size: 0.5, seed: 9 }));
     const m = new THREE.Mesh(geo, mat);
     m.castShadow = true; m.receiveShadow = true;
     if (mat === lm) leafMeshes.push(m);

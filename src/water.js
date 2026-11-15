@@ -104,12 +104,19 @@ export function buildRiver() {
         float fres = 0.03 + 0.97 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
         vec3 Rf = reflect(-V, N);
         vec3 refl = mix(uHorizon, uSky, smoothstep(-0.05, 0.25, Rf.y));
+        // the banks and their trees mirrored in the water: a dark, broken band just above the horizon line
+        float bankR = (1.0 - smoothstep(0.03, 0.2 + 0.1 * vnoise(vec2(Rf.x * 9.0 + p.x * 0.05, p.y * 0.02)), Rf.y)) * smoothstep(-0.02, 0.03, Rf.y);
+        refl = mix(refl, vec3(0.09, 0.15, 0.08) * (0.5 + length(uSky)), bankR * 0.7);
         float edge = 1.0 - abs(vUv.x * 2.0 - 1.0);
         float depth = smoothstep(0.12, 0.7, edge);
         vec3 body = mix(uShallow, uDeep, depth);
+        // looking straight down near the bank you see the sandy bed, rippled with light
+        float bed = (1.0 - smoothstep(0.1, 0.42, edge)) * max(dot(N, V), 0.0);
+        float caust = pow(vnoise(p * 2.3 + N.xz * 3.0 + uTime * 0.25) * vnoise(p * 3.1 - uTime * 0.3 + 5.0), 1.5) * 3.0;
+        body = mix(body, vec3(0.52, 0.47, 0.33) * (0.75 + caust * 0.6), bed * 0.55);
         float streak = vnoise(vec2(p.x * 1.6, p.y * 0.12 - uTime * 0.9));
         body *= 0.9 + streak * 0.2;
-        vec3 col = mix(body, refl, fres * 0.55);
+        vec3 col = mix(body, refl, clamp(fres * 0.85, 0.0, 1.0));
         float sd = max(dot(Rf, uSunDir), 0.0);
         col += uSunColor * (pow(sd, 350.0) * 6.0 + pow(sd, 40.0) * 0.25);
         float foam = (1.0 - smoothstep(0.12, 0.2, edge)) * smoothstep(0.45, 0.8, vnoise(p * 2.0 + vec2(0.0, -uTime * 0.8)));

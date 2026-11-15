@@ -21,8 +21,10 @@ vec2 windAt(vec2 p) {
 // Sway any (instanced or not) mesh with height above its origin. Works with Lambert/Standard.
 // backlight: leaves glow against the sun. leafy: the smooth canopy shapes are broken up into clumps of leaf and
 // the shadowed gaps between them (colour and relief), so a crown reads as foliage rather than a moulded blob.
-export function applyFoliageWind(material, { height = 8, amp = 0.3, flutter = 0.04, backlight = 0, leafy = 0 } = {}) {
+export function applyFoliageWind(material, { height = 8, amp = 0.3, flutter = 0.04, backlight = 0, leafy = 0, cards = false } = {}) {
   material.onBeforeCompile = (shader) => {
+    // leaf cards are lit the same from both sides, by the rounded normals they were given
+    if (cards) shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_begin>', 'float faceDirection = 1.0;\nvec3 normal = normalize(vNormal);\nvec3 nonPerturbedNormal = normal;');
     if (leafy) {
       shader.uniforms.uGrain = { value: grainTexture() };
       shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vLeafP;');
@@ -70,7 +72,7 @@ export function applyFoliageWind(material, { height = 8, amp = 0.3, flutter = 0.
         `
       );
   };
-  material.customProgramCacheKey = () => `sway-${height}-${amp}-${flutter}-${backlight}-${leafy}`;
+  material.customProgramCacheKey = () => `sway-${height}-${amp}-${flutter}-${backlight}-${leafy}-${cards}`;
   return material;
 }
 

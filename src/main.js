@@ -1317,10 +1317,8 @@ async function build() {
   map = new MapUI();
   applySeason(true);
   {
-    // grain on every plain hard surface; people keep their clean skin and clothes
-    const folk = new Set([boy.root, ...ALL_PEOPLE.map((q) => q.root)]);
-    const isFolk = (o) => { for (let q = o; q; q = q.parent) if (folk.has(q)) return true; return false; };
-    if (REAL) addSurfaceGrain(scene, isFolk);
+    // grain on every plain surface — walls, wood, tin, and the weave of people's clothes (skin is left smooth)
+    if (REAL) addSurfaceGrain(scene);
   }
   tickClock(0);
   renderer.compile(scene, camera);

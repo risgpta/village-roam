@@ -566,8 +566,10 @@ export class RowBoat {
     }
     hullGeo.computeVertexNormals();
     // painted planking outside (blue and white strakes, a red band), bare wood inside
-    const outer = new THREE.MeshStandardMaterial({ map: boatTexture(true), roughness: 0.6 });
-    const inner = new THREE.MeshStandardMaterial({ map: boatTexture(false), roughness: 0.85, side: THREE.BackSide });
+    // the planks and their seams stand out in the light, not just in the paint
+    const tOut = boatTexture(true), tIn = boatTexture(false);
+    const outer = new THREE.MeshStandardMaterial({ map: tOut, bumpMap: tOut, bumpScale: 1.6, roughness: 0.62 });
+    const inner = new THREE.MeshStandardMaterial({ map: tIn, bumpMap: tIn, bumpScale: 1.6, roughness: 0.85, side: THREE.BackSide });
     for (const m of [outer, inner]) {
       const hull = new THREE.Mesh(hullGeo, m);
       hull.position.y = 0.34;
@@ -798,18 +800,52 @@ export class VillageBus {
     add(new THREE.CylinderGeometry(0.06, 0.09, seatTop - 0.12 - floorY, 8), black, dx, (seatTop - 0.12 + floorY) / 2, dz);
     add(RB(W - 0.14, 0.42, 0.55, 0.06), std('#2a2624', { roughness: 0.7 }), 0, sill - 0.12, fz - 0.33);
     add(RB(W - 0.16, 0.04, 0.4, 0.02), std('#3a332e'), 0, sill + 0.1, fz - 0.3);
-    this.dial = std('#f4efe0', { emissive: '#ffe9b0', emissiveIntensity: 0.15 });
-    for (const ddx of [-0.82, -0.5]) {
-      const d = add(new THREE.CircleGeometry(0.08, 20), this.dial, ddx, sill - 0.06, fz - 0.61); d.rotation.y = Math.PI;
-      add(new THREE.TorusGeometry(0.085, 0.012, 6, 20), chrome, ddx, sill - 0.06, fz - 0.61);
+    // working dials: speed, and the air pressure for the brakes; a row of switches and warning lamps
+    this.speedo = makeGauge(0.085, 100);
+    this.speedo.position.set(-0.82, sill - 0.06, fz - 0.612); this.speedo.rotation.y = Math.PI; g.add(this.speedo);
+    this.air = makeGauge(0.07, 4, { labels: ['0', '', '5', '', '10'], caption: 'AIR' });
+    this.air.position.set(-0.5, sill - 0.06, fz - 0.612); this.air.rotation.y = Math.PI; g.add(this.air);
+    this.air.userData.set(3);
+    this.dial = this.speedo.userData.face;
+    for (const o of [this.speedo, this.air]) o.traverse((n) => { n.userData.keep = true; });
+    for (let i = 0; i < 6; i++) add(RB(0.03, 0.045, 0.02, 0.006), i % 3 === 0 ? std('#c4201c', { roughness: 0.4 }) : black, -0.34 + i * 0.05, sill - 0.06, fz - 0.612);
+    // the engine cover beside the driver, with a folded blanket on it where the conductor perches
+    add(RB(0.7, 0.42, 0.95, 0.08, 4), std('#3a2a22', { roughness: 0.55 }), 0.08, floorY + 0.21, fz - 1.05);
+    add(RB(0.5, 0.06, 0.6, 0.03), std('#b8523a', { roughness: 0.95 }), 0.08, floorY + 0.45, fz - 1.05);
+    add(RB(0.5, 0.03, 0.6, 0.02), std('#e0c890', { roughness: 0.95 }), 0.08, floorY + 0.49, fz - 1.05);
+    // pedals, the handbrake, a mirror, a first-aid box and a fire extinguisher behind the driver
+    for (const px of [-0.14, 0.0, 0.14]) add(RB(0.09, 0.02, 0.12, 0.006), black, dx + px, floorY + 0.09, dz + 0.62).rotation.x = -0.6;
+    add(RB(0.03, 0.34, 0.03, 0.01), chrome, dx - 0.36, floorY + 0.2, dz + 0.1).rotation.x = -0.35;
+    add(RB(0.36, 0.1, 0.02, 0.01), black, dx + 0.34, winY + 0.3, fz - 0.14);
+    add(RB(0.22, 0.16, 0.07, 0.01), std('#f2f0e8', { roughness: 0.5 }), dx - 0.2, floorY + 1.05, dz - 0.5);
+    for (const [w, h] of [[0.1, 0.03], [0.03, 0.1]]) add(new THREE.BoxGeometry(w, h, 0.004), std('#c4201c'), dx - 0.2, floorY + 1.05, dz - 0.463);
+    add(new THREE.CylinderGeometry(0.045, 0.045, 0.3, 12), std('#c4201c', { roughness: 0.35 }), dx + 0.36, floorY + 0.75, dz - 0.5);
+    add(new THREE.CylinderGeometry(0.018, 0.03, 0.06, 8), black, dx + 0.36, floorY + 0.93, dz - 0.5);
+    // a frill of red cloth along the tops of the windows, and a painted notice over the windscreen
+    for (const sx of [-1, 1]) for (let i = 0; i < 30; i++) add(new THREE.CylinderGeometry(0.075, 0.075, 0.01, 10, 1, false, 0, Math.PI).rotateZ(Math.PI / 2).rotateX(Math.PI / 2), seatM, sx * (W / 2 - 0.08), winY + 0.4, -fz + 0.45 + i * 0.28).rotation.x = Math.PI;
+    {
+      const nc = document.createElement('canvas'); nc.width = 512; nc.height = 64;
+      const nx = nc.getContext('2d');
+      nx.fillStyle = '#f2e6c8'; nx.fillRect(0, 0, 512, 64);
+      nx.fillStyle = '#8a1e1a'; nx.textAlign = 'center'; nx.textBaseline = 'middle';
+      nx.font = 'bold 30px "Tiro Devanagari Hindi", "Kohinoor Devanagari", sans-serif';
+      nx.fillText('कृपया टिकट अवश्य लें  •  शुभ यात्रा', 256, 34);
+      const nt = new THREE.CanvasTexture(nc); nt.colorSpace = THREE.SRGBColorSpace;
+      add(new THREE.PlaneGeometry(1.7, 0.2), new THREE.MeshStandardMaterial({ map: nt, roughness: 0.7 }), 0, winY + 0.5, fz - 0.1).rotation.y = Math.PI;
     }
+    // a little fan clipped up by the driver, turning
+    this.fan = new THREE.Group(); this.fan.position.set(dx + 0.55, winY + 0.32, fz - 0.3); this.fan.rotation.y = Math.PI + 0.4; g.add(this.fan);
+    for (let i = 0; i < 3; i++) { const bl = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, 0.004).translate(0.07, 0, 0), std('#5a8ad0', { roughness: 0.4 })); bl.rotation.z = (i / 3) * Math.PI * 2; bl.rotation.x = 0.3; this.fan.add(bl); }
+    add(new THREE.TorusGeometry(0.14, 0.006, 4, 18), chrome, dx + 0.55, winY + 0.32, fz - 0.3).rotation.y = 0.4;
+    add(new THREE.CylinderGeometry(0.01, 0.01, 0.16, 5), black, dx + 0.55, winY + 0.42, fz - 0.26);
     add(RB(0.13, 0.15, 0.09, 0.02), std('#c8a04a', { metalness: 0.7, roughness: 0.3 }), 0.25, sill + 0.2, fz - 0.28);
     add(new THREE.TorusGeometry(0.17, 0.022, 6, 18, Math.PI), std('#f2a41a', { roughness: 0.9 }), 0.25, winY + 0.22, fz - 0.12).rotation.z = Math.PI;
     const wheelZ = dz + 0.5, wheelY = seatTop + 0.5;
     const col = add(new THREE.CylinderGeometry(0.035, 0.035, 0.7, 8), black, dx, wheelY - 0.25, wheelZ + 0.25); col.rotation.x = 1.0;
     const sw = new THREE.Group(); sw.position.set(dx, wheelY, wheelZ); sw.rotation.x = -1.05; g.add(sw);
     add(new THREE.TorusGeometry(0.27, 0.025, 8, 30), black, 0, 0, 0, sw);
-    add(new THREE.BoxGeometry(0.52, 0.03, 0.025), black, 0, 0, 0, sw);
+    for (const a of [0, Math.PI / 3, -Math.PI / 3]) add(new THREE.BoxGeometry(0.52, 0.03, 0.025), black, 0, 0, 0, sw).rotation.z = a;
+    add(new THREE.TorusGeometry(0.11, 0.008, 5, 20), chrome, 0, 0, 0.012, sw);
     add(new THREE.CylinderGeometry(0.06, 0.06, 0.04, 12).rotateX(Math.PI / 2), chrome, 0, 0, 0, sw);
     this.wheelSteer = sw;
     add(new THREE.CylinderGeometry(0.03, 0.03, 0.45, 6), black, dx + 0.42, floorY + 0.22, dz + 0.12).rotation.x = -0.3; // the gear lever
@@ -862,6 +898,7 @@ export class VillageBus {
       this.wheels.push(w);
       add(new THREE.CylinderGeometry(0.62, 0.62, 0.36, 18, 1, true, 0, Math.PI).rotateZ(Math.PI / 2), std('#0e0e0e', { side: THREE.DoubleSide }), sx * 1.02, 0.56, sz);
     }
+    consolidateFlat(g);
     this.driverSeat = V(dx, seatTop, dz + 0.02);
     this.wheelPos = V(dx, wheelY, wheelZ);
     this.len = L; this.half = W / 2; this.wheelR = 0.52;
@@ -871,8 +908,10 @@ export class VillageBus {
     for (const w of this.wheels) w.rotation.x += (speed * dt) / this.wheelR;
     this.wheelSteer.rotation.z = -(steer || 0) * 2.4;
     this.cabinLight.emissiveIntensity = 0.2 + night * 2.2;
-    this.dial.emissiveIntensity = 0.3 + night * 1.2;
+    this.dial.emissiveIntensity = 0.15 + night * 0.9;
     this.lamps.emissiveIntensity = night ? 4.5 : 0.3;
+    this.speedo.userData.set(Math.abs(speed) * 3.6);
+    this.fan.rotation.z += dt * 22;
   }
 }
 export class Jeep {
@@ -1222,9 +1261,24 @@ export class ERickshaw {
     add(RB(0.88, 0.06, 0.44, 0.03), white, 0, 1.11, 1.03);
     add(RB(0.6, 0.04, 0.04, 0.015), chrome, 0, 0.95, 1.27);
     add(RB(0.62, 0.1, 0.12, 0.04), black, 0, 1.08, 0.83);
-    this.dial = std('#e8e4d8', { emissive: '#4adf6a', emissiveIntensity: 0.3 });
-    add(new THREE.CircleGeometry(0.045, 16), this.dial, 0, 1.1, 0.766).rotation.y = Math.PI;
-    for (let i = 0; i < 5; i++) add(new THREE.BoxGeometry(0.018, 0.03, 0.005), this.dial, -0.2 + i * 0.024, 1.1, 0.768);
+    // the dash: a working speedometer and a battery gauge, a key, a forward/reverse rocker and a row of switches,
+    // a little framed picture with a marigold garland round it
+    this.speedo = makeGauge(0.052, 60);
+    this.speedo.position.set(-0.09, 1.1, 0.766); this.speedo.rotation.y = Math.PI; g.add(this.speedo);
+    this.batt = makeGauge(0.04, 4, { labels: ['E', '', '½', '', 'F'], caption: 'BATT' });
+    this.batt.position.set(0.05, 1.1, 0.766); this.batt.rotation.y = Math.PI; g.add(this.batt);
+    this.batt.userData.set(3.1);
+    this.dial = this.speedo.userData.face;
+    for (const o of [this.speedo, this.batt]) o.traverse((n) => { n.userData.keep = true; });
+    add(new THREE.CylinderGeometry(0.012, 0.012, 0.03, 8).rotateX(Math.PI / 2), chrome, 0.16, 1.1, 0.762);
+    add(RB(0.03, 0.045, 0.02, 0.006), red, 0.215, 1.1, 0.764);
+    for (let i = 0; i < 3; i++) add(RB(0.022, 0.03, 0.016, 0.005), std('#2a2a2a'), -0.2 - i * 0.034, 1.1, 0.764);
+    add(RB(0.09, 0.11, 0.012, 0.004), std('#c8a04a', { metalness: 0.6, roughness: 0.35 }), 0.24, 1.2, 0.86).rotation.x = -0.25;
+    add(new THREE.TorusGeometry(0.06, 0.012, 5, 14), std('#f2a41a', { roughness: 0.9 }), 0.24, 1.2, 0.85).rotation.x = -0.25;
+    // a lemon and green chillies strung up at the front for luck
+    add(new THREE.CylinderGeometry(0.002, 0.002, 0.16, 4), black, 0, 1.7, 1.16);
+    add(new THREE.SphereGeometry(0.028, 10, 8).scale(1, 1.15, 1), std('#e8d23a', { roughness: 0.6 }), 0, 1.6, 1.16);
+    for (let i = 0; i < 5; i++) { const ch = add(new THREE.ConeGeometry(0.008, 0.07, 6), std('#2e8b3a', { roughness: 0.6 }), Math.cos(i * 1.26) * 0.012, 1.545, 1.16 + Math.sin(i * 1.26) * 0.012); ch.rotation.x = Math.PI; }
     const ws = add(RB(0.92, 0.62, 0.02, 0.01), glass, 0, 1.5, 1.08);
     ws.rotation.x = -0.12;
     add(new THREE.BoxGeometry(0.02, 0.4, 0.01), black, 0.12, 1.42, 1.11).rotation.z = 0.5;
@@ -1241,9 +1295,27 @@ export class ERickshaw {
     for (const sx of [-1, 1]) add(new THREE.CylinderGeometry(0.012, 0.012, 2.3, 6).rotateX(Math.PI / 2), chrome, sx * 0.5, 1.95, -0.25);
     // fringe of little tassels along the canopy edge, as the drivers like
     {
-      const cols = ['#e8382f', '#f2c21a', '#2e8b57', '#ffffff'];
+      const cols = ['#e8382f', '#f2c21a', '#2e8b57', '#ffffff'].map((c) => std(c, { roughness: 0.8 }));
       const geo = new THREE.ConeGeometry(0.025, 0.08, 6).rotateX(Math.PI);
-      for (const sx of [-1, 1]) for (let i = 0; i < 12; i++) add(geo, std(cols[i % 4], { roughness: 0.8 }), sx * (W / 2 + 0.09), 1.77, 1.05 - i * 0.22);
+      for (const sx of [-1, 1]) for (let i = 0; i < 12; i++) add(geo, cols[i % 4], sx * (W / 2 + 0.09), 1.77, 1.05 - i * 0.22);
+      // the rain curtains rolled up and tied under the roof edge, and hand loops hanging from the rails
+      const tarp = std('#27477a', { roughness: 0.75 });
+      for (const sx of [-1, 1]) {
+        add(new THREE.CylinderGeometry(0.035, 0.035, 2.2, 10).rotateX(Math.PI / 2), tarp, sx * (W / 2 + 0.02), 1.755, -0.3);
+        for (const z of [0.5, -0.3, -1.1]) add(new THREE.TorusGeometry(0.04, 0.006, 4, 10).rotateY(Math.PI / 2), cols[3], sx * (W / 2 + 0.02), 1.755, z);
+        for (const z of [-0.35, -0.9]) add(new THREE.TorusGeometry(0.045, 0.009, 5, 12).rotateY(Math.PI / 2), black, sx * (W / 2 - 0.03), 1.42, z);
+      }
+      // a printed cloth lining under the roof
+      const lc = document.createElement('canvas'); lc.width = lc.height = 128;
+      const lx = lc.getContext('2d');
+      lx.fillStyle = '#a3262a'; lx.fillRect(0, 0, 128, 128);
+      for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) {
+        const cx = i * 32 + 16 + (j % 2) * 16, cy = j * 32 + 16;
+        lx.fillStyle = '#f2c84a'; for (let k = 0; k < 6; k++) { lx.beginPath(); lx.ellipse(cx + Math.cos(k * 1.047) * 7, cy + Math.sin(k * 1.047) * 7, 4.5, 2.4, k * 1.047, 0, 7); lx.fill(); }
+        lx.fillStyle = '#fff4d8'; lx.beginPath(); lx.arc(cx, cy, 3, 0, 7); lx.fill();
+      }
+      const lt = new THREE.CanvasTexture(lc); lt.colorSpace = THREE.SRGBColorSpace; lt.wrapS = lt.wrapT = THREE.RepeatWrapping; lt.repeat.set(4, 8);
+      add(new THREE.PlaneGeometry(W + 0.06, 2.56).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ map: lt, roughness: 0.9 }), 0, 1.788, -0.18);
     }
     // the driver's seat with a backrest that is also the back of the rear-facing bench
     add(RB(0.5, 0.1, 0.36, 0.04), seatM2, 0, ERICK.saddle.y - 0.05, ERICK.saddle.z);
@@ -1255,10 +1327,18 @@ export class ERickshaw {
       add(RB(W - 0.12, 0.38, 0.36, 0.03), paint, 0, F + 0.19, zc);
       add(RB(W - 0.1, 0.1, 0.4, 0.04), seatM, 0, F + 0.43, zc);
       add(RB(W - 0.1, 0.42, 0.08, 0.04), seatM, 0, F + 0.72, zc - dir * 0.22);
+      // white piping round the cushion, and a buttoned panel on the backrest
+      for (const dz of [-0.2, 0.2]) add(RB(W - 0.08, 0.016, 0.016, 0.006), white, 0, F + 0.482, zc + dz);
+      add(RB(W - 0.3, 0.3, 0.012, 0.005), seatM2, 0, F + 0.73, zc - dir * 0.175);
+      for (const bx of [-0.3, -0.1, 0.1, 0.3]) for (const by of [0.66, 0.8]) add(new THREE.SphereGeometry(0.012, 6, 5), white, bx, F + by, zc - dir * 0.168);
       for (const x of [-0.25, 0.25]) { this.seats.push(V(x, F + 0.48, zc + dir * 0.04)); this.seatRot.push(dir > 0 ? 0 : Math.PI); }
     };
     bench(-0.06, -1);
     bench(-1.16, 1);
+    // a ribbed rubber mat in the foot-well, a foot-board and brake pedal for the driver
+    for (let i = 0; i < 12; i++) add(new THREE.BoxGeometry(W - 0.2, 0.008, 0.024), rubber, 0, F + 0.004, -0.36 - i * 0.045);
+    add(RB(0.5, 0.02, 0.24, 0.008), floorM, 0, F + 0.02, 0.84);
+    add(RB(0.07, 0.02, 0.1, 0.006), rubber, 0.16, F + 0.08, 0.9).rotation.x = -0.5;
     // battery box under the rear bench and its cable, a speaker horn
     add(RB(0.6, 0.22, 0.36, 0.03), std('#1e1e1e', { roughness: 0.5 }), 0, F - 0.13, -1.0);
     // rear: tail lamps, number plate, a sticker
@@ -1304,6 +1384,7 @@ export class ERickshaw {
       add(new THREE.CylinderGeometry(0.007, 0.007, 0.3, 6), chrome, sx * 0.3, by + 0.15, bz + 0.02, this.fork);
       add(new THREE.CylinderGeometry(0.055, 0.055, 0.015, 16).rotateX(Math.PI / 2), black, sx * 0.32, by + 0.31, bz + 0.03, this.fork).rotation.y = sx * 0.3;
     }
+    consolidateFlat(g);
     this.exhaust = V(0, 0.4, -1.5); // nothing comes out, but nitro sparks need somewhere to start
     this.doorPos = V(W / 2 + 0.45, 0, -0.62); // passengers step in from the kerb side, between the benches
     this.brake = false;
@@ -1325,7 +1406,8 @@ export class ERickshaw {
     this.fork.rotation.y = riding ? steer * 1.2 : 0.25;
     this.lamp.emissiveIntensity = night ? 4.5 : 0.15;
     this.brakeM.emissiveIntensity = riding ? (this.brake ? 2.2 : 0.35 + night * 0.4) : 0.1;
-    this.dial.emissiveIntensity = riding ? 0.4 + night : 0.05;
+    this.dial.emissiveIntensity = 0.12 + night * 0.9;
+    this.speedo.userData.set(Math.abs(speed) * 3.6);
     this.body.position.y = riding && Math.abs(speed) > 0.1 ? Math.sin(performance.now() * 0.03) * 0.004 : 0;
   }
 }
