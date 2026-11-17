@@ -1224,8 +1224,9 @@ export const layout = {
     }
     const k = find(10, 30, 80, { x: 0, z: -20 }, b);
     if (k) { layout.kites = { x: k.x, z: k.z }; occupy(k.x, k.z, 10); }
-    // the gaon ka mela: a big open ground a little way out of the village, its gate facing the road and a
-    // parking lot of autos and bikes in front. Every point of the ground must be clear of fields and houses.
+    // the gaon ka mela: a big open ground out past the edge of the village (~170 m from the square, so the
+    // village itself stays uncrowded), its gate facing the road and a parking lot of autos and bikes in front.
+    // Every point of the ground, and a wide margin round it, must be clear of fields and houses.
     {
       const R0 = 24;
       const clear = (x, z) => {
@@ -1237,15 +1238,16 @@ export const layout = {
         return true;
       };
       let best = null, bs = 1e9;
-      for (let z = -100; z <= 190; z += 4) for (const side of [-1, 1]) for (let d = 36; d <= 120; d += 4) {
+      for (let z = -220; z <= 300; z += 4) for (const side of [-1, 1]) for (let d = 50; d <= 170; d += 4) {
         const x = roadX(z) + side * d;
-        if (!clear(x, z) || !isFree(x, z, R0 + 2)) continue;
+        if (Math.hypot(x - SQUARE.x, z - SQUARE.z) < 135) continue;
+        if (!clear(x, z) || !isFree(x, z, R0 + 12)) continue;
         if (Math.hypot(x - CRICKET.x, z - CRICKET.z) < 22 + R0 || Math.hypot(x - GARDEN.x, z - GARDEN.z) < 14 + R0 || Math.hypot(x - SCHOOL.x, z - SCHOOL.z) < 14 + R0) continue;
         if (b && Math.hypot(x - b.x, z - b.z) < R0 + 18) continue;
         if (k && Math.hypot(x - k.x, z - k.z) < R0 + 14) continue;
         const f = flat(x, z, R0);
         if (f > 3) continue;
-        const sc = Math.abs(Math.hypot(x - SQUARE.x, z - SQUARE.z) - 75) + f * 18 + d * 0.15;
+        const sc = Math.abs(Math.hypot(x - SQUARE.x, z - SQUARE.z) - 170) + f * 18 + d * 0.1;
         if (sc < bs) { bs = sc; best = { x, z, side }; }
       }
       if (best) {
@@ -1258,92 +1260,6 @@ export const layout = {
         const pk = rotPt(layout.mela, 0, R0 + 6);
         occupy(pk.x, pk.z, 7);
         dirtCircles.push({ x: pk.x, z: pk.z, r: 7, s: 0.8 });
-      }
-    }
-    // the village airstrip: a long, flat grass strip out past the mela, with a little hangar and the plane.
-    // Every metre of it (and a margin either side) must be clear of fields, lanes, the river and the road.
-    {
-      const L = 230, HW = 9;
-      const near = layout.mela ?? SQUARE;
-      let best = null, bs = 1e9;
-      // a memo of 5 m cells: is this bit of ground usable?
-      const memo = new Map();
-      const ok = (x, z) => {
-        const k = Math.round(x / 5) * 4096 + Math.round(z / 5);
-        let v = memo.get(k);
-        if (v === undefined) {
-          const X = Math.round(x / 5) * 5, Z = Math.round(z / 5) * 5;
-          v = !fieldType(X, Z) && trackDist(X, Z) > 12 && riverDist(X, Z) > RIVER_HALF + 10 && laneDist(X, Z) > 3 && Math.abs(X - roadX(Z)) > 10 && isFree(X, Z, 3);
-          memo.set(k, v);
-        }
-        return v;
-      };
-      for (let cz = -300; cz <= 420; cz += 8) for (let cx = -420; cx <= 420; cx += 8) {
-        const dn = Math.hypot(cx - near.x, cz - near.z);
-        if (dn < 70 || dn > 330) continue;
-        for (let ai = 0; ai < 12; ai++) {
-          const rot = (ai / 12) * Math.PI;
-          const fx = Math.sin(rot), fz = Math.cos(rot), sx = Math.cos(rot), sz = -Math.sin(rot);
-          let good = true, lo = 1e9, hi = -1e9, sum = 0, n = 0;
-          for (let t = -L / 2; t <= L / 2 && good; t += 20) if (!ok(cx + fx * t, cz + fz * t)) good = false; // cheap reject
-          for (let t = -L / 2; t <= L / 2 && good; t += 10) for (const w of [-HW, 0, HW]) {
-            const x = cx + fx * t + sx * w, z = cz + fz * t + sz * w;
-            if (!ok(x, z)) { good = false; break; }
-            const h = heightAt(x, z); lo = Math.min(lo, h); hi = Math.max(hi, h); sum += h; n++;
-          }
-          if (!good || hi - lo > 4) continue;
-          const sc = (hi - lo) * 40 + Math.abs(dn - 120) * 0.5;
-          if (sc < bs) { bs = sc; best = { x: cx, z: cz, rot, len: L, hw: HW, y: sum / n, flat: hi - lo }; }
-        }
-      }
-      if (best) {
-        layout.airstrip = best;
-        const fx = Math.sin(best.rot), fz = Math.cos(best.rot);
-        for (let t = -L / 2; t <= L / 2; t += 8) occupy(best.x + fx * t, best.z + fz * t, HW + 4);
-        // a worn earth strip down the middle, where the wheels run
-        for (let t = -L / 2; t <= L / 2; t += 5) dirtCircles.push({ x: best.x + fx * t, z: best.z + fz * t, r: 4.2, s: 0.55 });
-        // the hangar beside the near end, its open front toward the strip
-        // pick a side and spot near the near end where the shed sits on open ground, not in a crop
-        let hs = -1, ht = 24;
-        const ts = []; for (let t = 20; t <= L - 20; t += 8) ts.push(t); ts.sort((p, q) => Math.min(p, L - p) - Math.min(q, L - q)); // nearest an end first
-        search: for (const t of ts) for (const side of [-1, 1]) {
-          const c = rotPt(best, side * (HW + 11), -L / 2 + t);
-          let okH = true;
-          for (let a = 0; a < 10 && okH; a++) for (const d of [0, 5, 10]) {
-            const x = c.x + Math.cos(a * 0.628) * d, z = c.z + Math.sin(a * 0.628) * d;
-            if (fieldType(x, z) || trackDist(x, z) < 8 || laneDist(x, z) < 2 || riverDist(x, z) < RIVER_HALF + 4 || Math.abs(x - roadX(z)) < 6) { okH = false; break; }
-          }
-          if (okH) { hs = side; ht = t; break search; }
-        }
-        const hg = rotPt(best, hs * (HW + 11), -L / 2 + ht);
-        layout.airstrip.hangar = { ...hg, rot: best.rot - hs * Math.PI / 2 };
-        layout.airstrip.home = ht > L / 2 ? 1 : -1; // the plane parks at the end nearest the hangar
-        occupy(hg.x, hg.z, 11);
-        dirtCircles.push({ x: hg.x, z: hg.z, r: 9, s: 0.75 });
-        for (let t = 0; t < 12; t += 3) dirtCircles.push({ ...rotPt(best, hs * (HW + 11 - 4 - t), -L / 2 + ht), r: 3.5, s: 0.6 });
-        // walls of the hangar: back and both sides (front open)
-        const H = layout.airstrip.hangar, hx = 7.5, hz = 6;
-        for (const [lx, lz, hw, hd] of [[0, -hz, hx, 0.25], [-hx, 0, 0.25, hz], [hx, 0, 0.25, hz]]) {
-          const q = rotPt(H, lx, lz);
-          colliders.push({ kind: 'b', x: q.x, z: q.z, rot: H.rot, hw, hd, height: heightAt(q.x, q.z) + 5.5 });
-        }
-        // the helipad: across the strip from the hangar, near the end where the plane parks
-        {
-          const end = layout.airstrip.home, side = -hs;
-          let pad = null;
-          for (const along of [L / 2 - 30, L / 2 - 50, L / 2 - 70, L / 2 - 14]) for (const out of [HW + 13, HW + 18, HW + 24]) {
-            const q = rotPt(best, side * out, end * along);
-            if (fieldType(q.x, q.z) || !isFree(q.x, q.z, 8) || laneDist(q.x, q.z) < 9 || riverDist(q.x, q.z) < RIVER_HALF + 10) continue;
-            pad = q; break;
-          }
-          if (!pad) pad = rotPt(best, side * (HW + 13), end * (L / 2 - 30));
-          layout.airstrip.pad = { ...pad, rot: best.rot };
-          occupy(pad.x, pad.z, 9);
-          surfaces.push({ kind: 'c', x: pad.x, z: pad.z, r: 7.1, top: heightAt(pad.x, pad.z) + 0.15 });
-        }
-        // the windsock at the far end
-        layout.airstrip.sock = rotPt(best, HW + 4, -layout.airstrip.home * (L / 2 - 20));
-        colliders.push({ kind: 'c', ...layout.airstrip.sock, r: 0.15, height: heightAt(layout.airstrip.sock.x, layout.airstrip.sock.z) + 7 });
       }
     }
   }
@@ -1755,6 +1671,153 @@ export const layout = {
         occupy(x, z, 2.6);
         colliders.push({ kind: 'b', ...rotPt({ x, z, rot }, 0, -0.8), rot, hw: 1.4, hd: 0.12 });
         break;
+      }
+    }
+  }
+  // The airstrip and the helipad: out in the open country, well away from every village, the mela, the shrine
+  // and the wild places — a long flat grass strip with a little hangar, the plane and the helicopter, and a
+  // dirt track in from the nearest road. Every metre of the strip (and a margin either side) must be clear of
+  // fields, lanes, the river and the railway.
+  {
+    const towns = [SQUARE, NV, RV, BV, TV, MH, NE, PG, NP, MP, EH, STATION, HILLTOP, PEAK, layout.sonpur, layout.mela, layout.build, layout.pasture, ...(layout.newVillages ?? [])].filter(Boolean);
+    const wilds = [WILD.tiger, WILD.wolf, WILD.elephant, ...WILD.leopards, JUNGLE_HOMES.lions, JUNGLE_HOMES.hyenas, JUNGLE_HOMES.buffalo, JUNGLE_HOMES.monkeys, JUNGLE_HOMES.rhinos];
+    const lonely = (x, z) => {
+      let m = Infinity;
+      for (const t of towns) m = Math.min(m, Math.hypot(x - t.x, z - t.z));
+      if (m < 260) return -1;
+      for (const w of wilds) if (Math.hypot(x - w.x, z - w.z) < (w.area ?? w.r) + 160) return -1;
+      if (jungleMask(x, z) > 0 || dipMask(x, z) > 0.05) return -1;
+      return m;
+    };
+    {
+      const L = 230, HW = 9;
+      let best = null, bs = 1e9;
+      // a memo of 5 m cells: is this bit of ground usable?
+      const memo = new Map();
+      const ok = (x, z) => {
+        const k = Math.round(x / 5) * 4096 + Math.round(z / 5);
+        let v = memo.get(k);
+        if (v === undefined) {
+          const X = Math.round(x / 5) * 5, Z = Math.round(z / 5) * 5;
+          v = !fieldType(X, Z) && Math.abs(X - roadX(Z)) > 10 && riverDist(X, Z) > RIVER_HALF + 10 && trackDist(X, Z) > 12 && laneDist(X, Z) > 3 && isFree(X, Z, 3);
+          memo.set(k, v);
+        }
+        return v;
+      };
+      for (let cz = -1400; cz <= 1400; cz += 36) for (let cx = -1400; cx <= 1400; cx += 36) {
+        const r = Math.hypot(cx, cz);
+        if (r < 420 || r > 1350) continue;
+        const dn = lonely(cx, cz);
+        if (dn < 0) continue;
+        for (let ai = 0; ai < 12; ai++) {
+          const rot = (ai / 12) * Math.PI;
+          const fx = Math.sin(rot), fz = Math.cos(rot), sx = Math.cos(rot), sz = -Math.sin(rot);
+          // a quick look first: five heights down the middle; if those already differ too much, move on
+          { let l = 1e9, h = -1e9; for (let t = -L / 2; t <= L / 2; t += L / 4) { const y = heightAt(cx + fx * t, cz + fz * t); l = Math.min(l, y); h = Math.max(h, y); } if (h - l > 5) continue; }
+          let good = true, lo = 1e9, hi = -1e9, sum = 0, n = 0;
+          for (let t = -L / 2; t <= L / 2 && good; t += 20) if (!ok(cx + fx * t, cz + fz * t)) good = false; // cheap reject
+          for (let t = -L / 2; t <= L / 2 && good; t += 10) for (const w of [-HW, 0, HW]) {
+            const x = cx + fx * t + sx * w, z = cz + fz * t + sz * w;
+            if (!ok(x, z)) { good = false; break; }
+            const h = heightAt(x, z); lo = Math.min(lo, h); hi = Math.max(hi, h); sum += h; n++;
+          }
+          if (!good || hi - lo > 5) continue;
+          // flat ground first; then not too remote (a few hundred metres from the nearest village), and near a road
+          const sc = (hi - lo) * 40 + Math.abs(dn - 330) * 0.3 + Math.min(400, laneDist(cx, cz)) * 0.6;
+          if (sc < bs) { bs = sc; best = { x: cx, z: cz, rot, len: L, hw: HW, y: sum / n, flat: hi - lo }; }
+        }
+      }
+      if (best) {
+        layout.airstrip = best;
+        const fx = Math.sin(best.rot), fz = Math.cos(best.rot);
+        for (let t = -L / 2; t <= L / 2; t += 8) occupy(best.x + fx * t, best.z + fz * t, HW + 4);
+        // a worn earth strip down the middle, where the wheels run
+        for (let t = -L / 2; t <= L / 2; t += 5) dirtCircles.push({ x: best.x + fx * t, z: best.z + fz * t, r: 4.2, s: 0.55 });
+        // the hangar beside the near end, its open front toward the strip
+        // pick a side and spot near the near end where the shed sits on open ground, not in a crop
+        let hs = -1, ht = 24;
+        const ts = []; for (let t = 20; t <= L - 20; t += 8) ts.push(t); ts.sort((p, q) => Math.min(p, L - p) - Math.min(q, L - q)); // nearest an end first
+        search: for (const t of ts) for (const side of [-1, 1]) {
+          const c = rotPt(best, side * (HW + 11), -L / 2 + t);
+          let okH = true;
+          for (let a = 0; a < 10 && okH; a++) for (const d of [0, 5, 10]) {
+            const x = c.x + Math.cos(a * 0.628) * d, z = c.z + Math.sin(a * 0.628) * d;
+            if (fieldType(x, z) || trackDist(x, z) < 8 || laneDist(x, z) < 2 || riverDist(x, z) < RIVER_HALF + 4 || Math.abs(x - roadX(z)) < 6) { okH = false; break; }
+          }
+          if (okH) { hs = side; ht = t; break search; }
+        }
+        const hg = rotPt(best, hs * (HW + 11), -L / 2 + ht);
+        layout.airstrip.hangar = { ...hg, rot: best.rot - hs * Math.PI / 2 };
+        layout.airstrip.home = ht > L / 2 ? 1 : -1; // the plane parks at the end nearest the hangar
+        occupy(hg.x, hg.z, 11);
+        dirtCircles.push({ x: hg.x, z: hg.z, r: 9, s: 0.75 });
+        for (let t = 0; t < 12; t += 3) dirtCircles.push({ ...rotPt(best, hs * (HW + 11 - 4 - t), -L / 2 + ht), r: 3.5, s: 0.6 });
+        // walls of the hangar: back and both sides (front open)
+        const H = layout.airstrip.hangar, hx = 7.5, hz = 6;
+        for (const [lx, lz, hw, hd] of [[0, -hz, hx, 0.25], [-hx, 0, 0.25, hz], [hx, 0, 0.25, hz]]) {
+          const q = rotPt(H, lx, lz);
+          colliders.push({ kind: 'b', x: q.x, z: q.z, rot: H.rot, hw, hd, height: heightAt(q.x, q.z) + 5.5 });
+        }
+        // the helipad: across the strip from the hangar, near the end where the plane parks
+        {
+          const end = layout.airstrip.home, side = -hs;
+          let pad = null;
+          for (const along of [L / 2 - 30, L / 2 - 50, L / 2 - 70, L / 2 - 14]) for (const out of [HW + 13, HW + 18, HW + 24]) {
+            const q = rotPt(best, side * out, end * along);
+            if (fieldType(q.x, q.z) || !isFree(q.x, q.z, 8) || laneDist(q.x, q.z) < 9 || riverDist(q.x, q.z) < RIVER_HALF + 10) continue;
+            pad = q; break;
+          }
+          if (!pad) pad = rotPt(best, side * (HW + 13), end * (L / 2 - 30));
+          layout.airstrip.pad = { ...pad, rot: best.rot };
+          occupy(pad.x, pad.z, 9);
+          surfaces.push({ kind: 'c', x: pad.x, z: pad.z, r: 7.1, top: heightAt(pad.x, pad.z) + 0.15 });
+        }
+        // the windsock at the far end
+        layout.airstrip.sock = rotPt(best, HW + 4, -layout.airstrip.home * (L / 2 - 20));
+        colliders.push({ kind: 'c', ...layout.airstrip.sock, r: 0.15, height: heightAt(layout.airstrip.sock.x, layout.airstrip.sock.z) + 7 });
+        // a dirt track in from the nearest road or lane that can be reached in a straight line (no river or
+        // railway in the way)
+        {
+          const from = rotPt(H, 0, 12);
+          let pick = null, pd = Infinity;
+          for (const ln of lanes.slice()) {
+            const dx = ln.bx - ln.ax, dz = ln.bz - ln.az, l2 = dx * dx + dz * dz || 1;
+            const t = Math.max(0, Math.min(1, ((from.x - ln.ax) * dx + (from.z - ln.az) * dz) / l2));
+            const q = { x: ln.ax + dx * t, z: ln.az + dz * t }, d = Math.hypot(q.x - from.x, q.z - from.z);
+            if (d >= pd || d > 900) continue;
+            let clearPath = true;
+            for (let k = 1; k < d / 6; k++) { const f = (k * 6) / d, x = from.x + (q.x - from.x) * f, z = from.z + (q.z - from.z) * f; if (riverDist(x, z) < RIVER_HALF + 3 || trackDist(x, z) < 6 || jungleMask(x, z) > 0) { clearPath = false; break; } }
+            if (clearPath) { pd = d; pick = q; }
+          }
+          if (pick) { road([[pick.x, pick.z], [from.x, from.z]], 2.4); layout.airstrip.track = { from, to: pick }; }
+        }
+      }
+    }
+  }
+  // a small general shop (kirana) or two in each of the other villages: on open ground near the village's middle,
+  // the counter facing in toward it
+  layout.shops = [];
+  {
+    const vil = [[RV, 2, 'Marudhar', 34], [BV, 1, 'Banglagram'], [TV, 2, 'Thennoor'], [MH, 1, 'Vitthalwadi'], [NE, 1, 'Bamboo Hill'], [PG, 1, 'Pahadi Gaon'], [NP, 2, 'Noorpur'], [MP, 1, 'Mariapur'], [NV, 1, 'Chhota Gaon'], [EH, 1, 'Paar Gaon'], ...(layout.newVillages ?? []).map((v) => [v, v.outer ? 1 : 2, v.name])];
+    for (const [v, n, name, r0 = 10] of vil) {
+      if (!v) continue;
+      let placed = 0;
+      for (let k = 0; k < 220 && placed < n; k++) {
+        const a = k * 2.399 + (v.x * 0.01), d = r0 + (k % 16) * 2.4;
+        const x = v.x + Math.cos(a) * d, z = v.z + Math.sin(a) * d;
+        if (fieldType(x, z) || riverDist(x, z) < RIVER_HALF + 4 || trackDist(x, z) < 8 || laneDist(x, z) < 2.2 || !isFree(x, z, 3.6)) continue;
+        // not on a slope
+        let lo = 1e9, hi = -1e9; for (const [ox, oz] of [[-2, -2], [2, -2], [2, 2], [-2, 2]]) { const h = heightAt(x + ox, z + oz); lo = Math.min(lo, h); hi = Math.max(hi, h); }
+        if (hi - lo > 1.5) continue;
+        const rot = Math.atan2(v.x - x, v.z - z); // the open front faces the middle of the village
+        layout.shops.push({ x, z, rot, village: name, i: placed });
+        occupy(x, z, 4);
+        // the back and sides of the shed are solid; the front is the counter
+        for (const [lx, lz, hw, hd] of [[0, -1.3, 1.7, 0.12], [-1.7, 0, 0.12, 1.3], [1.7, 0, 0.12, 1.3], [0, 1.05, 1.6, 0.35]]) {
+          const q = rotPt({ x, z, rot }, lx, lz);
+          colliders.push({ kind: 'b', x: q.x, z: q.z, rot, hw, hd });
+        }
+        placed++;
       }
     }
   }

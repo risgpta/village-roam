@@ -48,6 +48,7 @@ import { createEnvironment, addSurfaceGrain } from './realism.js';
 import { sampleAtmo, WEATHERS, TIMES, clockText } from './daycycle.js';
 import { updateCull } from './perf.js';
 import { buildBuffaloes } from './buffalo.js';
+import { buildShops } from './shops.js';
 
 const $ = (id) => document.getElementById(id);
 const status = (s) => { $('start').textContent = s; };
@@ -113,7 +114,7 @@ const WY = () => WATER_Y + WATER.off;
 // only the river (and its ghat and pool) holds water: low dry hollows elsewhere are just ground
 const wet = (x, z) => riverDist(x, z) < RIVER_HALF + 3;
 let tunnelK = 1;
-let herds = null, birds = null, hamlets = null, shrineLife = null, trackside = null, buffs = null;
+let herds = null, birds = null, hamlets = null, shrineLife = null, trackside = null, buffs = null, shops = null;
 let stations = null, drv = null, drvLoco = null, drvView = 0;
 let river, motes, train, flocks, people, animals, waterfall, lanterns, farm, fish, wild, map;
 const scare = { shake: 0, cool: 0 };
@@ -239,6 +240,7 @@ function applyMoment(p, night, dusky) {
   herds?.setNight(night);
   buffs?.setNight(night);
   hamlets?.setNight(night);
+  shops?.setNight(night);
   shrineLife?.setNight(night);
   helipad?.setNight(night);
   storm.on = p.storm;
@@ -573,6 +575,26 @@ function toggleRide() {
     }
   }
 }
+// Honk, and whoever is on the road ahead gets out of the way: people step off to the nearer side, and traffic
+// going either way pulls over to its edge and slows to let the boy through.
+let wayCool = 0;
+function makeWay() {
+  if (!started || performance.now() - wayCool < 600) return;
+  wayCool = performance.now();
+  const fx = Math.sin(player.facing), fz = Math.cos(player.facing);
+  const reach = 14 + player.speed * 2.5, half = (ride?.box ? ride.box[2] : 0.6) + 1.4;
+  for (const h of hitList) {
+    const dx = h.x - player.x, dz = h.z - player.z, along = dx * fx + dz * fz, side = dx * fz - dz * fx;
+    if (along < 1 || along > reach || Math.abs(side) > half + 0.8) continue;
+    const sd = side >= 0 ? 1 : -1, need = half + 1.2 - Math.abs(side);
+    h.person.dodge(fz * sd * need, -fx * sd * need, 3.5 + along / 10);
+  }
+  for (const t of people.travellers.list) {
+    if (t.taken || t.crash || !t.holder.visible || t.kind === 'walker') continue;
+    const dx = t.p.x - player.x, dz = t.p.z - player.z, along = dx * fx + dz * fz, side = Math.abs(dx * fz - dz * fx);
+    if (along > 0 && along < reach + 15 && side < 6) t.yieldT = 6;
+  }
+}
 function hornFor(v) {
   if (v.name === 'bicycle') audio.cycleBell();
   else if (v.name === 'moped') audio.mopedHorn();
@@ -583,6 +605,8 @@ function hornFor(v) {
   else if (v.name === 'erick') audio.erickHorn();
   else if (v.name === 'bus') audio.busHorn(1);
   else if (v.name === 'jeep') audio.jeepHorn(1);
+  else if (v.name === 'cart') audio.cowbell(1);
+  if (v.name !== 'boat') makeWay();
 }
 
 // ---------------- taking any vehicle off the road ----------------
@@ -599,21 +623,32 @@ const TAKE_TPL = {
     shapeOver: { half: [0.9, 0.9, 2.1], com: [0.38, 1.0, 0.13] },
     off: 'Out of the jeep', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['L', 'lights']], ask: 'drive the jeep' },
 };
-const TAKE_NAME = { bicycle: 'bicycle', moped: 'motorbike', scooter: 'scooter', bus: 'bus', jeep: 'jeep' };
+// the bullock cart: slow, wide-turning, the bullocks' pace; and a car taken from the road
+TAKE_TPL.cart = { walk: 1.5, run: 2.3, boost: 2.3, accel: 0.45, reach: 3.6, rad: 0.95, lean: 0.02, flame: false,
+  four: true, wb: 3.8, rev: 0.8, probes: [3.3, 1.6, 0, -1.4], exit: [-1.3, 0.2], box: [0, 0.5, 0.95, 3.4],
+  shapeOver: { half: [0.95, 0.9, 3.3], com: [0, 0.9, 0.5] },
+  off: 'Off the bullock cart', help: [['W', 'gee up'], ['S', 'whoa · back'], ['A D', 'steer'], ['V', 'view'], ['E', 'get down'], ['B', 'bell']], ask: 'drive the bullock cart' };
+TAKE_TPL.car = { walk: 12, run: 18, boost: 28, accel: 0.9, reach: 3.0, rad: 0.82, lean: 0.1, flame: true, nitro: true,
+  four: true, wb: 2.05, rev: 4.5, probes: [-0.9, 0.15, 1.2], exit: [-1.2, 0], box: [0.33, 0.15, 0.8, 1.68],
+  shapeOver: { half: [0.78, 0.7, 1.65], com: [0.33, 0.7, 0.15] },
+  off: 'Out of the car', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['N', 'nitro'], ['L', 'lights']], ask: 'drive the car' };
+const TAKE_NAME = { bicycle: 'bicycle', moped: 'motorbike', scooter: 'scooter', bus: 'bus', jeep: 'jeep', cart: 'bullock cart', car: 'car' };
 const TAKE_SHOUT = {
   bicycle: [['अरे! मेरी साइकिल!', 'Arey! Meri cycle!'], ['ओ भाई, साइकिल वापस लाना!', 'O bhai, cycle vaapas laana!']],
   moped: [['अरे! मेरी गाड़ी!', 'Arey! Meri gaadi!'], ['ओए! धीरे चलाना!', 'Oye! Dheere chalaana!']],
   scooter: [['अरे! मेरा स्कूटर!', 'Arey! Mera scooter!'], ['संभाल के चलाना बेटा!', 'Sambhaal ke chalaana beta!']],
   bus: [['अरे! बस कहाँ ले जा रहे हो?', 'Arey! Bus kahaan le ja rahe ho?'], ['सवारियाँ बैठी हैं, ध्यान से!', 'Savaariyaan baithi hain, dhyaan se!']],
   jeep: [['ओ! मेरी जीप!', 'O! Meri jeep!'], ['अरे रुको! जीप मेरी है!', 'Arey ruko! Jeep meri hai!']],
+  car: [['अरे! मेरी गाड़ी!', 'Arey! Meri gaadi!'], ['रुको! गाड़ी मेरी है!', 'Ruko! Gaadi meri hai!']],
+  cart: [['अरे! मेरे बैल!', 'Arey! Mere bail!'], ['धीरे हाँकना, बैल थके हैं!', 'Dheere haankna, bail thake hain!']],
 };
 const robbed = [];
-const takeKind = (t) => (t.kind === 'bike' ? t.bike.kind : t.kind);
+const takeKind = (t) => (t.kind === 'bike' ? t.bike.kind : t.veh?.kind === 'car' ? 'car' : t.kind);
 function nearTraffic() {
   if (!people || ride || swim.on) return null;
   let best = null, bd = 1e9;
   for (const t of people.travellers.list) {
-    if (t.taken || t.crash || !t.holder.visible || !(t.kind === 'bike' || t.kind === 'bus' || t.kind === 'jeep')) continue;
+    if (t.taken || t.crash || !t.holder.visible || !(t.kind === 'bike' || t.kind === 'bus' || t.kind === 'jeep' || t.kind === 'cart')) continue;
     const dx = player.x - t.p.x, dz = player.z - t.p.z;
     if (Math.abs(dx) + Math.abs(dz) > 12) continue;
     const c = Math.cos(t.heading), sn = Math.sin(t.heading);
@@ -719,7 +754,7 @@ function updateRobbed(dt) {
 // a parked scooter shoved by the car falls on its side, the car hits a bus and stops dead, and anything
 // the train catches on the line is thrown clear — further and higher the faster the train is going.
 const crashes = new Crashes();
-const MASS = { bicycle: 60, moped: 130, scooter: 150, auto: 420, erick: 480, car: 900, jeep: 1800, minibus: 3600, bus: 7000 };
+const MASS = { bicycle: 60, moped: 130, scooter: 150, auto: 420, erick: 480, car: 900, jeep: 1800, minibus: 3600, bus: 7000, cart: 700 };
 const UPV = new THREE.Vector3(0, 1, 0);
 function obbDist(x, z, b) {
   const dx = x - b.x, dz = z - b.z, c = Math.cos(b.rot), sn = Math.sin(b.rot);
@@ -1233,9 +1268,9 @@ async function build() {
   status('Laying the railway line…');
   await nextFrame();
   train = buildRailway(scene);
-  train.onChuff = (p) => {
+  train.onChuff = (p, sp = 5, n = 0) => {
     const d = Math.hypot(p.x - player.x, p.z - player.z);
-    audio.chuff(clamp(1 - d / 230, 0, 1) ** 2);
+    audio.chuff(clamp(1 - d / 230, 0, 1) ** 2, sp, n);
   };
   stations = buildStations(scene, train, {
     sonpur: layout.sonpur,
@@ -1264,6 +1299,16 @@ async function build() {
     onBell: (d) => audio.cycleBell(clamp(1 - d / 25, 0, 1) * 0.8),
     onHorn: (d, kind) => { const v = clamp(1 - d / 70, 0, 1); if (v > 0.05) ({ scooter: () => audio.scooterHorn(v), bus: () => audio.busHorn(v), jeep: () => audio.jeepHorn(v) }[kind] ?? (() => audio.mopedHorn(v)))(); },
     personAhead: (x, z, r) => hitList.some((h) => Math.abs(h.x - x) < r && Math.abs(h.z - z) < r),
+    // road traffic honking at someone in its way: they step off to the side of its path
+    clearWay: (t, at) => {
+      const fx = Math.sin(t.heading), fz = Math.cos(t.heading), half = (t.veh ? t.veh.half : 0.5) + 1.3;
+      for (const h of hitList) {
+        const dx = h.x - t.p.x, dz = h.z - t.p.z, along = dx * fx + dz * fz, side = dx * fz - dz * fx;
+        if (along < 0 || along > Math.hypot(at.x - t.p.x, at.z - t.p.z) + 4 || Math.abs(side) > half + 0.6) continue;
+        const sd = side >= 0 ? 1 : -1, need = half + 1 - Math.abs(side);
+        h.person.dodge(fz * sd * need, -fx * sd * need, 4);
+      }
+    },
     trainNear: (x, z) => train.closedBoxes().some((b) => Math.hypot(b.x - x, b.z - z) < 7) || train.boxes.some((b) => {
       const dx = x - b.x, dz = z - b.z, c = Math.cos(b.rot), sn = Math.sin(b.rot);
       return Math.abs(dx * c - dz * sn) < 6 && Math.abs(dx * sn + dz * c) < b.hd + 30;
@@ -1306,6 +1351,7 @@ async function build() {
     ripple: (x, y, z, d) => { const a = Math.random() * 6.28; swim.splash.emit(x, y + 0.03, z, Math.cos(a) * 0.4, 0.5 + Math.random() * 0.4, Math.sin(a) * 0.4, 0.7, 0.05, 0.3, 0.6); if (d < 40 && Math.random() < 0.04) audio.splash(0.25 * (1 - d / 40)); },
   });
   hamlets = buildHamlets(scene, layout.newVillages ?? []);
+  shops = buildShops(scene);
   shrineLife = buildShrineLife(scene);
   trackside = buildTrackside(scene, train, { moo: (v) => audio.moo(v) });
   motes = buildMotes();
@@ -1336,6 +1382,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Space' || e.code === 'Tab') e.preventDefault();
   if (e.code === 'Tab' && started && map) { if (!e.repeat) map.toggleBig(); return; }
   if (e.code === 'Escape' && map?.open) { map.toggleBig(false); return; }
+  if (e.code === 'Escape' && $('help').classList.contains('show')) { toggleHelp(false); return; }
   if (e.target instanceof HTMLSelectElement) return;
   if (e.code === 'Space' && !keys.Space && !ride) jumpQueued = true;
   keys[e.code] = true;
@@ -1391,8 +1438,17 @@ document.addEventListener('pointerlockchange', () => {
 
 function toggleHelp(force) {
   const h = $('help');
-  h.classList.toggle('show', force ?? !h.classList.contains('show'));
+  const show = force ?? !h.classList.contains('show');
+  h.classList.toggle('show', show);
+  if (show) document.exitPointerLock?.(); // free the cursor so the tabs can be clicked and the panel scrolled
 }
+for (const b of document.querySelectorAll('.hp-tabs button')) b.addEventListener('click', () => {
+  for (const o of document.querySelectorAll('.hp-tabs button')) o.classList.toggle('on', o === b);
+  for (const pane of document.querySelectorAll('.hp-pane')) pane.classList.toggle('on', pane.dataset.pane === b.dataset.tab);
+  document.querySelector('.hp-body').scrollTop = 0;
+});
+$('hp-close').addEventListener('click', () => toggleHelp(false));
+$('help').addEventListener('click', (e) => { if (e.target.id === 'help') toggleHelp(false); }); // a click outside the card closes it
 $('hintchip').addEventListener('click', () => toggleHelp());
 function toggleMute() {
   audio.setMuted(!audio.muted);
@@ -1560,7 +1616,7 @@ function updatePlayer(dt) {
         const q0x = q.x, q0z = q.z;
         resolveCollisions(q, rad, player.y);
         for (const v of vehicles) if (v !== ride && !v.water && !v.crash) pushOut(q, rad, parkedShape(v));
-        for (const c of people.colliders()) pushOut(q, rad, c);
+        for (const c of people.colliders()) if (!c.person) pushOut(q, rad, c);
         p.x += q.x - q0x; p.z += q.z - q0z;
       }
     } else resolveCollisions(p, rad, player.y);
@@ -1569,7 +1625,7 @@ function updatePlayer(dt) {
     for (const c of farm.colliders()) pushOut(p, rad, c);
     for (const c of wild.colliders()) pushOut(p, rad, c);
     if (!(riding && ride.water)) {
-      for (const c of people.colliders()) pushOut(p, rad, c);
+      for (const c of people.colliders()) if (!(c.person && riding)) pushOut(p, rad, c);
       for (const c of animals.colliders()) pushOut(p, rad, c);
       if (herds) for (const c of herds.colliders()) pushOut(p, rad, c);
       if (buffs) for (const c of buffs.colliders()) pushOut(p, rad, c);
@@ -1701,12 +1757,13 @@ function updatePlayer(dt) {
   hud.classList.toggle('show', !!ride && started);
   if (ride) {
     $('rh-speed').textContent = Math.round(player.speed * 3.6);
-    $('rh-name').textContent = { auto: 'Auto rickshaw', car: 'Little car', minibus: 'Gaon minibus', erick: 'E-rickshaw', bus: 'Village bus', jeep: 'Jeep', moped: 'Motorbike' }[ride.name] ?? ride.name[0].toUpperCase() + ride.name.slice(1);
+    $('rh-name').textContent = { auto: 'Auto rickshaw', car: 'Little car', minibus: 'Gaon minibus', erick: 'E-rickshaw', bus: 'Village bus', jeep: 'Jeep', moped: 'Motorbike', cart: 'Bullock cart' }[ride.name] ?? ride.name[0].toUpperCase() + ride.name.slice(1);
     hud.classList.toggle('four', !!ride.four);
     hud.classList.toggle('bus', !!ride.obj.seats);
     if (ride.four) {
       const g = drive.v < -0.15 ? 'r' : Math.abs(drive.v) < 0.15 && !f ? 'n' : 'd';
       for (const k of ['r', 'n', 'd']) $('g-' + k).classList.toggle('on', g === k);
+      $('rh-wheel').style.transform = `rotate(${(drive.steer * 120).toFixed(1)}deg)`; // the wheel in the corner turns as you steer
     }
     if (ride.obj.seats && passengers) {
       const n = passengers.aboardOf(ride.obj).length, cap = ride.obj.seats.length;
@@ -2613,6 +2670,7 @@ function frame(now) {
   herds?.update(dt, player);
   buffs?.update(dt, player, time);
   hamlets?.update(dt, player);
+  shops?.update(dt, player);
   shrineLife?.update(dt, player);
   trackside?.update(dt, player, !!ATMO.night);
   clouds.material.uniforms.uTime.value = time;
@@ -2653,7 +2711,7 @@ function frame(now) {
     audio.update(windUniforms.uWind.value, Math.min(riverDist(player.x, player.z), streamDist(player.x, player.z) * 1.3), {
       temple: Math.hypot(player.x - layout.temple.x, player.z - layout.temple.z),
       cow: nearest(layout.cows, player.x, player.z),
-    }, { active: train.active, distance: train.distanceTo(player.x, player.z) });
+    }, (() => { const n = train.nearest(player.x, player.z); return { active: train.active, distance: n.d, speed: n.v, dwell: n.dwell }; })());
     audio.setTractor(farm.tractorDistance(player.x, player.z));
     audio.setFalls(waterfall ? Math.hypot(player.x - waterfall.impact.x, player.y - waterfall.impact.y, player.z - waterfall.impact.z) : 999);
     {

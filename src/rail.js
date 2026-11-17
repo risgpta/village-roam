@@ -2,6 +2,7 @@
 // a level crossing with a gatekeeper's hut — and a passenger train that passes once a minute.
 import * as THREE from 'three';
 import { cullBeyond } from './perf.js';
+import { streetLight } from './lights.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { TRACK, TRACK3, TRACK5, OUTER_LOOP, TRACKS, RING, TRACK_Y, riverX, RIVER_HALF, WATER_Y, CROSSING, CROSSING3, heightAt, colliders, roadX, BORE_HALF, ROAD_X } from './world.js';
 import { toTexture } from './textures.js';
@@ -756,6 +757,23 @@ function buildLine(group, T) {
     wg.setAttribute('position', new THREE.Float32BufferAttribute(wire, 3));
     group.add(new THREE.LineSegments(wg, new THREE.LineBasicMaterial({ color: '#1f1d1b' })));
   }
+  // Lamp posts along the line: a pair facing each other across the track every 250 m or so, out in the open
+  // (not at stations, crossings or bridges, which have their own). They are the village's street lights, so
+  // they come on together at dusk.
+  for (const [a, b] of T.segs) for (let t = a + 120; t < b - 60; t += 250) {
+    P.at(t, q);
+    if (onBridge(t) || !farFrom(q.x, q.z, ROAD_X, 40) || !farFrom(q.x, q.z, stops, 110)) continue;
+    const rot = Math.atan2(q.tx, q.tz);
+    for (const sx of [-1, 1]) {
+      const px = q.x - q.tz * sx * 5.4, pz = q.z + q.tx * sx * 5.4;
+      const L = streetLight({ height: 5.4, reach: 1.5 });
+      L.position.set(px, heightAt(px, pz), pz);
+      L.rotation.y = rot + (sx > 0 ? -Math.PI / 2 : Math.PI / 2); // the arm reaches out over the track
+      group.add(L);
+      cullBeyond(L, 650);
+      colliders.push({ kind: 'c', x: px, z: pz, r: 0.25 });
+    }
+  }
 }
 
 // All the trains behind one interface for the rest of the game.
@@ -783,6 +801,8 @@ class Railway {
     for (const X of CROSSINGS) updateCrossing(X, dt, this.trains);
   }
   distanceTo(x, z) { return Math.min(...this.trains.map((t) => t.distanceTo(x, z))); }
+  // the train nearest (x, z): how far, how fast it is moving, and whether it is standing at a platform
+  nearest(x, z) { let best = null, bd = Infinity; for (const t of this.trains) { const d = t.distanceTo(x, z); if (d < bd) { bd = d; best = t; } } return best ? { d: bd, v: Math.abs(best.v ?? 0), dwell: best.mode === 'dwell' } : { d: Infinity, v: 0, dwell: false }; }
   setNight(v) { for (const t of this.trains) t.setNight(v); }
   setSmokeColors(a, b) { for (const t of this.trains) t.setSmokeColors(a, b); }
   setWind(x, z) { for (const t of this.trains) t.smoke.wind.set(x, 0, z); }
@@ -1119,7 +1139,7 @@ class Train {
       const fwdX = Math.sin(L.g.rotation.y), fwdZ = Math.cos(L.g.rotation.y);
       const beat = Math.pow(Math.max(0, Math.sin((tv / 0.82) * 2)), 6);
       const chuffN = Math.floor((Math.abs(tv) / 0.82) * 2 / Math.PI);
-      if (L === this.loco && chuffN !== this.chuffN) { this.chuffN = chuffN; if (this.onChuff && speed > 0.2) this.onChuff(L.g.position); }
+      if (L === this.loco && chuffN !== this.chuffN) { this.chuffN = chuffN; if (this.onChuff && speed > 0.2) this.onChuff(L.g.position, speed, chuffN); }
       const k = Math.min(1, speed / CRUISE);
       this.emitAcc += dt * (3 + k * 11 + beat * 60 * k);
       const ch = L.g.localToWorld(this._v.copy(L.chimney));

@@ -233,16 +233,17 @@ export function buildPassengers(scene, hooks = {}) {
 // the pole; at a stop he leans out and waves people in
 function makeConductor(bus) {
   const p = new Person({ dress: 'pants', top: '#b8a27a', bottom: '#6a5a40', mustache: true, skin: '#6e4530', sleeves: 'short', headwear: 'cap', turban: '#b8a27a' });
-  p.root.position.set(1.15, bus.floorY, 1.35);
-  p.root.rotation.y = Math.PI / 2 + 0.5;
+  // in the gangway just inside the door, clear of the walls, facing the doorway with a hand on the pole
+  p.root.position.set(0.95, bus.floorY, 2.05);
+  p.root.rotation.y = 0.55;
   bus.root.add(p.root);
   const bag = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.16, 0.07), new THREE.MeshStandardMaterial({ color: '#5a3a1e', roughness: 0.6 }));
   bag.position.set(0.12, 0.08, 0.14);
   p.torso.add(bag);
   let t = 0, lean = 0;
   p.poseHook = (P) => {
-    P.sh1 = -2.7 + lean * 1.2; P.el1 = -0.2; P.shz1 = -0.15;
-    if (lean > 0.05) { P.sh0 = -1.6 - Math.sin(t * 7) * 0.4 * lean; P.el0 = -0.5; P.shz0 = 0.3; P.torsoY = -0.3 * lean; P.headY = -0.4 * lean; }
+    P.sh1 = -1.55 + lean * 0.4; P.el1 = -0.7; P.shz1 = -0.35; // a hand on the pole at shoulder height (the roof is low)
+    if (lean > 0.05) { P.sh0 = -1.4 - Math.sin(t * 7) * 0.35 * lean; P.el0 = -0.6; P.shz0 = 0.15; P.torsoY = -0.12 * lean; P.headY = -0.35 * lean; } // beckoning people in from the door, not leaning out of it
   };
   return {
     person: p,

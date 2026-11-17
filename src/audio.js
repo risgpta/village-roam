@@ -112,10 +112,17 @@ export class Ambience {
     }
 
     // train
+    // the train: a rolling roar of steel wheels on steel rails (deeper and duller far off, brighter and harder
+    // at speed), and the steam hissing from the engine as it stands at a platform
     this.trainG = gain(0); this.trainG.connect(this.master);
-    loop(brown).connect(filt('lowpass', 160)).connect(gain(1.6)).connect(this.trainG);
-    loop(white).connect(filt('bandpass', 700, 1)).connect(gain(0.08)).connect(this.trainG);
-    this.nextClack = 0;
+    this.trainLP = filt('lowpass', 160);
+    loop(brown).connect(this.trainLP).connect(gain(1.6)).connect(this.trainG);
+    this.trainRing = gain(0);
+    loop(pink).connect(filt('bandpass', 1400, 2.5)).connect(this.trainRing).connect(this.trainG); // the singing of the rails
+    loop(white).connect(filt('bandpass', 700, 1)).connect(gain(0.05)).connect(this.trainG);
+    this.steamG = gain(0); this.steamG.connect(this.master);
+    loop(white).connect(filt('highpass', 2600, 0.6)).connect(this.steamG);
+    this.nextClack = 0; this.nextJoint = 0;
 
     // two-stroke engines: the moped (under you) and the tractor in the field
     const engine = (base, cutoff) => {
@@ -148,16 +155,51 @@ export class Ambience {
       am.connect(lp).connect(g);
       return { ...o, fireR: o.fire, g, lp, osc, fire };
     };
+    // A diesel engine, built the way one actually makes its sound: a train of firing pulses (rich in low
+    // harmonics, the beat slightly irregular, with a half-speed lump from the crank), a burst of combustion
+    // noise on every firing, the metallic tick-tick of the injectors, and the whole lot shaped by the exhaust
+    // and body resonances. base: firing rate at idle (Hz); res: the resonances [Hz, gain dB, Q].
+    const diesel = (o) => {
+      const g = gain(0); g.connect(this.master);
+      const lp = filt('lowpass', o.cut, 0.7);
+      let node = lp;
+      for (const [f, db, q] of o.res) { const pk = ctx.createBiquadFilter(); pk.type = 'peaking'; pk.frequency.value = f; pk.gain.value = db; pk.Q.value = q; node.connect(pk); node = pk; }
+      node.connect(g);
+      const sum = gain(1); sum.connect(lp);
+      // the firing pulses: a waveform with strong, unevenly falling harmonics, like a real exhaust note
+      const n = 24, re = new Float32Array(n), im = new Float32Array(n);
+      for (let k = 1; k < n; k++) im[k] = (1 / Math.pow(k, 0.85)) * (k % 2 ? 1 : 0.7) * (k === 3 ? 1.3 : 1);
+      const wave = ctx.createPeriodicWave(re, im);
+      const osc = [];
+      const main = ctx.createOscillator(); main.setPeriodicWave(wave); main.frequency.value = o.base;
+      main.connect(gain(0.55)).connect(sum); osc.push({ x: main, mul: 1 });
+      const lump = ctx.createOscillator(); lump.type = 'sine'; lump.frequency.value = o.base / 2;
+      lump.connect(gain(o.lump ?? 0.35)).connect(sum); osc.push({ x: lump, mul: 0.5 });
+      // the firing isn't perfectly even: a slow random wobble in its rate
+      const jit = loop(brown); const jf = filt('lowpass', 9, 0.7); const jg = gain(o.base * 0.05);
+      jit.connect(jf).connect(jg); jg.connect(main.frequency); jg.connect(lump.frequency);
+      // combustion: a band of noise that bursts on each firing (the pulse train opens and closes it)
+      const chuffG = gain(0.15); loop(pink).connect(filt('bandpass', o.chuffF ?? 500, 0.9)).connect(gain(o.chuff ?? 1.1)).connect(chuffG).connect(sum);
+      const fire = ctx.createOscillator(); fire.setPeriodicWave(ctx.createPeriodicWave(new Float32Array(10), new Float32Array([0, 1, 0.8, 0.6, 0.45, 0.3, 0.2, 0.12, 0.06, 0.03])));
+      fire.frequency.value = o.base; fire.connect(gain(0.6)).connect(chuffG.gain);
+      // the diesel clatter: short ticks of bright noise at the firing rate
+      const clatG = gain(0); loop(white).connect(filt('bandpass', o.clatF ?? 2600, 2)).connect(gain(o.clatter ?? 0.25)).connect(clatG).connect(g);
+      const tick = ctx.createOscillator(); const tr = new Float32Array(32), ti = new Float32Array(32); for (let k = 1; k < 32; k++) ti[k] = 1;
+      tick.setPeriodicWave(ctx.createPeriodicWave(tr, ti)); tick.frequency.value = o.base; tick.connect(gain(0.5)).connect(clatG.gain);
+      osc.push({ x: tick, mul: 1 });
+      for (const x of [main, lump, fire, tick]) x.start();
+      return { ...o, fireR: 1, g, lp, osc, fire };
+    };
     this.voices = {
       moped: voice({ base: 48, osc: [['sawtooth', 1, 0.8], ['square', 2, 0.25]], fire: 1, depth: 0.7, cut: 1500, q: 3, noise: 0.5, noiseF: 1800, vol: 0.07, gears: [0, 8, 15, 40] }),
       scooter: voice({ base: 36, osc: [['sawtooth', 1, 0.7], ['triangle', 2, 0.35]], fire: 0.5, depth: 0.5, cut: 950, q: 1.6, noise: 0.35, noiseF: 900, vol: 0.075, gears: [0, 5, 10, 16, 40] }),
       auto: voice({ base: 24, osc: [['sawtooth', 1, 0.8], ['square', 1.5, 0.3]], fire: 0.5, depth: 0.9, cut: 520, q: 2, noise: 0.6, noiseF: 2200, vol: 0.11, gears: [0, 5, 10, 30] }),
-      minibus: voice({ base: 19, osc: [['sawtooth', 1, 0.8], ['square', 0.5, 0.45], ['triangle', 2, 0.2]], fire: 1.5, depth: 0.75, cut: 420, q: 1.4, noise: 0.5, noiseF: 900, vol: 0.12, gears: [0, 4, 8, 13, 30] }),
+      minibus: diesel({ base: 27, lump: 0.4, cut: 900, res: [[110, 6, 1.2], [340, 4, 1.5], [900, -3, 1]], chuffF: 420, chuff: 1.2, clatter: 0.22, clatF: 2300, vol: 0.16, gears: [0, 4, 8, 13, 30] }),
       // the e-rickshaw: no engine, just the hub motor's rising electric whine and a little gear hum
       erick: voice({ base: 95, osc: [['sine', 1, 0.7], ['triangle', 2.01, 0.25], ['sine', 3.02, 0.12]], fire: 0.25, fireType: 'sine', depth: 0.08, cut: 2600, q: 1.2, noise: 0.1, noiseF: 3000, vol: 0.035, gears: [0, 40] }),
-      bus: voice({ base: 16, osc: [['sawtooth', 1, 0.85], ['square', 0.5, 0.5], ['triangle', 2, 0.2]], fire: 1.5, depth: 0.8, cut: 380, q: 1.5, noise: 0.55, noiseF: 800, vol: 0.13, gears: [0, 3.5, 7, 11, 25] }),
-      jeep: voice({ base: 25, osc: [['sawtooth', 1, 0.75], ['square', 1, 0.3], ['triangle', 2, 0.25]], fire: 1, depth: 0.6, cut: 560, q: 1.3, noise: 0.4, noiseF: 700, vol: 0.1, gears: [0, 5, 10, 16, 40] }),
-      car: voice({ base: 30, osc: [['sawtooth', 1, 0.6], ['sawtooth', 1.012, 0.6], ['triangle', 2, 0.3]], fire: 2, fireType: 'sine', depth: 0.15, cut: 650, q: 0.8, noise: 0.25, noiseF: 500, vol: 0.09, gears: [0, 5, 10, 15, 21, 45] }),
+      bus: diesel({ base: 24, lump: 0.45, cut: 780, res: [[90, 7, 1.1], [300, 4, 1.4], [800, -4, 1]], chuffF: 380, chuff: 1.3, clatter: 0.26, clatF: 2100, vol: 0.19, gears: [0, 3.5, 7, 11, 25] }),
+      jeep: diesel({ base: 26, lump: 0.35, cut: 1100, res: [[130, 6, 1.3], [420, 5, 1.6], [1100, -2, 1]], chuffF: 520, chuff: 1.1, clatter: 0.3, clatF: 2800, vol: 0.15, gears: [0, 5, 10, 16, 40] }),
+      car: diesel({ base: 27, lump: 0.3, cut: 1150, res: [[140, 5, 1.3], [450, 4, 1.6], [1200, -2, 1]], chuffF: 540, chuff: 1.0, clatter: 0.26, clatF: 2900, vol: 0.14, gears: [0, 5, 10, 15, 21, 45] }),
     };
     // the little plane: a buzzy flat-four, the propeller's thrum, wind over the wings, the stall horn
     {
@@ -280,13 +322,24 @@ export class Ambience {
     // the cows near you low every so often
     if (near.cow < 40 && t > (this.nextMoo ?? 0)) { this.moo(Math.max(0.25, 1 - near.cow / 40)); this.nextMoo = t + 14 + Math.random() * 22; }
 
-    // train: rumble by distance, clack-clack of the bogies
-    const td = train.distance;
+    // train: the rolling roar by distance and speed; the clickety-clack of the rail joints, timed to the
+    // train's real speed (a joint every 13 m of rail, each pair of axles on a bogie going over it: ta-tak);
+    // and the hiss of steam while it stands
+    const td = train.distance, sp = train.speed ?? 0;
     const tv = train.active ? Math.max(0, Math.min(1, 1 - td / 260)) : 0;
-    this.trainG.gain.setTargetAtTime(tv * tv * 0.6, t, 0.4);
-    if (tv > 0.05 && t > this.nextClack) {
-      this.clack(tv);
-      this.nextClack = t + 0.55 + Math.random() * 0.1;
+    const roll = Math.min(1, sp / 16);
+    this.trainG.gain.setTargetAtTime(tv * tv * (0.15 + 0.6 * roll), t, 0.4);
+    this.trainLP.frequency.setTargetAtTime(110 + roll * 260, t, 0.5);
+    this.trainRing.gain.setTargetAtTime(roll * roll * 0.05, t, 0.6);
+    this.steamG.gain.setTargetAtTime(train.dwell && tv > 0.2 ? tv * tv * 0.035 * (0.7 + 0.3 * Math.sin(t * 0.7)) : 0, t, 0.8);
+    if (tv > 0.05 && sp > 1) {
+      if (this.nextJoint < t) this.nextJoint = t + 0.05;
+      const gap = 13 / sp, axle = 2.4 / sp;
+      while (this.nextJoint < t + 0.35) {
+        const at = this.nextJoint;
+        this.clack(tv, at, sp); this.clack(tv * 0.85, at + axle, sp);
+        this.nextJoint += gap * (0.92 + Math.random() * 0.16);
+      }
     }
   }
 
@@ -1068,39 +1121,38 @@ export class Ambience {
     }
   }
 
-  clack(v) {
-    const ctx = this.ctx;
-    for (const dt of [0, 0.11]) {
-      const t = ctx.currentTime + dt;
-      const s = ctx.createBufferSource(); s.buffer = this.white;
-      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 2;
-      const g = ctx.createGain();
-      this.env(g, 0.18 * v * v, 0.004, 0.08, t);
-      s.connect(f).connect(g).connect(this.master);
-      s.start(t, Math.random() * 3); s.stop(t + 0.1);
-    }
-  }
-
-  // one exhaust beat of a steam engine: a soft "chuff" of filtered noise with a little low thump
-  chuff(v) {
+  clack(v, at = null, sp = 10) {
     if (!this.ctx || v <= 0.01) return;
-    const ctx = this.ctx;
-    const t = ctx.currentTime;
+    const ctx = this.ctx, t = at ?? ctx.currentTime, k = Math.min(1, sp / 15);
     const s = ctx.createBufferSource(); s.buffer = this.white;
-    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.setValueAtTime(900, t); f.frequency.exponentialRampToValueAtTime(380, t + 0.16); f.Q.value = 0.9;
-    const g = ctx.createGain();
-    this.env(g, 0.16 * v, 0.01, 0.17, t);
-    s.connect(f).connect(g).connect(this.master);
-    s.start(t, Math.random() * 3); s.stop(t + 0.25);
-    const o = ctx.createOscillator(); o.type = 'sine';
-    o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(50, t + 0.12);
-    const og = ctx.createGain();
-    this.env(og, 0.1 * v, 0.005, 0.12, t);
-    o.connect(og).connect(this.master);
-    o.start(t); o.stop(t + 0.16);
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1700 + k * 900; f.Q.value = 3;
+    const g = ctx.createGain(); this.env(g, 0.2 * v * v * (0.6 + 0.4 * k), 0.002, 0.05, t);
+    s.connect(f).connect(g).connect(this.master); s.start(t, Math.random() * 3); s.stop(t + 0.08);
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(70, t + 0.06);
+    const og = ctx.createGain(); this.env(og, 0.16 * v * v, 0.002, 0.07, t);
+    o.connect(og).connect(this.master); o.start(t); o.stop(t + 0.1);
   }
-
-  // a village dog: two or three sharp barks
+  // A steam engine's exhaust beat: a blast of steam up the chimney — a booming low thud, a broad roar of
+  // noise that sweeps down as the blast dies, and a hissy tail. Slow and long when starting off, short and
+  // sharp at speed; every fourth beat (one cylinder end) a touch heavier, as on a real engine.
+  chuff(v, sp = 5, n = 0) {
+    if (!this.ctx || v <= 0.01) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const dur = Math.max(0.1, Math.min(0.55, 0.7 / (1 + sp * 0.35)));
+    const heavy = n % 4 === 0 ? 1.25 : 1, a = v * heavy * (0.75 + 0.5 * Math.max(0, 1 - sp / 20));
+    const s = ctx.createBufferSource(); s.buffer = this.white;
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.setValueAtTime(1100, t); f.frequency.exponentialRampToValueAtTime(320, t + dur * 0.9); f.Q.value = 0.7;
+    const g = ctx.createGain(); this.env(g, 0.2 * a, 0.006, dur, t);
+    s.connect(f).connect(g).connect(this.master); s.start(t, Math.random() * 3); s.stop(t + dur + 0.1);
+    const hs = ctx.createBufferSource(); hs.buffer = this.white;
+    const hf = ctx.createBiquadFilter(); hf.type = 'highpass'; hf.frequency.value = 3200;
+    const hg = ctx.createGain(); this.env(hg, 0.04 * a, 0.01, dur * 1.4, t);
+    hs.connect(hf).connect(hg).connect(this.master); hs.start(t, Math.random() * 3); hs.stop(t + dur * 1.5 + 0.1);
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(85, t); o.frequency.exponentialRampToValueAtTime(42, t + dur * 0.7);
+    const og = ctx.createGain(); this.env(og, 0.17 * a, 0.004, dur * 0.7, t);
+    o.connect(og).connect(this.master); o.start(t); o.stop(t + dur);
+  }
   bark(v = 1) {
     if (!this.ctx) return;
     const ctx = this.ctx;
@@ -1173,22 +1225,24 @@ export class Ambience {
     // a steam whistle: a breathy chord that slides up into pitch, long then short
     let t = ctx.currentTime;
     for (const dur of [1.4, 0.6]) {
-      for (const [f, a] of [[466, 1], [587, 0.8], [698, 0.6]]) {
-        const o = ctx.createOscillator(); o.type = 'triangle';
-        o.frequency.setValueAtTime(f * 0.94, t);
-        o.frequency.exponentialRampToValueAtTime(f, t + 0.18);
+      for (const [f, a] of [[311, 1], [370, 0.85], [466, 0.7], [622, 0.25]]) {
+        // each pipe of the chime: a sine with a little vibrato, sliding up into pitch as the steam pressure rises
+        const o = ctx.createOscillator(); o.type = 'sine';
+        const vb = ctx.createOscillator(); vb.frequency.value = 5.5; const vg = ctx.createGain(); vg.gain.value = f * 0.006; vb.connect(vg).connect(o.frequency); vb.start(t); vb.stop(t + dur + 0.35);
+        o.frequency.setValueAtTime(f * 0.86, t);
+        o.frequency.exponentialRampToValueAtTime(f, t + 0.32);
         o.frequency.setValueAtTime(f, t + dur);
         o.frequency.exponentialRampToValueAtTime(f * 0.96, t + dur + 0.3);
         const g = ctx.createGain();
         g.gain.setValueAtTime(0, t);
-        g.gain.linearRampToValueAtTime(0.03 * a * v, t + 0.12);
-        g.gain.setValueAtTime(0.03 * a * v, t + dur);
+        g.gain.linearRampToValueAtTime(0.045 * a * v, t + 0.2);
+        g.gain.setValueAtTime(0.04 * a * v, t + dur);
         g.gain.linearRampToValueAtTime(0, t + dur + 0.3);
         o.connect(g).connect(this.master);
         o.start(t); o.stop(t + dur + 0.35);
       }
       const s = ctx.createBufferSource(); s.buffer = this.white;
-      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1200; bp.Q.value = 1.5;
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 1.1;
       const ng = ctx.createGain();
       ng.gain.setValueAtTime(0, t);
       ng.gain.linearRampToValueAtTime(0.05 * v, t + 0.08);

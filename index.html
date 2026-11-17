@@ -136,14 +136,30 @@
       body.cine #place { opacity: 0; }
       .hint { pointer-events: auto; display: flex; gap: 6px; align-items: center; padding: 6px 11px 6px 6px; border-radius: 999px; font-size: 12px; cursor: pointer; }
       .hint kbd { background: rgba(255,255,255,0.92); color: #1d1a16; border: 0; border-radius: 6px; padding: 2px 7px; font-weight: 700; }
-      #help { position: absolute; left: 16px; bottom: 56px; width: 360px; padding: 14px 16px 12px; border-radius: 16px; opacity: 0; transform: translateY(8px); transition: opacity .25s, transform .25s; pointer-events: none; }
-      #help.show { opacity: 1; transform: none; }
-      #help h3 { margin: 0 0 6px; font: 600 10.5px Inter, sans-serif; letter-spacing: .16em; text-transform: uppercase; color: var(--accent); }
-      #help h3:not(:first-child) { margin-top: 10px; }
-      #help .row { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; line-height: 1.85; color: var(--ink); }
-      #help .row span:first-child { white-space: nowrap; }
-      #help .row span:last-child { color: var(--muted); text-align: right; }
+      #help { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(10, 8, 6, 0.5); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); opacity: 0; visibility: hidden; transition: opacity .25s, visibility .25s; pointer-events: auto; z-index: 8; }
+      #help.show { opacity: 1; visibility: visible; }
+      .hp-card { width: min(720px, calc(100vw - 32px)); max-height: min(82vh, 760px); display: flex; flex-direction: column; border-radius: 18px; background: rgba(24, 19, 14, 0.92); border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 24px 70px rgba(0,0,0,0.5); overflow: hidden; }
+      .hp-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px 10px; }
+      .hp-title { font-family: 'Tiro Devanagari Hindi', 'Cormorant Garamond', serif; font-size: 21px; color: var(--accent); }
+      .hp-sub { font-size: 12px; color: var(--muted); }
+      #hp-close { margin-left: auto; background: rgba(255,255,255,0.1); border: 0; color: var(--ink); width: 30px; height: 30px; border-radius: 99px; cursor: pointer; font-size: 14px; }
+      .hp-tabs { display: flex; gap: 4px; padding: 0 14px 10px; overflow-x: auto; border-bottom: 1px solid rgba(255,255,255,0.1); scrollbar-width: none; }
+      .hp-tabs button { flex: none; font: 500 12.5px Inter, sans-serif; color: var(--muted); background: transparent; border: 0; border-radius: 999px; padding: 7px 13px; cursor: pointer; }
+      .hp-tabs button:hover { background: rgba(255,255,255,0.07); color: var(--ink); }
+      .hp-tabs button.on { background: var(--accent); color: #2a1d0c; }
+      .hp-body { overflow-y: auto; padding: 6px 18px 18px; overscroll-behavior: contain; }
+      .hp-pane { display: none; }
+      .hp-pane.on { display: block; }
+      #help h3 { margin: 16px 0 6px; font: 600 10.5px Inter, sans-serif; letter-spacing: .16em; text-transform: uppercase; color: var(--accent); }
+      #help .row { display: grid; grid-template-columns: minmax(120px, 34%) 1fr; gap: 14px; font-size: 13px; line-height: 1.5; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.05); color: var(--ink); }
+      #help .row span:last-child { color: var(--muted); }
       #help kbd { background: rgba(255,255,255,0.9); color: #1d1a16; border: 0; border-radius: 5px; padding: 1px 6px; font-size: 10.5px; font-weight: 700; margin-right: 2px; }
+      #help .place { padding: 9px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+      #help .place b { font-weight: 600; font-size: 13.5px; }
+      #help .place .hi { font-family: 'Tiro Devanagari Hindi', serif; color: var(--accent); margin-left: 6px; font-size: 13px; }
+      #help .place p { margin: 3px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+      #help .tip { font-size: 12.5px; color: var(--muted); margin: 10px 0 0; line-height: 1.55; }
+      @media (max-width: 600px) { #help .row { grid-template-columns: 1fr; gap: 2px; } }
       .btns { gap: 6px; padding: 5px; border-radius: 999px; background: rgba(18, 14, 10, 0.4); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
       .btns label { display: flex; align-items: center; gap: 4px; padding-left: 8px; font-size: 13px; }
       .btns select, .btns button { background: rgba(255,255,255,0.08); border-color: transparent; }
@@ -160,6 +176,9 @@
       #rh-pax .px-top { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink); }
       #rh-pax .px-next { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       #ridehud.bus { width: 230px; }
+      .rh-speed { display: flex; align-items: center; }
+      #rh-wheel { display: none; width: 34px; height: 34px; margin-left: auto; color: rgba(251,243,228,0.85); transition: transform .05s linear; }
+      #ridehud.four #rh-wheel { display: block; }
       #toast { font-size: 28px; }
       #caption { position: absolute; left: 50%; bottom: 112px; transform: translate(-50%, 6px); display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 6px 16px 7px; border-radius: 14px; background: rgba(18, 14, 10, 0.42); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); opacity: 0; transition: opacity .5s, transform .5s; white-space: nowrap; pointer-events: none; }
       #caption.show { opacity: 1; transform: translate(-50%, 0); }
@@ -202,7 +221,7 @@
       </div>
       <div id="ridehud">
         <div class="rh-top" style="display:flex;align-items:center"><span id="rh-name">Bicycle</span><span class="rh-gear" id="rh-gears"><b id="g-r" class="r">R</b><b id="g-n">N</b><b id="g-d">D</b></span></div>
-        <div class="rh-speed"><span id="rh-speed">0</span><small>km/h</small></div>
+        <div class="rh-speed"><span id="rh-speed">0</span><small>km/h</small><svg id="rh-wheel" viewBox="-12 -12 24 24" aria-hidden="true"><circle r="10" fill="none" stroke="currentColor" stroke-width="2.4"/><circle r="2.6" fill="currentColor"/><path d="M-9.6 1.5 L-2.4 0.6 M9.6 1.5 L2.4 0.6 M0 2.6 L0 9.8" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="0" cy="-10" r="1.4" fill="#f2b544"/></svg></div>
         <div class="rh-nitro"><span class="rh-label" id="rh-label">NITRO</span><div class="rh-bar"><div id="rh-nitro"></div></div><kbd id="rh-key">N</kbd></div>
         <div class="rh-row" id="rh-pax"><div class="px-top"><span id="px-count">🧍 0 / 10 aboard</span><span id="px-fare">₹0</span></div><div class="px-next" id="px-next">Stop at a 🚏 bus stop to pick people up</div></div>
       </div>
@@ -222,55 +241,121 @@
         <div id="fh-warn"></div>
       </div>
       <div class="hint glass" id="hintchip"><kbd>H</kbd>controls</div>
-      <div id="help" class="glass">
-        <h3>On foot</h3>
-        <div class="row"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span>walk</span></div>
-        <div class="row"><span><kbd>Shift</kbd> · <kbd>Space</kbd></span><span>run · jump</span></div>
-        <div class="row"><span><kbd>E</kbd></span><span>get on / into a ride nearby</span></div>
-        <div class="row"><span>river</span><span>walk in to swim</span></div>
-        <div class="row"><span><kbd>Q</kbd></span><span>sit a while</span></div>
-        <div class="row"><span><kbd>E</kbd> here and there</span><span>chai at the stall · the temple bell · pat the dog · feed the fish · float a diya at dusk</span></div>
-        <div class="row"><span><kbd>P</kbd></span><span>save a postcard</span></div>
-        <h3>Bikes &amp; scooter</h3>
-        <div class="row"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span>ride where you point</span></div>
-        <div class="row"><span><kbd>N</kbd> · <kbd>B</kbd></span><span>nitro · bell / horn</span></div>
-        <h3>Car, auto, e-rickshaw &amp; minibus</h3>
-        <div class="row"><span><kbd>W</kbd> / <kbd>S</kbd></span><span>accelerate · brake, then reverse</span></div>
-        <div class="row"><span><kbd>A</kbd> / <kbd>D</kbd></span><span>steer (flips when reversing)</span></div>
-        <div class="row"><span><kbd>V</kbd></span><span>inside view · driver's view</span></div>
-        <div class="row"><span><kbd>L</kbd></span><span>headlights on / off (bikes, scooters, cars, buses)</span></div>
-        <div class="row"><span>🚏 bus stop</span><span>stop the minibus (or the e-rickshaw, 4 riders max) there to pick people up</span></div>
-        <div class="row"><span>E by traffic</span><span>take any bike, scooter, bus or jeep on the road; park it back by its owner to return it</span></div>
-        <h3>The little plane ✈ (at the airstrip by the mela)</h3>
-        <div class="row"><span><kbd>R</kbd> / <kbd>F</kbd></span><span>more · less power (Shift works too)</span></div>
-        <div class="row"><span><kbd>S</kbd> / <kbd>W</kbd></span><span>pull up · push nose down (<kbd>I</kbd> inverts)</span></div>
-        <div class="row"><span><kbd>A</kbd> / <kbd>D</kbd> · <kbd>Z</kbd> <kbd>X</kbd></span><span>bank (steer on the ground) · rudder</span></div>
-        <div class="row"><span><kbd>G</kbd> · <kbd>L</kbd> · <kbd>Space</kbd></span><span>gear up/down · flaps · wheel brakes</span></div>
-        <div class="row"><span><kbd>P</kbd> · <kbd>B</kbd> · <kbd>V</kbd></span><span>autopilot · tricolour smoke · cockpit view</span></div>
-        <div class="row"><span><kbd>K</kbd></span><span>stunt mode: switch off the flying assist for loops and rolls</span></div>
-        <div class="row"><span>take off</span><span>full power, at ~70 km/h hold S; land gear down, slow, gently</span></div>
-        <h3>The helicopter 🚁 (on the helipad by the airstrip)</h3>
-        <div class="row"><span><kbd>R</kbd> / <kbd>F</kbd></span><span>up · down (Q also goes down; let go: it holds its height) — wait for the rotor first</span></div>
-        <div class="row"><span><kbd>W</kbd> / <kbd>S</kbd> · <kbd>A</kbd> / <kbd>D</kbd></span><span>fly forward · back · turn left / right</span></div>
-        <div class="row"><span><kbd>Z</kbd> / <kbd>X</kbd> · <kbd>V</kbd> · <kbd>K</kbd></span><span>slide sideways · cockpit view · hover assist</span></div>
-        <h3>Trains 🚂 (Sonpur — Gaon — Noorpur Junction — Mariapur)</h3>
-        <div class="row"><span>as a passenger</span><span>walk up to a coach at a station and press <kbd>E</kbd> — sit in the doorway and be carried</span></div>
-        <div class="row"><span>at a station</span><span>walk to the engine cab while it stands there, press <kbd>E</kbd> to drive</span></div>
-        <div class="row"><span><kbd>W</kbd> / <kbd>S</kbd> · <kbd>Space</kbd></span><span>go · brake, then reverse · brake</span></div>
-        <div class="row"><span><kbd>B</kbd> · <kbd>V</kbd> · <kbd>E</kbd></span><span>whistle · driver's view · climb down (stopped)</span></div>
-        <div class="row"><span>platform</span><span>stop alongside it and people get on and off (40 aboard max)</span></div>
-        <div class="row"><span>ring line</span><span>Gol Gaadi circles the whole land: Purab Jn · Khetpura · Mariapur Road · Paschim Jn · Rannvas</span></div>
-        <div class="row"><span>junctions</span><span>drive any station train on past the end of its line, onto the ring — it stops short of other trains</span></div>
-        <div class="row"><span>tunnels</span><span>real tunnels with lamps — trains and the boy go right through (the Mail line's, and the ring's hill tunnel)</span></div>
-        <div class="row"><span>outer line</span><span>two trains loop out past Dhaniyapur, Nadipar and Pathargaon and back round the ring; it runs beside the ring for a stretch, over twin river bridges</span></div>
-        <div class="row"><span>little river</span><span>Choti Nadi, out past Nadipar — take the lane from the village down to its ghat</span></div>
-        <div class="row"><span>viaduct</span><span>the ring crosses the Ghati valley on a tall bridge, just past its tunnel</span></div>
-        <h3>The wild 🦁</h3>
-        <div class="row"><span>the jungle</span><span>beyond the ring in the south-east: lions, hyenas, monkeys, snakes; wild buffalo in the valley</span></div>
-        <div class="row"><span>rhino hills</span><span>inside the ring in the north-east — rhinos charge if you get close</span></div>
-        <h3>World</h3>
-        <div class="row"><span><kbd>Tab</kbd> map</span><span><kbd>C</kbd> camera · <kbd>H</kbd> this help</span></div>
-        <div class="row"><span><kbd>Y</kbd> season</span><span><kbd>T</kbd> time of day · <kbd>J</kbd> weather · <kbd>M</kbd> sound · <kbd>U</kbd> full screen</span></div>
+      <div id="help">
+        <div class="hp-card" role="dialog" aria-label="Help">
+          <div class="hp-head"><div><div class="hp-title">गाँव — how to get about</div><div class="hp-sub"><kbd>H</kbd> or <kbd>Esc</kbd> to close</div></div><button id="hp-close" title="Close">✕</button></div>
+          <div class="hp-tabs"><button data-tab="walk" class="on">On foot</button><button data-tab="drive">Driving</button><button data-tab="trains">Trains &amp; flying</button><button data-tab="places">Places to go</button><button data-tab="todo">Things to do</button><button data-tab="world">Time &amp; weather</button></div>
+          <div class="hp-body">
+            <div class="hp-pane on" data-pane="walk">
+<h3>Moving about</h3>
+<div class="row"><span><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or arrows</span><span>walk; the camera follows</span></div>
+<div class="row"><span><kbd>Shift</kbd></span><span>run</span></div>
+<div class="row"><span><kbd>Space</kbd></span><span>jump</span></div>
+<div class="row"><span>mouse</span><span>look around (click the view first; <kbd>Esc</kbd> frees the cursor)</span></div>
+<div class="row"><span>scroll wheel</span><span>zoom the camera in and out</span></div>
+<div class="row"><span>the river</span><span>walk in to wade, deeper to swim — <kbd>W</kbd> swims, <kbd>Shift</kbd> swims faster</span></div>
+<h3>Doing things</h3>
+<div class="row"><span><kbd>E</kbd></span><span>ride whatever is beside you, or do the small thing at hand (it says what on screen)</span></div>
+<div class="row"><span><kbd>Q</kbd></span><span>sit down a while; <kbd>W</kbd> to get up</span></div>
+<div class="row"><span><kbd>P</kbd></span><span>save a postcard of the view</span></div>
+<h3>Looking</h3>
+<div class="row"><span><kbd>C</kbd></span><span>camera: follow · close-up · wide · cinematic · bird's-eye</span></div>
+<div class="row"><span><kbd>Tab</kbd></span><span>the full map, with every place marked</span></div>
+<div class="row"><span><kbd>U</kbd></span><span>full screen</span></div>
+            </div>
+            <div class="hp-pane" data-pane="drive">
+<h3>Getting a ride</h3>
+<div class="row"><span><kbd>E</kbd> by a parked vehicle</span><span>get on or in: bicycles, motorbikes, scooters, the auto rickshaw, the car, the e-rickshaw, the minibus, the boat</span></div>
+<div class="row"><span><kbd>E</kbd> by traffic</span><span>take anything going along the road — a bicycle, motorbike, scooter, car, jeep, bus or bullock cart. The owner waits by the road; park it back near them and walk off to return it</span></div>
+<div class="row"><span><kbd>E</kbd> while riding</span><span>get off or out (stop first in the bigger ones)</span></div>
+<h3>Bicycles, motorbikes, scooters</h3>
+<div class="row"><span><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></span><span>ride the way you point</span></div>
+<div class="row"><span><kbd>Shift</kbd> · <kbd>N</kbd></span><span>go faster · nitro on the motorbike and scooter</span></div>
+<div class="row"><span><kbd>B</kbd> · <kbd>L</kbd></span><span>bell or horn · lamp</span></div>
+<h3>Car, jeep, auto, e-rickshaw, buses, bullock cart</h3>
+<div class="row"><span><kbd>W</kbd> / <kbd>S</kbd></span><span>accelerate · brake, then reverse</span></div>
+<div class="row"><span><kbd>A</kbd> / <kbd>D</kbd></span><span>steer — the front wheels turn, and the little wheel on the speed panel shows how far</span></div>
+<div class="row"><span><kbd>Shift</kbd> · <kbd>N</kbd></span><span>faster · nitro (the car)</span></div>
+<div class="row"><span><kbd>B</kbd></span><span>horn: people step aside and traffic ahead pulls over to let you by</span></div>
+<div class="row"><span><kbd>L</kbd></span><span>headlights on and off (they come on by themselves if you get in after dark)</span></div>
+<div class="row"><span><kbd>V</kbd></span><span>inside view · driver's view · outside</span></div>
+<div class="row"><span>🚏 bus stops</span><span>stop the minibus or e-rickshaw at one and riders climb in; drop them at their village for the fare</span></div>
+<h3>The boat</h3>
+<div class="row"><span><kbd>W</kbd> <kbd>A</kbd> <kbd>D</kbd></span><span>row; <kbd>E</kbd> near the bank to step out</span></div>
+<p class="tip">Careful: anything you drive can knock people over or crash into other vehicles — and the trains stop for nothing.</p>
+            </div>
+            <div class="hp-pane" data-pane="trains">
+<h3>Riding a train</h3>
+<div class="row"><span><kbd>E</kbd> by a coach</span><span>at any station while a train stands there: sit in the doorway and be carried along</span></div>
+<div class="row"><span><kbd>V</kbd> · <kbd>E</kbd></span><span>change view · step down at the next station</span></div>
+<h3>Driving the engine</h3>
+<div class="row"><span><kbd>E</kbd> by the cab</span><span>while it stands at a station, climb up into the engine</span></div>
+<div class="row"><span><kbd>W</kbd> / <kbd>S</kbd> · <kbd>Space</kbd></span><span>open the regulator · brake, then reverse · brake</span></div>
+<div class="row"><span><kbd>B</kbd> · <kbd>V</kbd> · <kbd>E</kbd></span><span>whistle · driver's view · climb down (stopped)</span></div>
+<div class="row"><span>platforms</span><span>stop alongside one and passengers get on and off</span></div>
+<h3>The plane ✈ and the helicopter 🚁</h3>
+<div class="row"><span>where</span><span>the airstrip and helipad are out in the open country beyond Vitthalwadi — follow the dirt track</span></div>
+<div class="row"><span>plane: <kbd>R</kbd> / <kbd>F</kbd></span><span>more · less power; at about 70 km/h hold <kbd>S</kbd> to lift off</span></div>
+<div class="row"><span><kbd>S</kbd> / <kbd>W</kbd> · <kbd>A</kbd> / <kbd>D</kbd></span><span>nose up · down · bank and turn</span></div>
+<div class="row"><span><kbd>G</kbd> · <kbd>L</kbd> · <kbd>P</kbd></span><span>landing gear · flaps · autopilot</span></div>
+<div class="row"><span><kbd>B</kbd> · <kbd>K</kbd> · <kbd>V</kbd></span><span>tricolour smoke · stunt mode · cockpit view</span></div>
+<div class="row"><span>helicopter: <kbd>R</kbd> / <kbd>F</kbd></span><span>up · down (wait for the rotor first)</span></div>
+<div class="row"><span><kbd>W</kbd> / <kbd>S</kbd> · <kbd>A</kbd> / <kbd>D</kbd> · <kbd>Z</kbd> / <kbd>X</kbd></span><span>forward · back · turn · slide sideways</span></div>
+            </div>
+            <div class="hp-pane" data-pane="places">
+<p class="tip">Everything here is marked on the map (<kbd>Tab</kbd>), and signposts at the crossroads point the way. Roads link every village; buses and jeeps run between them.</p>
+<h3>Gaon and close by</h3>
+<div class="place"><b>Gaon</b><span class="hi">गाँव</span><p>The home village: the chaupal square under the old banyan, the temple and its bell, the well, the chai stall, the haat (market), the school, the cricket ground, mud houses with Warli paintings.</p></div>
+<div class="place"><b>The mela</b><span class="hi">मेला</span><p>The village fair, out past the edge of the village: a giant wheel, a merry-go-round, swings and stalls of sweets and bangles. At night its lights come on.</p></div>
+<div class="place"><b>The ghat and the river</b><span class="hi">घाट</span><p>Stone steps down to the water, the rowing boat, the footbridge, buffaloes wallowing below the ghat.</p></div>
+<div class="place"><b>Paar Gaon</b><span class="hi">पार गाँव</span><p>The little hamlet across the river, over the footbridge.</p></div>
+<div class="place"><b>Chhota Gaon</b><span class="hi">छोटा गाँव</span><p>A small village up the road, with the post office and the hospital.</p></div>
+<div class="place"><b>The charagah</b><span class="hi">चारागाह</span><p>The grazing meadow, where the shepherds bring their sheep, goats and cows.</p></div>
+<h3>Other villages</h3>
+<div class="place"><b>Marudhar</b><span class="hi">मारुधर</span><p>A Rajasthani village of sandstone and blue houses round a stepwell, over the road bridge.</p></div>
+<div class="place"><b>Banglagram</b><span class="hi">बांग्लाग्राम</span><p>A Bengali village of curved-roof huts round a pond.</p></div>
+<div class="place"><b>Thennoor</b><span class="hi">तेन्नूर</span><p>A Tamil village with tiled roofs, verandahs and a gopuram temple.</p></div>
+<div class="place"><b>Vitthalwadi</b><span class="hi">विट्ठलवाड़ी</span><p>A Maharashtrian village of basalt and tile, with its wada and Vitthal temple.</p></div>
+<div class="place"><b>Pahadi Gaon</b><span class="hi">पहाड़ी गाँव</span><p>A hill village of stone and slate, with apple trees.</p></div>
+<div class="place"><b>Bamboo Hill</b><span class="hi">बाँस पहाड़ी</span><p>Bamboo stilt houses of the North-East and a terraced tea garden.</p></div>
+<div class="place"><b>Noorpur and Mariapur</b><span class="hi">नूरपुर · मरियापुर</span><p>A Muslim village round its masjid, and a Christian village round its church — both by the railway.</p></div>
+<div class="place"><b>Khetpura and Rannvas</b><span class="hi">खेतपुरा · रणवास</span><p>By the ring railway: Punjabi farmers in Khetpura; Kutchi herders, goats and a camel in Rannvas.</p></div>
+<div class="place"><b>Dhaniyapur, Nadipar, Pathargaon</b><span class="hi">धनियापुर · नदीपार · पत्थरगाँव</span><p>The far villages: Bihari mud houses, Bengali huts by the little river, a stone hill village.</p></div>
+<h3>Out in the country</h3>
+<div class="place"><b>The hilltop shrine and Shikhar</b><span class="hi">शिखर</span><p>The stone stairway climbs the great mountain to the summit temple. The orange shrine shuttle bus runs up the hill road from the village and back.</p></div>
+<div class="place"><b>Jharna — the waterfall</b><span class="hi">झरना</span><p>A tall waterfall far out in the hills, its stream running down a gorge to the river.</p></div>
+<div class="place"><b>The airstrip</b><span class="hi">हवाई पट्टी</span><p>Out in the open country: the plane, the helicopter and the hangar.</p></div>
+<div class="place"><b>Sonpur station and the railway</b><span class="hi">सोनपुर</span><p>Trains run between the stations; the ring line circles the whole land, through tunnels and over the viaduct across the Ghati valley.</p></div>
+<div class="place"><b>The wild</b><span class="hi">जंगल</span><p>Beyond the ring: the jungle with lions, hyenas, monkeys and snakes; rhinos in the Gainda hills; tigers, leopards, wolves and elephants in the far hills; crocodiles on the far river banks. Keep your distance!</p></div>
+            </div>
+            <div class="hp-pane" data-pane="todo">
+<h3>Small things to do</h3>
+<div class="row"><span>chai stall</span><span>a cup of chai (<kbd>E</kbd>), and sit with it</span></div>
+<div class="row"><span>the temple</span><span>ring the bell (<kbd>E</kbd>)</span></div>
+<div class="row"><span>the brown dog</span><span>pat it (<kbd>E</kbd>) — it follows you about</span></div>
+<div class="row"><span>the river bank</span><span>scatter puffed rice for the fish; at dusk, float a diya (<kbd>E</kbd>)</span></div>
+<div class="row"><span>anywhere</span><span>sit a while (<kbd>Q</kbd>), save a postcard (<kbd>P</kbd>)</span></div>
+<div class="row"><span>the shops</span><span>every village has a little shop or two; watch the shopkeepers and their customers</span></div>
+<h3>Things to watch</h3>
+<div class="row"><span>the kites</span><span>the kite fights on the meadow</span></div>
+<div class="row"><span>the cricket</span><span>the match by the school</span></div>
+<div class="row"><span>the herds</span><span>shepherds bringing the flocks out to graze and home at dusk</span></div>
+<div class="row"><span>the trains</span><span>from the lineside, or ride one through the hills</span></div>
+            </div>
+            <div class="hp-pane" data-pane="world">
+<h3>Time, weather and seasons</h3>
+<div class="row"><span><kbd>T</kbd></span><span>next time of day: early morning · noon · golden afternoon · dusk · full-moon night · moonless night</span></div>
+<div class="row"><span><kbd>J</kbd></span><span>next weather: clear · windy · morning mist · overcast · drizzle · monsoon rain · thunderstorm</span></div>
+<div class="row"><span><kbd>Y</kbd></span><span>next season: spring · summer · monsoon · autumn · winter</span></div>
+<div class="row"><span>menus</span><span>the same three, and the sound theme, are in the bottom-right corner</span></div>
+<p class="tip">Nothing changes by itself: the hour, the weather and the season stay as you set them.</p>
+<h3>Sound and screen</h3>
+<div class="row"><span><kbd>M</kbd></span><span>sound on or off</span></div>
+<div class="row"><span><kbd>U</kbd></span><span>full screen</span></div>
+<div class="row"><span><kbd>H</kbd> · <kbd>Esc</kbd></span><span>open and close this help</span></div>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="btns"><label title="Season">🍃<select id="season"></select></label><label title="Time of day (T)">🌤<select id="atmo"></select></label><label title="Weather (J)">☁<select id="wx"></select></label><label title="Sound theme">🎵<select id="sound"></select></label><button id="mute">Sound on</button><button id="fullscreen" title="Full screen (U)">⛶ Full screen</button></div>
     </div>

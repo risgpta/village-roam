@@ -52,7 +52,7 @@ export function buildShrineLife(scene) {
   }
   for (const r of resident) { scene.add(r.p.root); people.push(r.p); }
 
-  // --- the pilgrims: 5 on the stairway, 4 on the hill road, spread out along the way ---
+  // --- the pilgrims: 11 on the stairway (about half on their way back down), 4 on the hill road ---
   const stairPath = polyline(STAIRS.pts);
   const roadPath = polyline(SHRINE_ROAD.pts);
   const pilgrims = [];
@@ -65,17 +65,18 @@ export function buildShrineLife(scene) {
     scene.add(p.root); people.push(p);
     return p;
   };
-  for (let i = 0; i < 9; i++) {
-    const onStairs = i < 5;
+  const NS = 11;
+  for (let i = 0; i < NS + 4; i++) {
+    const onStairs = i < NS;
     const path = onStairs ? stairPath : roadPath;
     const p = mk(i);
     if (i === 3) p.prop('stick', true); // an old pilgrim with a stick
     if (i === 0 || i === 6) p.prop('potHead', true); // carrying an offering on her head
     const f = {
       p, path, onStairs,
-      s: path.L * ((onStairs ? i / 5 : (i - 5) / 4) * 0.85 + 0.05 + R() * 0.05),
-      dir: R() < 0.75 ? 1 : -1, // most are on the way up
-      speed: (onStairs ? 0.55 : 0.95) * (0.85 + R() * 0.3) * (i === 3 ? 0.65 : 1),
+      s: path.L * ((onStairs ? i / NS : (i - NS) / 4) * 0.85 + 0.05 + R() * 0.05),
+      dir: onStairs ? (i % 2 ? -1 : 1) : R() < 0.75 ? 1 : -1, // on the stairs, every other one is coming down
+      speed: (onStairs ? 0.55 : 0.95) * (0.85 + R() * 0.3) * (i === 3 ? 0.65 : 1) * (onStairs && i % 2 ? 1.25 : 1), // a little quicker going down
       state: 'go', timer: 0, x: 0, z: 0, face: 0, prayAt: null,
     };
     pilgrims.push(f);

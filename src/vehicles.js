@@ -8,6 +8,14 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const std = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, ...o });
 
+// Front wheels turn with the steering, eased so they swing over smoothly rather than snapping; the angle is
+// limited to what a real steering box allows (about 32°).
+function steerWheels(v, steer, dt) {
+  const want = Math.max(-0.56, Math.min(0.56, (steer || 0) * 1.25));
+  v.steerNow = (v.steerNow ?? 0) + (want - (v.steerNow ?? 0)) * (1 - Math.exp(-dt * 9));
+  for (const f of v.front ?? []) f.rotation.y = v.steerNow;
+}
+
 // ---- tyres & wheels, shared by every vehicle ----
 // tyre: a lathed carcass with rounded shoulders and a bulging sidewall, two staggered rows of tread blocks
 // split by a centre groove, and a raised lettering band on each wall. rim: a dished steel wheel with vent
@@ -498,15 +506,28 @@ export class SmallCar {
   foot(side, out) { return out.set(side * 0.12, 0.32, 0.5); }
   update(dt, speed, steer, riding, night = 0) {
     for (const w of this.wheels) w.rotation.x += (speed * dt) / 0.29;
-    const st = riding ? steer * 1.4 : 0.2;
-    for (const f of this.front) f.rotation.y = st * 0.6;
-    this.steer.rotation.z = -st * 2.2;
+    steerWheels(this, riding ? steer : 0.12, dt);
+    this.steer.rotation.z = -(this.steerNow ?? 0) * 4;
     this.lamp.emissiveIntensity = night ? 4.5 : 0.15;
     this.brakeM.emissiveIntensity = riding && this.brake ? 3 : night ? 0.9 : 0.2;
     this.dial.emissiveIntensity = 0.12 + night * 0.9;
     this.speedo.userData.set(Math.abs(speed) * 3.6);
     this.body.position.y = riding && speed > 0.1 ? Math.sin(performance.now() * 0.03) * 0.003 : 0;
   }
+}
+
+// The little car as a piece of road traffic: the same model, with the seats a driver and passengers sit in
+// and the size the traffic needs to keep its distance.
+export class TrafficCar {
+  constructor({ color = '#e8e6e0' } = {}) {
+    this.car = new SmallCar(color);
+    this.kind = 'car';
+    this.root = this.car.root;
+    this.driverSeat = V(0, 0.545, -0.15);
+    this.seats = [V(0.66, 0.545, -0.15), V(0.5, 0.57, -0.74)];
+    this.len = 3.3; this.half = 0.78; this.wheelR = 0.29;
+  }
+  update(dt, speed, steer = 0, riding = false, night = 0) { this.car.brake = false; this.car.update(dt, speed, steer, true, night); }
 }
 
 // ---------------- rowing boat ----------------
@@ -891,11 +912,13 @@ export class VillageBus {
     for (let i = 0; i < 2; i++) add(RB(0.36, 0.05, 0.8, 0.02), chrome, W / 2 - 0.16, base - 0.1 + i * 0.3, (doorZ0 + doorZ1) / 2);
     // wheels in black-lined arches
     this.wheels = [];
+    this.front = [];
     for (const [sx, sz] of [[-1, 2.9], [1, 2.9], [-1, -2.6], [1, -2.6]]) {
+      const hub = new THREE.Group(); hub.position.set(sx * 1.02, 0.52, sz); g.add(hub);
       const w = roadWheel(0.52, 0.32);
-      w.position.set(sx * 1.02, 0.52, sz);
-      g.add(w);
+      hub.add(w);
       this.wheels.push(w);
+      if (sz > 0) this.front.push(hub);
       add(new THREE.CylinderGeometry(0.62, 0.62, 0.36, 18, 1, true, 0, Math.PI).rotateZ(Math.PI / 2), std('#0e0e0e', { side: THREE.DoubleSide }), sx * 1.02, 0.56, sz);
     }
     consolidateFlat(g);
@@ -906,7 +929,8 @@ export class VillageBus {
   }
   update(dt, speed, steer = 0, riding = false, night = 0) {
     for (const w of this.wheels) w.rotation.x += (speed * dt) / this.wheelR;
-    this.wheelSteer.rotation.z = -(steer || 0) * 2.4;
+    steerWheels(this, steer, dt);
+    this.wheelSteer.rotation.z = -(this.steerNow ?? 0) * 3.4;
     this.cabinLight.emissiveIntensity = 0.2 + night * 2.2;
     this.dial.emissiveIntensity = 0.15 + night * 0.9;
     this.lamps.emissiveIntensity = night ? 4.5 : 0.3;
@@ -961,8 +985,9 @@ export class Jeep {
     // folding windscreen, steering wheel, seats, bull bar, spare wheel, canvas hood on a frame
     add(new THREE.BoxGeometry(1.36, 0.46, 0.02), glass, 0, 1.55, 0.62);
     add(RB(1.42, 0.52, 0.06, 0.02), black, 0, 1.55, 0.62).scale.set(1, 1, 0.3);
-    const sw = add(new THREE.TorusGeometry(0.17, 0.018, 8, 26), black, -0.38, 1.35, 0.42); sw.rotation.x = -0.9;
-    for (const a of [0, Math.PI / 2]) { const sp = add(new THREE.BoxGeometry(0.33, 0.02, 0.014), black, -0.38, 1.35, 0.42); sp.rotation.set(-0.9, 0, a, 'XYZ'); }
+    this.swG = new THREE.Group(); this.swG.position.set(-0.38, 1.35, 0.42); this.swG.rotation.x = -0.9; g.add(this.swG);
+    this.swG.add(new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.018, 8, 26), black));
+    for (const a of [0, Math.PI / 2]) { const sp = new THREE.Mesh(new THREE.BoxGeometry(0.33, 0.02, 0.014), black); sp.rotation.z = a; this.swG.add(sp); }
     for (const sx of [-1, 1]) { add(RB(0.48, 0.12, 0.45, 0.05), seat, sx * 0.38, 1.0, -0.02); add(RB(0.48, 0.45, 0.1, 0.05), seat, sx * 0.38, 1.25, -0.26); }
     for (const sx of [-1, 1]) add(RB(0.34, 0.12, 1.1, 0.04), seat, sx * 0.55, 1.0, -1.15);
     add(RB(1.4, 0.1, 0.1, 0.04), chrome, 0, 0.75, 2.2);
@@ -974,12 +999,14 @@ export class Jeep {
     add(new THREE.PlaneGeometry(1.6, 0.6), canvasM, 0, 1.95, -1.85);
     const plate = add(new THREE.PlaneGeometry(0.42, 0.11), new THREE.MeshStandardMaterial({ map: plateTexture('UK 07 J 1947'), roughness: 0.5 }), 0, 0.8, 2.24);
     void plate;
-    this.wheels = [];
+    this.wheels = []; this.front = [];
     for (const [sx, sz] of [[-1, 1.3], [1, 1.3], [-1, -1.15], [1, -1.15]]) {
+      // each wheel on its own hub, so the front pair can turn to steer while they roll
+      const hub = new THREE.Group(); hub.position.set(sx * 0.79, 0.38, sz); g.add(hub);
       const w = roadWheel(0.38, 0.27);
-      w.position.set(sx * 0.79, 0.38, sz);
-      g.add(w);
+      hub.add(w);
       this.wheels.push(w);
+      if (sz > 0) this.front.push(hub);
     }
     this.seats = [V(0.38, 1.06, 0.0), V(-0.55, 1.06, -1.0), V(0.55, 1.06, -1.3)];
     this.driverSeat = V(-0.38, 1.06, 0.0);
@@ -987,6 +1014,8 @@ export class Jeep {
   }
   update(dt, speed, steer = 0, riding = false, night = 0) {
     for (const w of this.wheels) w.rotation.x += (speed * dt) / this.wheelR;
+    steerWheels(this, steer, dt);
+    this.swG.rotation.z = -(this.steerNow ?? 0) * 3.2;
     this.lamp.emissiveIntensity = night ? 4.5 : 0.3;
     this.speedo.userData.face.emissiveIntensity = 0.12 + night * 0.9;
     this.speedo.userData.set(Math.abs(speed) * 3.6);
@@ -1200,9 +1229,8 @@ export class MiniBus {
   foot(side, out) { return out.set(side * 0.14, this.floorY + 0.08, 2.62); }
   update(dt, speed, steer, riding, night = 0) {
     for (const w of this.wheels) w.rotation.x += (speed * dt) / this.wheelR;
-    const st = riding ? steer * 1.3 : 0;
-    for (const f of this.front) f.rotation.y = st * 0.6;
-    this.wheelSteer.rotation.z = -st * 2.4;
+    steerWheels(this, riding ? steer : 0, dt);
+    this.wheelSteer.rotation.z = -(this.steerNow ?? 0) * 4;
     this.lamp.emissiveIntensity = night ? 4.5 : 0.15;
     this.brakeM.emissiveIntensity = riding ? (this.brake ? 2.2 : 0.35 + night * 0.4) : 0.1;
     this.revM.emissiveIntensity = riding && speed < -0.1 ? 2.5 : 0;

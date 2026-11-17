@@ -4,10 +4,14 @@ import * as THREE from 'three';
 
 const items = [];
 const _s = new THREE.Sphere();
+const _b = new THREE.Box3();
 export function cullBeyond(obj, dist) {
-  obj.updateWorldMatrix(true, false);
-  const bs = obj.boundingSphere ?? (obj.geometry.boundingSphere ?? (obj.geometry.computeBoundingSphere(), obj.geometry.boundingSphere));
-  _s.copy(bs).applyMatrix4(obj.matrixWorld);
+  obj.updateWorldMatrix(true, true);
+  if (obj.isGroup || !obj.geometry) _b.setFromObject(obj).getBoundingSphere(_s); // a whole group (a lamp post…)
+  else {
+    const bs = obj.boundingSphere ?? (obj.geometry.boundingSphere ?? (obj.geometry.computeBoundingSphere(), obj.geometry.boundingSphere));
+    _s.copy(bs).applyMatrix4(obj.matrixWorld);
+  }
   items.push({ obj, c: _s.center.clone(), r: _s.radius, dist });
   return obj;
 }

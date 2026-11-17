@@ -1,10 +1,10 @@
 // Villagers going about their chores, and two village dogs. All procedural rigs and animation.
 import * as THREE from 'three';
 import {
-  layout, roadX, pathZ, groundHeight, heightAt, resolveCollisions, localToWorld, SQUARE, FOOT, EH, GHAT, TEA, MARKET, CRICKET, NV, BRIDGES, RV, BV, TV, MH, NE, PG, riverX, RIVER_HALF, WATER_Y, WATER,
+  layout, roadX, pathZ, groundHeight, heightAt, resolveCollisions, localToWorld, SQUARE, FOOT, EH, GHAT, TEA, MARKET, CRICKET, NV, BRIDGES, RV, BV, TV, MH, NE, PG, riverX, RIVER_HALF, WATER_Y, WATER, SHRINE_ROAD, HILLTOP
 } from './world.js';
 import { Moped } from './bicycle.js';
-import { Scooter, VillageBus, Jeep, RowBoat, poseRower } from './vehicles.js';
+import { Scooter, VillageBus, Jeep, TrafficCar, RowBoat, poseRower } from './vehicles.js';
 import { Bicycle, poseRider } from './bicycle.js';
 import { makeCow } from './animals.js';
 import { lathe, limb, limbZ, ellipsoid, muscle, folds } from './shapes.js';
@@ -498,7 +498,18 @@ export class Person {
     this.legs.forEach((Lg, i) => { Lg.hip.rotation.set(-0.25 * f - (i ? 0.3 : 0) * f, 0, (i ? 0.12 : -0.12) * f); Lg.knee.rotation.set(0.5 * f + (i ? 0.4 : 0) * f, 0, 0); });
     this.head.rotation.set(-0.35 * f, 0.4 * f, 0);
   }
+  // step aside by (dx, dz) metres for `hold` seconds, then drift back (the owner keeps setting the root's
+  // position; the offset rides on top of it)
+  dodge(dx, dz, hold = 3.5) { this.dodgeV = { dx, dz, t: 0, hold }; }
   update(dt, speed, action) {
+    if (this.dodgeV && this.root.parent?.isScene) {
+      const d = this.dodgeV;
+      d.t += dt;
+      const k = d.t < 0.6 ? ss(d.t / 0.6) : d.t < d.hold ? 1 : d.t < d.hold + 1.2 ? 1 - ss((d.t - d.hold) / 1.2) : 0;
+      this.root.position.x += d.dx * k; this.root.position.z += d.dz * k;
+      if (d.t < 0.6) speed = Math.max(speed, 1.6); // a few quick steps
+      if (d.t > d.hold + 1.2) this.dodgeV = null;
+    }
     if (this.fallT > 0) { this.fallStep(dt); return; }
     this.t += dt;
     const t = this.t;
@@ -1156,7 +1167,7 @@ export function buildPeople(scene, village, hooks = {}) {
       return o;
     },
     colliders() {
-      return [...villagers.filter((v) => !(v.person.fallT > 0)).map((v) => ({ kind: 'c', x: v.p.x, z: v.p.z, r: 0.28 })), ...dogs.map((d) => ({ kind: 'c', x: d.p.x, z: d.p.z, r: 0.3 })), ...travellers.colliders()];
+      return [...villagers.filter((v) => !(v.person.fallT > 0)).map((v) => ({ kind: 'c', x: v.p.x, z: v.p.z, r: 0.28, person: true })), ...dogs.map((d) => ({ kind: 'c', x: d.p.x, z: d.p.z, r: 0.3 })), ...travellers.colliders()];
     },
   };
 }
@@ -1349,21 +1360,36 @@ function buildTravellers(scene, hooks) {
     scene.add(holder);
     const cart = cartModel();
     cart.g.position.z = -2.2;
-    holder.add(cart.g);
+    const vroot = new THREE.Group();
+    vroot.add(cart.g);
+    holder.add(vroot);
     const bulls = [-0.55, 0.55].map((x) => {
       const c = makeCow(coat);
       c.g.position.set(x, 0, 2.0);
       c.g.scale.setScalar(0.92);
-      holder.add(c.g);
+      vroot.add(c.g);
       return c;
     });
+    // the cart as a vehicle: its seat, size, and wheels and bullocks that move with its speed
+    const veh = {
+      kind: 'cart', root: vroot, driverSeat: new THREE.Vector3(0, 1.0, -1.35), seats: [], len: 6.6, half: 0.95, wheelR: 0.72,
+      update(dt, speed) {
+        for (const w of cart.wheels) w.rotation.x += (speed * dt) / 0.7;
+        for (const b of bulls) {
+          b.ph = (b.ph ?? Math.random() * 6) + speed * dt * 3.2;
+          for (const [i, l] of b.legs.entries()) l.hip.rotation.x = Math.sin(b.ph + (i % 3 === 0 ? 0 : Math.PI)) * 0.3 * Math.min(1, Math.abs(speed));
+          b.neck.rotation.x = 0.15 + Math.sin(b.ph * 2) * 0.04;
+          b.tail.rotation.z = Math.sin(performance.now() * 0.002 + b.ph) * 0.3;
+        }
+      },
+    };
     const driver = new Person({ dress: 'dhoti', top: '#e9dcc3', bottom: '#f0ebe0', headwear: 'turban', turban: '#e07a1e', mustache: true, skin: '#6e4530', sleeves: 'short', ...look }); driver.noHit = true;
     driver.seatH = 0;
     driver.root.position.set(0, 1.0, -1.1);
     cart.g.add(driver.root);
     driver.root.position.z = 0.85;
     driver.prop('stick', true);
-    list.push({ kind: 'cart', holder, cart, bulls, person: driver, loop, s: s0, v: 1.15, speed: 1.15, heading: 0, p: { x: 0, z: 0 } });
+    list.push({ kind: 'cart', holder, cart, bulls, veh, riders: [], person: driver, loop, s: s0, v: 1.15, speed: 1.15, heading: 0, p: { x: 0, z: 0 } });
   };
   addCart(roadLoop(1.6), 260);
   // the new roads out to the far villages: cyclists, motorbikes and scooters, and people walking
@@ -1381,6 +1407,9 @@ function buildTravellers(scene, hooks) {
   if (layout.newRoads?.khet) routes.khet = layout.newRoads.khet;
   if (layout.newRoads?.rann) routes.rann = layout.newRoads.rann;
   if (layout.newRoads?.outer) routes.outer = layout.newRoads.outer;
+  // the shrine shuttle: from the village bus stop down the main road to the hilltop shrine, then all the way
+  // up the hill road to the summit; it waits a while at each end and comes back
+  routes.shrine = [...along(66, HILLTOP.z + 14, 10), ...SHRINE_ROAD.pts.map((q) => [q.x, q.z])];
   // the buses and jeeps take longer runs, linking several villages
   routes.busA = [...along(30, 150), [roadX(150) + 2, 150], [40, 152], [B1.aw.x, B1.aw.z], [B1.w.x, B1.w.z], [B1.e.x, B1.e.z], [B1.ae.x, B1.ae.z], [150, 158], [210, 145], [313, 179], [RV.x - 16, RV.z], [RV.x - 6, RV.z - 16], [326, -181], [BV.x + 14, BV.z + 6], [BV.x - 16, BV.z], [221, -286], [130, -228], [B2.ae.x, B2.ae.z], [B2.e.x, B2.e.z], [B2.w.x, B2.w.z], [B2.aw.x, B2.aw.z], [20, -175], [roadX(-150) + 2, -150], ...along(-150, 10)];
   routes.busB = routes.west;
@@ -1397,6 +1426,18 @@ function buildTravellers(scene, hooks) {
     ...(routes.khet ? [{ route: 'khet', kind: Moped, o: { dress: 'kurta', top: '#f4f2ec', bottom: '#f4f1e8', skin: '#7a4c33', beard: true, mustache: true, headwear: 'turban', turban: '#f2a41a' }, v: 8, s0: 200 }] : []),
     ...(routes.outer ? [{ route: 'outer', kind: Moped, o: { dress: 'kurta', top: '#c9d8e8', bottom: '#f4f1e8', skin: '#7f5238', mustache: true, headwear: 'cap', turban: '#f2efe6' }, v: 7.5, s0: 600 }, { route: 'outer', kind: Bicycle, o: { dress: 'dhoti', top: '#f4f1e8', bottom: '#2e8b57', skin: '#6e4530', sleeves: 'short', mustache: true }, v: 3.6, s0: 1500 }] : []),
     ...(routes.rann ? [{ route: 'rann', kind: Bicycle, o: { dress: 'dhoti', top: '#f4f1e8', bottom: '#f4f1e8', skin: '#6e4530', headwear: 'turban', turban: '#c4241c', mustache: true }, v: 3.8, s0: 300 }] : []),
+    // out round the far villages and on the country roads
+    ...(routes.outer ? [
+      { route: 'outer', kind: Bicycle, o: { dress: 'shorts', k: 0.72, headScale: 1.2, top: '#2e8b57', bottom: '#2a3a6a', skin: '#8a5a3c', sleeves: 'short' }, v: 4.2 },
+      { route: 'outer', kind: Scooter, o: { dress: 'saree', k: 0.92, top: '#f6f2e8', bottom: '#c4241c', veil: false, skin: '#80523a' }, v: 7 },
+      { route: 'outer', kind: Bicycle, o: { dress: 'dhoti', top: '#e9dcc3', bottom: '#f4f1e8', skin: '#6f4834', mustache: true, sleeves: 'short' }, v: 3.6 },
+    ] : []),
+    ...(routes.khet ? [{ route: 'khet', kind: Bicycle, o: { dress: 'kurta', top: '#c9d8e8', bottom: '#f4f1e8', skin: '#7a4c33', beard: true, mustache: true, headwear: 'turban', turban: '#1e6fa8' }, v: 4 }] : []),
+    ...(routes.rann ? [{ route: 'rann', kind: Moped, o: { dress: 'dhoti', top: '#f4f1e8', bottom: '#f4f1e8', skin: '#6e4530', headwear: 'turban', turban: '#ffffff', mustache: true }, v: 8 }] : []),
+    { route: 'ne', kind: Moped, o: { dress: 'pants', top: '#e0612b', bottom: '#3a3a42', skin: '#7a4c33', sleeves: 'short' }, v: 8 },
+    { route: 'ne', kind: Bicycle, o: { dress: 'saree', k: 0.92, top: '#1e6fa8', bottom: '#f2b705', veil: false, skin: '#86573b' }, v: 3.4 },
+    { route: 'west', kind: Scooter, o: { dress: 'pants', top: '#f2efe6', bottom: '#4a4a52', skin: '#83553a', sleeves: 'short', mustache: true }, v: 7.5 },
+    { route: 'west', kind: Bicycle, o: { dress: 'dhoti', top: '#dfe6ea', bottom: '#f4f1e8', skin: '#6e4530', headwear: 'cap', turban: '#f2efe6' }, v: 3.8 },
   ];
   for (const r of motorRiders) {
     const holder = new THREE.Group();
@@ -1405,7 +1446,8 @@ function buildTravellers(scene, hooks) {
     holder.add(bike.root);
     const person = new Person(r.o); person.noHit = true;
     holder.add(person.root);
-    list.push({ kind: 'bike', motor: r.kind !== Bicycle, holder, bike, person, loop: polyLoop(routes[r.route], 1.2), s: r.s0, v: r.v, speed: r.v, heading: 0, p: { x: 0, z: 0 }, bellCool: 0 });
+    const loop = polyLoop(routes[r.route], 1.2);
+    list.push({ kind: 'bike', motor: r.kind !== Bicycle, holder, bike, person, loop, s: ((motorRiders.indexOf(r) * 0.618 + 0.11) % 1) * loop.total, v: r.v, speed: r.v, heading: 0, p: { x: 0, z: 0 }, bellCool: 0 });
   }
   const walkers = [
     { route: 'east', o: { dress: 'saree', k: 0.93, top: '#d4a017', bottom: '#b3202c', veil: true, skin: '#80523a' }, carry: 'potHead', s0: 40 },
@@ -1419,10 +1461,10 @@ function buildTravellers(scene, hooks) {
   // more folk on foot: off to the market, the fields, the next village
   const SHIRTS = ['#efe8d6', '#dfe6ea', '#b9c7a5', '#8fa6c4', '#e9dcc3', '#c9b27a', '#f4f1e8'];
   const SAREES = [['#d4a017', '#b3202c'], ['#3c6e47', '#2e8b57'], ['#7a2b6e', '#c2185b'], ['#c4241c', '#f6f2e8'], ['#1e6fa8', '#f2b705'], ['#e0612b', '#2e3fa8']];
-  const extra = ['main', 'main', 'main', 'main', 'west', 'west', 'west', 'ne', 'ne', 'east', 'east', 'south', 'south', 'north', 'north', 'main'];
-  if (routes.khet) extra.push('khet', 'khet');
-  if (routes.rann) extra.push('rann', 'rann');
-  if (routes.outer) extra.push('outer', 'outer', 'outer');
+  const extra = ['main', 'main', 'main', 'west', 'west', 'west', 'west', 'ne', 'ne', 'ne', 'east', 'east', 'east', 'south', 'south', 'south', 'north', 'north', 'north'];
+  if (routes.khet) extra.push('khet', 'khet', 'khet');
+  if (routes.rann) extra.push('rann', 'rann', 'rann');
+  if (routes.outer) extra.push('outer', 'outer', 'outer', 'outer', 'outer', 'outer', 'outer');
   extra.forEach((route, i) => {
     const female = i % 2 === 0;
     const [top, bottom] = SAREES[i % SAREES.length];
@@ -1435,7 +1477,8 @@ function buildTravellers(scene, hooks) {
     scene.add(person.root);
     if (w.carry) person.prop(w.carry, true);
     if (w.stick) person.prop('stick', true);
-    list.push({ kind: 'walker', holder: person.root, person, carry: w.carry, loop: polyLoop(routes[w.route], 2.0), s: w.s0, v: w.kid ? 1.6 : 1.1 + Math.random() * 0.2, speed: 1, heading: 0, p: { x: 0, z: 0 } });
+    const loop = polyLoop(routes[w.route], 2.0);
+    list.push({ kind: 'walker', holder: person.root, person, carry: w.carry, loop, s: ((walkers.indexOf(w) * 0.618 + 0.37) % 1) * loop.total, v: w.kid ? 1.6 : 1.1 + Math.random() * 0.2, speed: 1, heading: 0, p: { x: 0, z: 0 } });
   }
   // buses and jeeps: a driver at the wheel and passengers aboard, pausing at each end of the run
   const traffic = [
@@ -1446,6 +1489,13 @@ function buildTravellers(scene, hooks) {
     // out to the far villages, unhurried
     ...(routes.outer ? [{ Kind: Jeep, opt: { color: '#2e4a6a' }, route: 'outer', v: 8, s0: 900 }] : []),
     ...(routes.rann ? [{ Kind: Jeep, opt: { color: '#8a2a22' }, route: 'rann', v: 8, s0: 200 }] : []),
+    // cars, another jeep and a bus out on the far roads
+    ...(routes.outer ? [{ Kind: TrafficCar, opt: { color: '#e8e6e0' }, route: 'outer', v: 10, frac: 0.5 }, { Kind: VillageBus, opt: { color: '#2e7a4a', band: '#f2e6c8', dest: ['धनियापुर – नदीपार – पत्थरगाँव', 'DHANIYAPUR-NADIPAR'] }, route: 'outer', v: 7, frac: 0.15 }] : []),
+    ...(routes.khet ? [{ Kind: TrafficCar, opt: { color: '#c0392b' }, route: 'khet', v: 10, frac: 0.6 }, { Kind: Jeep, opt: { color: '#3a5a8a' }, route: 'khet', v: 8.5, frac: 0.2 }] : []),
+    { Kind: TrafficCar, opt: { color: '#2a5aa8' }, route: 'ne', v: 9.5, frac: 0.4 },
+    { Kind: Jeep, opt: { color: '#c9a95e' }, route: 'west', v: 8.5, frac: 0.7 },
+    // the shrine shuttle runs from morning to night
+    { Kind: VillageBus, opt: { color: '#e07a1e', band: '#fff2d0', dest: ['शिखर मंदिर – गाँव', 'SHIKHAR MANDIR'], name: ['मंदिर सेवा', 'MANDIR SEVA'] }, route: 'shrine', v: 6, frac: 0, stopWait: 50, allNight: true },
   ];
   for (const tr of traffic) {
     const holder = new THREE.Group();
@@ -1464,13 +1514,18 @@ function buildTravellers(scene, hooks) {
       return q;
     });
     const loop = polyLoop(routes[tr.route], tr.Kind === VillageBus ? 1.8 : 1.5);
-    list.push({ kind: tr.Kind === VillageBus ? 'bus' : 'jeep', holder, veh, person: driver, riders, loop, s: tr.s0, v: tr.v, speed: tr.v, heading: 0, p: { x: 0, z: 0 }, wait: 0, pitch: 0, bellCool: 0, nightOff: traffic.indexOf(tr) % 2 === 1 });
+    list.push({ kind: tr.Kind === VillageBus ? 'bus' : 'jeep', holder, veh, person: driver, riders, loop, s: tr.frac !== undefined ? tr.frac * loop.total : tr.s0, v: tr.v, speed: tr.v, heading: 0, p: { x: 0, z: 0 }, wait: 0, pitch: 0, bellCool: 0, stopWait: tr.stopWait, nightOff: !tr.allNight && traffic.indexOf(tr) % 2 === 1 });
   }
   // more bullock carts out on the country roads, plodding at walking pace
   if (routes.outer) addCart(polyLoop(routes.outer, 1.6), 300, '#b98e64', { turban: '#c4241c', skin: '#7a4c33' });
   if (routes.outer) addCart(polyLoop(routes.outer, 1.6), 2200, '#d8cfc0', { headwear: 'cap', turban: '#f2efe6', top: '#dfe6ea' });
   if (routes.khet) addCart(polyLoop(routes.khet, 1.6), 150, '#ece6da', { turban: '#f2a41a', beard: true });
   if (routes.west) addCart(polyLoop(routes.west, 1.6), 400, '#8a6a4a', { turban: '#ffffff' });
+  for (const [route, coat, look, frac] of [['ne', '#ece6da', { turban: '#2e8b57' }, 0.5], ['south', '#b98e64', { headwear: 'cap', turban: '#f2efe6' }, 0.6], ['north', '#d8cfc0', { turban: '#c4241c' }, 0.55], ['rann', '#ece6da', { turban: '#ffffff', top: '#f4f1e8' }, 0.4]]) {
+    if (!routes[route]) continue;
+    const loop = polyLoop(routes[route], 1.6);
+    addCart(loop, frac * loop.total, coat, look);
+  }
   let weather = { rain: false, night: false };
   const tmp = { x: 0, z: 0 }, ahead = { x: 0, z: 0 };
   // a quiet start: only cyclists, people on foot and the bullock cart are about at first. The motorbikes,
@@ -1480,7 +1535,7 @@ function buildTravellers(scene, hooks) {
     for (const t of list) {
       const motor = (t.kind === 'bike' && t.motor) || t.kind === 'bus' || t.kind === 'jeep';
       if (!motor) continue;
-      t.hold = 100 + i * 35 + Math.random() * 15;
+      t.hold = 40 + i * 14 + Math.random() * 10;
       t.holder.visible = false;
       i++;
     }
@@ -1493,7 +1548,7 @@ function buildTravellers(scene, hooks) {
       for (const t of list) if (t.nightOff && !t.taken) t.holder.visible = !w.night && !(t.hold > 0);
     },
     colliders() {
-      return list.filter((t) => t.holder.visible && !t.taken && !(t.nightOff && weather.night) && !t.crash && !(t.kind === 'walker' && t.person.fallT > 0)).map((t) => ({ kind: 'b', x: t.p.x, z: t.p.z, rot: t.heading, hw: t.veh ? t.veh.half + 0.05 : t.kind === 'cart' ? 0.9 : 0.25, hd: t.veh ? t.veh.len / 2 : t.kind === 'cart' ? 2.6 : 0.8 }));
+      return list.filter((t) => t.holder.visible && !t.taken && !(t.nightOff && weather.night) && !t.crash && !(t.kind === 'walker' && t.person.fallT > 0)).map((t) => ({ kind: 'b', x: t.p.x, z: t.p.z, rot: t.heading, hw: t.veh ? t.veh.half + 0.05 : t.kind === 'cart' ? 0.9 : 0.25, hd: t.veh ? t.veh.len / 2 : t.kind === 'cart' ? 2.6 : 0.8, person: t.kind === 'walker' }));
     },
     update(dt, boy) {
       const sizeOf = (t) => (t.veh ? t.veh.len / 2 : t.kind === 'cart' ? 2.6 : t.kind === 'walker' ? 0.3 : 0.9);
@@ -1517,7 +1572,12 @@ function buildTravellers(scene, hooks) {
         t.loop.at(t.s + (t.kind === 'cart' ? 3.5 : big ? t.veh.len / 2 + 3 : t.motor ? 4 : 1.6), ahead);
         let blocked = Math.hypot(boy.x - ahead.x, boy.z - ahead.z) < (t.kind === 'cart' ? 2.4 : big ? 3.2 : t.motor ? 2.6 : 1.8);
         // and they brake for anyone on foot in the road ahead
-        if (!blocked && t.kind !== 'walker' && hooks.personAhead?.(ahead.x, ahead.z, big ? 2.6 : 1.6)) blocked = true;
+        if (!blocked && t.kind !== 'walker' && hooks.personAhead?.(ahead.x, ahead.z, big ? 2.6 : 1.6)) {
+          blocked = true;
+          // held up by someone standing in the road: after a moment, a toot of the horn and they step aside
+          t.honkT = (t.honkT ?? 0) + dt;
+          if (t.honkT > 1.2) { t.honkT = -2.5; hooks.clearWay?.(t, ahead); if (t.kind !== 'cart') (t.motor || big ? hooks.onHorn : hooks.onBell)?.(Math.hypot(boy.x - ahead.x, boy.z - ahead.z), big ? t.kind : t.bike?.kind); }
+        } else if ((t.honkT ?? 0) > 0) t.honkT = 0;
         // everyone waits at the level crossing while a train goes through
         if (hooks.trainNear?.(ahead.x, ahead.z)) blocked = true;
         // give way to other traffic: anything in our lane just ahead holds us up; overtake slower things
@@ -1544,18 +1604,19 @@ function buildTravellers(scene, hooks) {
           }
           if (slowAhead) { if (!oncoming && !(t.passT > 0)) t.passT = 3.5; else if (!(t.passT > 0)) blocked = true; }
           t.passT = Math.max(0, (t.passT ?? 0) - dt);
-          // swing out to pass, then tuck back in
-          t.lat = (t.lat ?? 0) + ((t.passT > 0 ? -2.6 : 0) - (t.lat ?? 0)) * damp(dt, 2.5);
+          // swing out to pass, then tuck back in; or pull over to the side of the road when the boy honks behind
+          t.yieldT = Math.max(0, (t.yieldT ?? 0) - dt);
+          t.lat = (t.lat ?? 0) + ((t.yieldT > 0 ? 2.4 : t.passT > 0 ? -2.6 : 0) - (t.lat ?? 0)) * damp(dt, 2.5);
         }
         // buses and jeeps pause at the villages at each end of their run
         if (big) {
           if (t.wait > 0) t.wait -= dt;
           for (const stop of [0, t.loop.half]) {
             const ds = (((t.s - stop) % t.loop.total) + t.loop.total) % t.loop.total;
-            if (ds < t.speed * dt + 0.01 && t.wait <= 0 && t.lastStop !== stop) { t.wait = 7; t.lastStop = stop; }
+            if (ds < t.speed * dt + 0.01 && t.wait <= 0 && t.lastStop !== stop) { t.wait = t.stopWait ?? 7; t.lastStop = stop; }
           }
         }
-        const target = blocked || t.wait > 0 ? 0 : t.v;
+        const target = blocked || t.wait > 0 ? 0 : t.yieldT > 0 ? t.v * 0.3 : t.v;
         t.speed += (target - t.speed) * damp(dt, blocked ? 6 : big ? 0.8 : 1.5);
         t.s += t.speed * dt;
         t.loop.at(t.s, tmp);
@@ -1571,7 +1632,7 @@ function buildTravellers(scene, hooks) {
         t.holder.position.set(tmp.x, groundHeight(tmp.x, tmp.z), tmp.z);
         t.holder.rotation.y = t.heading;
         if (big) {
-          t.veh.update(dt, t.speed, 0, false, weather.night ? 1 : 0); // headlights on after dark
+          t.veh.update(dt, t.speed, Math.max(-0.45, Math.min(0.45, dh * 6)), false, weather.night ? 1 : 0); // wheels into the bends; headlights on after dark
           // tilt with the road
           const back = { x: 0, z: 0 }; t.loop.at(t.s - t.veh.len / 2, back);
           const hf = groundHeight(ahead.x, ahead.z), hb = groundHeight(back.x, back.z);
@@ -1598,13 +1659,7 @@ function buildTravellers(scene, hooks) {
           if (blocked && t.bellCool <= 0) { t.bellCool = 4; (t.motor ? hooks.onHorn : hooks.onBell)?.(Math.hypot(boy.x - tmp.x, boy.z - tmp.z), t.bike.kind); }
           if (t.motor) hooks.onEngine?.(t, Math.hypot(boy.x - tmp.x, boy.z - tmp.z));
         } else {
-          for (const w of t.cart.wheels) w.rotation.x += (t.speed * dt) / 0.7;
-          for (const b of t.bulls) {
-            b.ph = (b.ph ?? Math.random() * 6) + t.speed * dt * 3.2;
-            for (const [i, l] of b.legs.entries()) l.hip.rotation.x = Math.sin(b.ph + (i % 3 === 0 ? 0 : Math.PI)) * 0.3 * Math.min(1, t.speed);
-            b.neck.rotation.x = 0.15 + Math.sin(b.ph * 2) * 0.04;
-            b.tail.rotation.z = Math.sin(performance.now() * 0.002 + b.ph) * 0.3;
-          }
+          t.veh.update(dt, t.speed);
           t.person.update(dt, 0, 'drive');
           t.person.setGear(weather.rain ? 'umbrella' : weather.night ? 'lantern' : 'none');
         }
