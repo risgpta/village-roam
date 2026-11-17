@@ -142,7 +142,83 @@ export class MapUI {
     this.mini.addEventListener('click', (e) => { e.stopPropagation(); this.toggleBig(); });
     document.getElementById('bm-close').addEventListener('click', (e) => { e.stopPropagation(); this.toggleBig(false); });
     this.overlay.addEventListener('click', (e) => { if (e.target === this.overlay) this.toggleBig(false); });
+    // the big map's view: how far in it's zoomed (1 = the whole land fits) and the world point at its middle
+    this.view = { zoom: 1, cx: 0, cz: 0 };
+    this.player = { x: 0, z: 0 };
+    this.initPanZoom();
   }
+  // ---- zoom and drag on the big map ----
+  // canvas pixels per metre at the current zoom
+  pxPerM() { return (this.big.width / (2 * E)) * this.view.zoom; }
+  // keep the view on the land: at zoom z you can move the middle up to E·(1 − 1/z) from the centre
+  clampView() {
+    const V = this.view, lim = E * (1 - 1 / V.zoom);
+    V.cx = Math.max(-lim, Math.min(lim, V.cx)); V.cz = Math.max(-lim, Math.min(lim, V.cz));
+  }
+  // where a mouse or touch event falls, in canvas pixels
+  canvasPt(e) { const r = this.big.getBoundingClientRect(); return { x: ((e.clientX - r.left) / r.width) * this.big.width, y: ((e.clientY - r.top) / r.height) * this.big.height }; }
+  // zoom by a factor, keeping the world point under (px, py) where it is
+  zoomAt(f, px = this.big.width / 2, py = this.big.height / 2) {
+    const V = this.view, W = this.big.width, k0 = this.pxPerM();
+    const wx = V.cx + (px - W / 2) / k0, wz = V.cz + (py - W / 2) / k0;
+    V.zoom = Math.max(1, Math.min(10, V.zoom * f)); // (past 10× the painted map gets blocky)
+    const k1 = this.pxPerM();
+    V.cx = wx - (px - W / 2) / k1; V.cz = wz - (py - W / 2) / k1;
+    this.clampView();
+    this.redraw();
+  }
+  initPanZoom() {
+    const c = this.big, pts = new Map();
+    let last = null, pinch = null;
+    c.addEventListener('wheel', (e) => {
+      e.preventDefault(); e.stopPropagation(); // the map's, not the game camera's
+      const p = this.canvasPt(e);
+      this.zoomAt(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0018)), p.x, p.y); // (a trackpad pinch arrives as ctrl+wheel)
+    }, { passive: false });
+    c.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      c.setPointerCapture(e.pointerId);
+      pts.set(e.pointerId, this.canvasPt(e));
+      if (pts.size === 1) last = this.canvasPt(e);
+      if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) }; }
+      c.classList.add('dragging');
+    });
+    c.addEventListener('pointermove', (e) => {
+      if (!pts.has(e.pointerId)) return;
+      const p = this.canvasPt(e);
+      pts.set(e.pointerId, p);
+      if (pts.size >= 2 && pinch) {
+        // two fingers: zoom about the point between them
+        const [a, b] = [...pts.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (pinch.d > 0) this.zoomAt(d / pinch.d, (a.x + b.x) / 2, (a.y + b.y) / 2);
+        pinch.d = d;
+        return;
+      }
+      if (!last) return;
+      const k = this.pxPerM();
+      this.view.cx -= (p.x - last.x) / k; this.view.cz -= (p.y - last.y) / k;
+      last = p;
+      this.clampView();
+      this.redraw();
+    });
+    const up = (e) => {
+      pts.delete(e.pointerId);
+      if (pts.size < 2) pinch = null;
+      last = pts.size === 1 ? [...pts.values()][0] : null;
+      if (!pts.size) c.classList.remove('dragging');
+    };
+    c.addEventListener('pointerup', up);
+    c.addEventListener('pointercancel', up);
+    c.addEventListener('dblclick', (e) => { const p = this.canvasPt(e); this.zoomAt(2, p.x, p.y); });
+    c.addEventListener('click', (e) => e.stopPropagation());
+    const btn = (id, f) => document.getElementById(id).addEventListener('click', (e) => { e.stopPropagation(); f(); });
+    btn('bm-in', () => this.zoomAt(1.6));
+    btn('bm-out', () => this.zoomAt(1 / 1.6));
+    btn('bm-me', () => { this.view.zoom = Math.max(this.view.zoom, 4); this.view.cx = this.player.x; this.view.cz = this.player.z; this.clampView(); this.redraw(); });
+    btn('bm-all', () => { this.view.zoom = 1; this.view.cx = 0; this.view.cz = 0; this.redraw(); });
+  }
+  // draw again straight away (while dragging), from the last thing the game told us
+  redraw() { if (this.open && this.last) this.drawBig(...this.last); }
   toggleCollapse() {
     this.collapsed = !this.collapsed;
     this.wrap.classList.toggle('collapsed', this.collapsed);
@@ -171,8 +247,10 @@ export class MapUI {
     g.restore();
   }
   update(player, yaw, rides, trains = []) {
+    this.player.x = player.x; this.player.z = player.z;
     if (++this.frame % 2) return;
     this.trains = trains;
+    this.last = [player, yaw, rides];
     if (!this.collapsed) this.drawMini(player, yaw, rides);
     if (this.open) this.drawBig(player, yaw, rides);
   }
@@ -223,13 +301,27 @@ export class MapUI {
   }
   drawBig(player, yaw, rides) {
     const c = this.big, g = c.getContext('2d');
-    const W = c.width, s = W / N;
+    const W = c.width, V = this.view, k = this.pxPerM();
+    // world (x, z) → canvas pixels in the current view
+    const P = (x, z) => [W / 2 + (x - V.cx) * k, W / 2 + (z - V.cz) * k];
+    const inView = (u, v, m = 40) => u > -m && u < W + m && v > -m && v < W + m;
     g.clearRect(0, 0, W, W);
-    g.drawImage(this.img, 0, 0, W, W);
+    g.fillStyle = '#2a3322'; g.fillRect(0, 0, W, W);
+    g.save();
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    const b = (N / (2 * E)); // baked px per metre
+    g.translate(W / 2, W / 2); g.scale(k / b, k / b); g.translate(-toU(V.cx), -toV(V.cz));
+    g.drawImage(this.img, 0, 0);
+    g.restore();
     g.textAlign = 'center'; g.textBaseline = 'middle';
+    // zoomed out, only the main places carry names; zoomed in, all of them do
+    const showSmall = V.zoom >= 2.2;
     for (const p of this.places) {
-      const u = toU(p.x) * s, v = toV(p.z) * s;
+      const [u, v] = P(p.x, p.z);
+      if (!inView(u, v)) continue;
+      if (!p.big && !showSmall && !p.icon) continue;
       if (p.icon) { g.font = `${p.big ? 18 : 14}px system-ui, "Apple Color Emoji", sans-serif`; g.fillText(p.icon, u, v); }
+      if (!p.name || (!p.big && !showSmall)) continue;
       g.font = `${p.big ? 600 : 500} ${p.icon ? 11 : 12}px Inter, sans-serif`;
       g.lineWidth = 3; g.strokeStyle = 'rgba(20,16,12,0.75)';
       const ty = p.icon ? v + 15 : v;
@@ -239,25 +331,38 @@ export class MapUI {
     }
     for (const r of rides) {
       if (r.ridden) continue;
-      const u = toU(r.x) * s, v = toV(r.z) * s;
+      const [u, v] = P(r.x, r.z);
+      if (!inView(u, v)) continue;
       g.fillStyle = 'rgba(255,255,255,0.9)'; g.beginPath(); g.arc(u, v, 10, 0, 7); g.fill();
-      g.font = '13px system-ui, "Apple Color Emoji", sans-serif'; g.fillText(RIDE_ICON[r.name], u, v + 0.5);
+      g.font = '13px system-ui, "Apple Color Emoji", sans-serif'; g.fillText(RIDE_ICON[r.name] ?? '•', u, v + 0.5);
     }
     // the trains, live
-    for (const t of this.trains ?? []) drawTrain(g, t, (x, z) => [toU(x) * s, toV(z) * s], 2.5, true);
-    // the boy, pulsing
-    const u = toU(player.x) * s, v = toV(player.z) * s;
-    const pulse = 10 + Math.sin(performance.now() * 0.006) * 3;
-    g.strokeStyle = 'rgba(255,178,46,0.8)'; g.lineWidth = 2;
-    g.beginPath(); g.arc(u, v, pulse + 6, 0, 7); g.stroke();
-    this.arrow(g, u, v, player.facing, yaw, 11);
-    // compass + scale bar
+    for (const t of this.trains ?? []) drawTrain(g, t, P, 2.5 * Math.min(2, Math.sqrt(V.zoom)), true);
+    // the boy, pulsing (or an arrow on the edge pointing to him when he is out of view)
+    const [u, v] = P(player.x, player.z);
+    if (inView(u, v, 0)) {
+      const pulse = 10 + Math.sin(performance.now() * 0.006) * 3;
+      g.strokeStyle = 'rgba(255,178,46,0.8)'; g.lineWidth = 2;
+      g.beginPath(); g.arc(u, v, pulse + 6, 0, 7); g.stroke();
+      this.arrow(g, u, v, player.facing, yaw, 11);
+    } else {
+      const a = Math.atan2(v - W / 2, u - W / 2), r = W / 2 - 22;
+      const eu = W / 2 + Math.cos(a) * r, ev = W / 2 + Math.sin(a) * r;
+      g.save(); g.translate(eu, ev); g.rotate(a);
+      g.fillStyle = '#ffb22e'; g.strokeStyle = '#2a1d0c'; g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(12, 0); g.lineTo(-6, -8); g.lineTo(-6, 8); g.closePath(); g.fill(); g.stroke();
+      g.restore();
+    }
+    // compass + a scale bar that picks a round length for the zoom
     g.fillStyle = 'rgba(20,16,12,0.6)'; g.beginPath(); g.arc(W - 34, 34, 20, 0, 7); g.fill();
-    g.fillStyle = '#fff'; g.font = 'bold 14px Inter, sans-serif'; g.fillText('N', W - 34, 26);
+    g.fillStyle = '#fff'; g.font = 'bold 14px Inter, sans-serif'; g.textAlign = 'center'; g.fillText('N', W - 34, 26);
     g.beginPath(); g.moveTo(W - 34, 30); g.lineTo(W - 39, 44); g.lineTo(W - 29, 44); g.closePath(); g.fill();
-    const m100 = (100 / (2 * E)) * W;
-    g.fillStyle = 'rgba(20,16,12,0.6)'; g.fillRect(18, W - 36, m100 + 24, 22);
-    g.fillStyle = '#fff'; g.fillRect(30, W - 22, m100, 3);
-    g.font = '11px Inter, sans-serif'; g.textAlign = 'left'; g.fillText('100 m', 30, W - 29);
+    const len = [10, 20, 50, 100, 200, 500, 1000].find((m) => m * k >= 70) ?? 1000, bar = len * k;
+    g.fillStyle = 'rgba(20,16,12,0.6)'; g.fillRect(18, W - 36, bar + 24, 22);
+    g.fillStyle = '#fff'; g.fillRect(30, W - 22, bar, 3);
+    g.font = '11px Inter, sans-serif'; g.textAlign = 'left'; g.fillText(len >= 1000 ? `${len / 1000} km` : `${len} m`, 30, W - 29);
+    // the zoom level, small, by the compass
+    if (V.zoom > 1.01) { g.textAlign = 'right'; g.fillStyle = 'rgba(255,246,224,0.75)'; g.fillText(`${V.zoom.toFixed(1)}×`, W - 60, 34); }
+
   }
 }

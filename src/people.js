@@ -1526,6 +1526,7 @@ function buildTravellers(scene, hooks) {
     const loop = polyLoop(routes[route], 1.6);
     addCart(loop, frac * loop.total, coat, look);
   }
+  list.forEach((t, i) => { t.idx = i; });
   let weather = { rain: false, night: false };
   const tmp = { x: 0, z: 0 }, ahead = { x: 0, z: 0 };
   // a quiet start: only cyclists, people on foot and the bullock cart are about at first. The motorbikes,
@@ -1570,7 +1571,11 @@ function buildTravellers(scene, hooks) {
         }
         if (t.nightOff && weather.night) { t.holder.visible = false; continue; }
         t.loop.at(t.s + (t.kind === 'cart' ? 3.5 : big ? t.veh.len / 2 + 3 : t.motor ? 4 : 1.6), ahead);
-        let blocked = Math.hypot(boy.x - ahead.x, boy.z - ahead.z) < (t.kind === 'cart' ? 2.4 : big ? 3.2 : t.motor ? 2.6 : 1.8);
+        // the boy standing in the road: wait for him a moment (and toot), then go round him
+        const boyBlock = !(t.squeezeT > 0) && Math.hypot(boy.x - ahead.x, boy.z - ahead.z) < (t.kind === 'cart' ? 2.4 : big ? 3.2 : t.motor ? 2.6 : 1.8);
+        // (people on foot just wait a couple of seconds, then step round him)
+        if (t.kind === 'walker') t.boyWait = boyBlock ? (t.boyWait ?? 0) + dt : 0;
+        let blocked = boyBlock && !(t.kind === 'walker' && t.boyWait > 2);
         // and they brake for anyone on foot in the road ahead
         if (!blocked && t.kind !== 'walker' && hooks.personAhead?.(ahead.x, ahead.z, big ? 2.6 : 1.6)) {
           blocked = true;
@@ -1585,28 +1590,49 @@ function buildTravellers(scene, hooks) {
         if (t.kind !== 'walker') {
           const fx = Math.sin(t.heading), fz = Math.cos(t.heading);
           const reach = sizeOf(t) + 3.5 + t.speed * 0.6;
-          let slowAhead = null, oncoming = false;
+          let slowAhead = null, oncoming = false, blocker = boyBlock ? { x: boy.x, z: boy.z, boy: true } : null;
+          const squeezing = t.squeezeT > 0;
           for (const o of list) {
-            if (o === t || o.crash || o.taken || (o.nightOff && weather.night)) continue;
+            // (anything not out on the road yet has no position: it mustn't block anyone)
+            if (o === t || o.crash || o.taken || o.hold > 0 || (o.nightOff && weather.night)) continue;
             const dx = o.p.x - t.p.x, dz = o.p.z - t.p.z;
             const along = dx * fx + dz * fz, side = Math.abs(dx * fz - dz * fx);
             const same = Math.sin(o.heading) * fx + Math.cos(o.heading) * fz > 0.3;
             if (!same && along > 0 && along < 30 && side < 4.5) oncoming = true;
             if (along <= 0 || along > reach + sizeOf(o) || side > (t.veh ? t.veh.half : 0.6) + (o.veh ? o.veh.half : 0.5) + 0.3 - (t.passT > 0 ? 2.6 : 0)) continue;
             if (o.kind === 'walker' && !same) continue; // walkers step aside for oncoming vehicles
+            if (squeezing) continue; // already easing out round whatever was in the way
+            // two stuck on each other (head-on, or nose to nose at a crossing): the one with right of way goes
+            if (o.blocker === t && t.idx < o.idx) continue;
             if (same && o.v < t.v - 0.4) slowAhead = o;
-            else blocked = true;
+            else { blocked = true; blocker = o.p; }
           }
-          for (const ob of obstacles) {
+          if (!squeezing) for (const ob of obstacles) {
             const dx = ob.x - t.p.x, dz = ob.z - t.p.z;
             const along = dx * fx + dz * fz, side = Math.abs(dx * fz - dz * fx);
-            if (along > 0 && along < reach + ob.r && side < (t.veh ? t.veh.half : 0.6) + ob.r) blocked = true;
+            if (along > 0 && along < reach + ob.r && side < (t.veh ? t.veh.half : 0.6) + ob.r) { blocked = true; blocker = ob; }
           }
+          // held up by something that isn't moving off: after a couple of seconds, pull out to the side away
+          // from it and creep past (whatever it is, a stopped bus, a parked scooter, a jam at a crossing)
+          t.blocker = null;
+          if (blocked && blocker) {
+            t.blocker = list.find((o) => o.p === blocker) ?? null;
+            t.stuckT = (t.stuckT ?? 0) + dt;
+            if (blocker.boy && t.stuckT > 1 && !(t.tootT > 0)) { t.tootT = 6; if (t.kind !== 'cart') (t.motor || big ? hooks.onHorn : hooks.onBell)?.(Math.hypot(boy.x - t.p.x, boy.z - t.p.z), big ? t.kind : t.bike?.kind); }
+            if (t.stuckT > 2.2) {
+              const lx = Math.cos(t.heading), lz = -Math.sin(t.heading); // the direction t.lat moves in
+              const b = (blocker.x - t.p.x) * lx + (blocker.z - t.p.z) * lz;
+              t.squeezeSide = b > 0.2 ? -1 : b < -0.2 ? 1 : (t.idx % 2 ? 1 : -1);
+              t.squeezeT = 4.5; t.stuckT = 0; blocked = false;
+            }
+          } else t.stuckT = 0;
+          t.squeezeT = Math.max(0, (t.squeezeT ?? 0) - dt);
+          t.tootT = Math.max(0, (t.tootT ?? 0) - dt);
           if (slowAhead) { if (!oncoming && !(t.passT > 0)) t.passT = 3.5; else if (!(t.passT > 0)) blocked = true; }
           t.passT = Math.max(0, (t.passT ?? 0) - dt);
           // swing out to pass, then tuck back in; or pull over to the side of the road when the boy honks behind
           t.yieldT = Math.max(0, (t.yieldT ?? 0) - dt);
-          t.lat = (t.lat ?? 0) + ((t.yieldT > 0 ? 2.4 : t.passT > 0 ? -2.6 : 0) - (t.lat ?? 0)) * damp(dt, 2.5);
+          t.lat = (t.lat ?? 0) + ((t.yieldT > 0 ? 2.4 : t.squeezeT > 0 ? t.squeezeSide * 2.7 : t.passT > 0 ? -2.6 : 0) - (t.lat ?? 0)) * damp(dt, 2.5);
         }
         // buses and jeeps pause at the villages at each end of their run
         if (big) {
@@ -1616,7 +1642,7 @@ function buildTravellers(scene, hooks) {
             if (ds < t.speed * dt + 0.01 && t.wait <= 0 && t.lastStop !== stop) { t.wait = t.stopWait ?? 7; t.lastStop = stop; }
           }
         }
-        const target = blocked || t.wait > 0 ? 0 : t.yieldT > 0 ? t.v * 0.3 : t.v;
+        const target = blocked || t.wait > 0 ? 0 : t.yieldT > 0 ? t.v * 0.3 : t.squeezeT > 0 ? Math.min(t.v, 2.5 + t.v * 0.25) : t.v;
         t.speed += (target - t.speed) * damp(dt, blocked ? 6 : big ? 0.8 : 1.5);
         t.s += t.speed * dt;
         t.loop.at(t.s, tmp);

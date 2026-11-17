@@ -70,7 +70,12 @@
       .bm-title { font-family: 'Tiro Devanagari Hindi', 'Cormorant Garamond', serif; font-size: 20px; color: var(--accent); }
       .bm-hint { margin-left: auto; font-size: 12px; color: var(--muted); }
       #bm-close { background: rgba(255,255,255,0.1); border: 0; color: var(--ink); width: 28px; height: 28px; border-radius: 99px; cursor: pointer; }
-      #bm-canvas { display: block; width: min(78vh, 86vw); height: min(78vh, 86vw); border-radius: 12px; }
+      #bm-canvas { display: block; width: min(78vh, 86vw); height: min(78vh, 86vw); border-radius: 12px; cursor: grab; touch-action: none; }
+      #bm-canvas.dragging { cursor: grabbing; }
+      .bm-tools { display: flex; gap: 4px; }
+      .bm-tools button { background: rgba(255,255,255,0.1); border: 0; color: var(--ink); min-width: 28px; height: 28px; border-radius: 8px; cursor: pointer; font: 600 15px Inter, sans-serif; }
+      .bm-tools button:hover, #bm-close:hover { background: rgba(255,255,255,0.2); }
+      @media (max-width: 700px) { .bm-hint { display: none; } .bm-tools { margin-left: auto; } }
       #ridehud { position: absolute; right: 18px; bottom: 60px; width: 190px; padding: 12px 16px 14px; border-radius: 16px; background: rgba(18, 14, 10, 0.5); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.12); opacity: 0; transform: translateY(8px); transition: opacity .35s, transform .35s; }
       #ridehud.show { opacity: 1; transform: none; }
       #ridehud.nonitro .rh-nitro { display: none; }
@@ -215,7 +220,7 @@
       </div>
       <div id="bigmap">
         <div class="bm-card">
-          <div class="bm-head"><span class="bm-title">गाँव — the area map</span><span class="bm-hint"><kbd>Tab</kbd> or <kbd>Esc</kbd> to close</span><button id="bm-close">✕</button></div>
+          <div class="bm-head"><span class="bm-title">गाँव — the area map</span><span class="bm-hint">scroll or pinch to zoom · drag to move · <kbd>Tab</kbd> / <kbd>Esc</kbd> to close</span><span class="bm-tools"><button id="bm-in" title="Zoom in">+</button><button id="bm-out" title="Zoom out">−</button><button id="bm-me" title="Centre on me">⌖</button><button id="bm-all" title="Show the whole map">⤢</button></span><button id="bm-close">✕</button></div>
           <canvas id="bm-canvas" width="1100" height="1100"></canvas>
         </div>
       </div>
