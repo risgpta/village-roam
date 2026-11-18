@@ -437,6 +437,8 @@ const LEFT_PROPS = new Set(['cupL']);
 // ---------------- animated person ----------------
 const POSE_KEYS = ['hip0', 'hip1', 'knee0', 'knee1', 'sh0', 'sh1', 'shz0', 'shz1', 'el0', 'el1', 'torsoX', 'torsoY', 'headX', 'headY', 'bodyY'];
 
+// where the camera is (set each frame by the game): people far from it animate at a lower rate
+export const EYE = { x: 0, z: 0 };
 export class Person {
   constructor(opts) {
     Object.assign(this, buildHuman(opts));
@@ -502,6 +504,19 @@ export class Person {
   // position; the offset rides on top of it)
   dodge(dx, dz, hold = 3.5) { this.dodgeV = { dx, dz, t: 0, hold }; }
   update(dt, speed, action) {
+    // far away, the pose needn't change every frame: every 3rd frame past 50 m, every 6th past 110 m (with the
+    // time saved up, so they don't slow down)
+    if (!(this.fallT > 0) && !this.dodgeV) {
+      const e = this.root.matrixWorld.elements, dx = e[12] - EYE.x, dz = e[14] - EYE.z, d2 = dx * dx + dz * dz;
+      const every = d2 > 12100 ? 6 : d2 > 2500 ? 3 : 1;
+      if (every > 1) {
+        this._acc = (this._acc ?? 0) + dt;
+        this._n = ((this._n ?? 0) + 1) % every;
+        if (this._n) return;
+        dt = this._acc;
+      }
+      this._acc = 0;
+    }
     if (this.dodgeV && this.root.parent?.isScene) {
       const d = this.dodgeV;
       d.t += dt;
@@ -1443,6 +1458,7 @@ function buildTravellers(scene, hooks) {
     const holder = new THREE.Group();
     scene.add(holder);
     const bike = new r.kind();
+    consolidate(bike.root);
     holder.add(bike.root);
     const person = new Person(r.o); person.noHit = true;
     holder.add(person.root);
@@ -1501,6 +1517,7 @@ function buildTravellers(scene, hooks) {
     const holder = new THREE.Group();
     scene.add(holder);
     const veh = new tr.Kind(tr.opt);
+    consolidate(veh.root); // fixed parts merged by material: far fewer draws
     holder.add(veh.root);
     const driver = new Person({ dress: 'pants', top: tr.Kind === VillageBus ? '#8a9aa8' : '#e9dcc3', bottom: '#4a4a52', mustache: true, skin: '#6e4530', sleeves: 'short', headwear: tr.Kind === Jeep ? 'cap' : undefined, turban: '#f2efe6' }); driver.noHit = true;
     driver.seatH = 0;
@@ -1686,6 +1703,14 @@ function buildTravellers(scene, hooks) {
           if (t.motor) hooks.onEngine?.(t, Math.hypot(boy.x - tmp.x, boy.z - tmp.z));
         } else {
           t.veh.update(dt, t.speed);
+          {
+            // tilt with the road under the bullocks and the back of the cart
+            const fr = { x: 0, z: 0 }, bk = { x: 0, z: 0 }; t.loop.at(t.s + 3.2, fr); t.loop.at(t.s - 3.2, bk);
+            const hf = groundHeight(fr.x, fr.z), hb = groundHeight(bk.x, bk.z);
+            t.pitch = (t.pitch ?? 0) + (-Math.atan2(hf - hb, 6.4) - (t.pitch ?? 0)) * damp(dt, 4);
+            t.holder.rotation.set(t.pitch, t.heading, 0, 'YXZ');
+            t.holder.position.y = Math.max(t.holder.position.y, (hf + hb) / 2);
+          }
           t.person.update(dt, 0, 'drive');
           t.person.setGear(weather.rain ? 'umbrella' : weather.night ? 'lantern' : 'none');
         }

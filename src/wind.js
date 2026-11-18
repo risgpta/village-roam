@@ -51,7 +51,10 @@ export function applyFoliageWind(material, { height = 8, amp = 0.3, flutter = 0.
         '#include <project_vertex>',
         /* glsl */ `
         vec4 mvPosition = vec4(transformed, 1.0);
-        #ifdef USE_INSTANCING
+        #if defined( USE_BATCHING )
+          mvPosition = batchingMatrix * mvPosition;
+          vec3 swayOrigin = (modelMatrix * batchingMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+        #elif defined( USE_INSTANCING )
           mvPosition = instanceMatrix * mvPosition;
           vec3 swayOrigin = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
         #else

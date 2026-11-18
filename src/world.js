@@ -874,23 +874,65 @@ export function pushOut(p, radius, o) {
   }
   return false;
 }
-export function resolveCollisions(p, radius, y, npc = false) {
-  for (const o of colliders) {
-    if (y !== undefined && o.height !== undefined && y > o.height) continue;
-    if (npc && o.npcPass) continue;
-    if (y !== undefined && o.minY !== undefined && y < o.minY) continue;
-    pushOut(p, radius, o);
+// The colliders filed in a grid of 8 m cells (each in every cell its box touches), so a collision check only
+// looks at what is nearby instead of all ~18,000 of them (every tree has one). New colliders — pushed by any
+// module at any time — are filed the next time anyone asks; if the list ever shrinks, the grid is rebuilt.
+const COL_CELL = 8, colGrid = new Map();
+let colIndexed = 0, colStamp = 0;
+const colKey = (i, j) => i * 73856093 ^ j * 19349663;
+function indexColliders() {
+  if (colliders.length < colIndexed) { colGrid.clear(); colIndexed = 0; }
+  for (; colIndexed < colliders.length; colIndexed++) {
+    const o = colliders[colIndexed], r = o.kind === 'c' ? o.r : Math.hypot(o.hw, o.hd);
+    for (let i = Math.floor((o.x - r) / COL_CELL); i <= Math.floor((o.x + r) / COL_CELL); i++)
+      for (let j = Math.floor((o.z - r) / COL_CELL); j <= Math.floor((o.z + r) / COL_CELL); j++) {
+        const k = colKey(i, j);
+        let c = colGrid.get(k);
+        if (!c) colGrid.set(k, (c = []));
+        c.push(o);
+      }
   }
+}
+// call fn(o) once for every collider whose cell is within r of (x, z)
+export function forColliders(x, z, r, fn) {
+  indexColliders();
+  const st = ++colStamp;
+  for (let i = Math.floor((x - r) / COL_CELL); i <= Math.floor((x + r) / COL_CELL); i++)
+    for (let j = Math.floor((z - r) / COL_CELL); j <= Math.floor((z + r) / COL_CELL); j++) {
+      const c = colGrid.get(colKey(i, j));
+      if (c) for (const o of c) { if (o._st === st) continue; o._st = st; fn(o); }
+    }
+}
+export function resolveCollisions(p, radius, y, npc = false) {
+  forColliders(p.x, p.z, radius, (o) => {
+    if (y !== undefined && o.height !== undefined && y > o.height) return;
+    if (npc && o.npcPass) return;
+    if (y !== undefined && o.minY !== undefined && y < o.minY) return;
+    pushOut(p, radius, o);
+  });
 }
 
 // ---------- layout ----------
-const occupied = [];
-const occupy = (x, z, r) => occupied.push({ x, z, r });
+// Everything placed so far, as circles, kept in a grid of 16 m cells (each circle is filed in every cell its
+// box touches), so "is this spot free?" only looks at the few circles nearby instead of all of them.
+const OCC_CELL = 16, occGrid = new Map();
+const occKey = (i, j) => i * 73856093 ^ j * 19349663;
+const occupy = (x, z, r) => {
+  const o = { x, z, r };
+  for (let i = Math.floor((x - r) / OCC_CELL); i <= Math.floor((x + r) / OCC_CELL); i++)
+    for (let j = Math.floor((z - r) / OCC_CELL); j <= Math.floor((z + r) / OCC_CELL); j++) {
+      const k = occKey(i, j);
+      let c = occGrid.get(k);
+      if (!c) occGrid.set(k, (c = []));
+      c.push(o);
+    }
+};
 function isFree(x, z, r) {
-  for (const o of occupied) {
-    const dx = x - o.x, dz = z - o.z, rr = r + o.r;
-    if (dx * dx + dz * dz < rr * rr) return false;
-  }
+  for (let i = Math.floor((x - r) / OCC_CELL); i <= Math.floor((x + r) / OCC_CELL); i++)
+    for (let j = Math.floor((z - r) / OCC_CELL); j <= Math.floor((z + r) / OCC_CELL); j++) {
+      const c = occGrid.get(occKey(i, j));
+      if (c) for (const o of c) { const dx = x - o.x, dz = z - o.z, rr = r + o.r; if (dx * dx + dz * dz < rr * rr) return false; }
+    }
   return true;
 }
 

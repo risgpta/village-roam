@@ -26,7 +26,7 @@ export function consolidate(root) {
   for (const n of nodes) {
     const buckets = new Map();
     for (const c of n.children) {
-      if (!c.isMesh || c.userData.keep || c.isSprite || c.children.length) continue;
+      if (!c.isMesh || c.userData.keep || c.isSprite || c.children.length || Array.isArray(c.material) || c.isInstancedMesh || c.isBatchedMesh) continue; // (multi-material meshes keep their face groups)
       if (!buckets.has(c.material)) buckets.set(c.material, []);
       buckets.get(c.material).push(c);
     }
@@ -42,7 +42,8 @@ export function consolidate(root) {
         return g;
       });
       const merged = new THREE.Mesh(mergeGeos(geos), m);
-      merged.castShadow = true;
+      merged.castShadow = !m.transparent; // (glass throws no shadow)
+      merged.receiveShadow = list.some((c) => c.receiveShadow);
       for (const c of list) n.remove(c);
       n.add(merged);
     }

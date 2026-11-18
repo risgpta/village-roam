@@ -67,13 +67,13 @@ function wheelMesh(r, w, rubber, hub, { wall = null } = {}) {
   const rub = rubber ?? wmat('#1c1b1a', { roughness: 0.92 });
   const steel = hub ?? wmat('#c9cdd1', { metalness: 0.75, roughness: 0.3 });
   const mesh = (geo, m, shadow = true) => { const o = new THREE.Mesh(geo, m); o.castShadow = shadow; g.add(o); return o; };
-  mesh(G.carcass, rub);
-  mesh(G.tread, wmat('#141312', { roughness: 0.96 }));
-  mesh(G.letters, wall ? wmat(wall, { roughness: 0.6 }) : wmat('#2c2b2a', { roughness: 0.8 }), false);
-  mesh(G.dishes, steel);
-  mesh(G.vents, wmat('#101010', { roughness: 1 }), false);
-  mesh(G.nuts, wmat('#e2e5e8', { metalness: 0.9, roughness: 0.2 }), false);
-  mesh(G.cap, wmat('#dfe3e6', { metalness: 0.95, roughness: 0.12 }), false);
+  // two meshes per wheel (rubber and steel) rather than seven: the tread, the sidewall lettering and the dark
+  // vent slots share the rubber; the dish, the nuts and the hub cap share the steel
+  G.rubberAll ??= mergeGeometries([G.carcass, G.tread, G.vents, ...(wall ? [] : [G.letters])]);
+  G.steelAll ??= mergeGeometries([G.dishes, G.nuts, G.cap]);
+  mesh(G.rubberAll, rub);
+  mesh(G.steelAll, steel);
+  if (wall) mesh(G.letters, wmat(wall, { roughness: 0.6 }), false);
   return g;
 }
 
@@ -326,6 +326,7 @@ export class Scooter {
     this.wheels.push(fw, rw);
     add(new THREE.CylinderGeometry(0.035, 0.03, 0.3, 10).rotateX(Math.PI / 2), chrome, 0.12, 0.2, -0.72);
     this.stand = add(new THREE.CylinderGeometry(0.012, 0.012, 0.3, 6), chrome, 0.12, 0.12, -0.1);
+    this.stand.userData.keep = true;
     this.stand.rotation.z = 0.6;
     // chrome crash guards round the cowls, a rear number plate
     for (const sx of [-1, 1]) {

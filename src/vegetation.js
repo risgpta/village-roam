@@ -224,50 +224,52 @@ function bush(R, lod = 1) {
 }
 
 const dummy = new THREE.Object3D();
-// Trees are instanced in ground cells, not one mesh for the whole land: a cell out of view (or out of the sun's
-// shadow box) is skipped whole, far cells draw the light version of the tree, and cells lost in the haze
-// are not drawn at all.
-const CELL = 250, NEAR = 90;
-const lodCells = [];
-function instanced(geo, mat, items, { cast = true, sink = 0.15, far = null } = {}) {
-  const group = new THREE.Group();
-  const cells = new Map();
-  for (const it of items) {
-    const k = Math.floor(it.x / CELL) + ',' + Math.floor(it.z / CELL);
-    if (!cells.has(k)) cells.set(k, []);
-    cells.get(k).push(it);
+// All the trees of one material go into a single BatchedMesh: one draw for the whole forest, each tree culled
+// on its own against the view (and the sun's shadow box), and each switching between its full and its light
+// version by distance. sets: [{ near, far, items, sink }] — one per variant of the tree.
+const NEAR = 110;
+const batches = [];
+function batched(mat, sets, { cast = true } = {}) {
+  let verts = 0, count = 0;
+  const geos = [];
+  for (const st of sets) for (const g of [st.near, st.far]) { verts += g.attributes.position.count; geos.push(g); }
+  for (const st of sets) count += st.items.length;
+  const indexed = !!sets[0].near.index;
+  let idx = 0; if (indexed) for (const g of geos) idx += g.index.count;
+  const m = new THREE.BatchedMesh(Math.max(1, count), verts, indexed ? idx : undefined, mat);
+  m.sortObjects = false; // nothing see-through to sort; saves a sort every frame
+  m.perObjectFrustumCulled = true;
+  m.frustumCulled = false; // the forest as a whole is everywhere; cull tree by tree instead
+  m.castShadow = cast; m.receiveShadow = true;
+  const ids = [], items = [];
+  for (const st of sets) {
+    const nearId = m.addGeometry(st.near), farId = m.addGeometry(st.far);
+    for (const it of st.items) {
+      const id = m.addInstance(farId);
+      dummy.position.set(it.x, heightAt(it.x, it.z) - st.sink, it.z);
+      dummy.rotation.set(0, it.rot, 0);
+      if (it.sv) dummy.scale.copy(it.sv); else dummy.scale.setScalar(it.s);
+      dummy.updateMatrix();
+      m.setMatrixAt(id, dummy.matrix);
+      ids.push(id); items.push({ x: it.x, z: it.z, nearId, farId, lod: 0, on: true });
+    }
   }
-  for (const list of cells.values()) {
-    const make = (g, shadow) => {
-      const m = new THREE.InstancedMesh(g, mat, list.length);
-      list.forEach((it, i) => {
-        dummy.position.set(it.x, heightAt(it.x, it.z) - sink, it.z);
-        dummy.rotation.set(0, it.rot, 0);
-        if (it.sv) dummy.scale.copy(it.sv); else dummy.scale.setScalar(it.s);
-        dummy.updateMatrix();
-        m.setMatrixAt(i, dummy.matrix);
-      });
-      m.castShadow = shadow;
-      m.receiveShadow = true;
-      m.computeBoundingSphere();
-      group.add(m);
-      return m;
-    };
-    const near = make(geo, cast);
-    const cell = { near, far: far ? make(far, false) : null, c: near.boundingSphere.center.clone(), r: near.boundingSphere.radius };
-    if (cell.far) cell.far.visible = false;
-    lodCells.push(cell);
-  }
-  return group;
+  batches.push({ m, ids, items, cursor: 0 });
+  return m;
 }
-// once a frame: which cells draw in full, which in the light version, which not at all
+// a slice of every forest each frame: which trees draw in full, which in the light version, which not at all
+// (lost in the haze). The whole land is gone over in a few frames.
 export function updateVegetation(camPos, fogDensity) {
-  const maxD = 2.4 / Math.max(fogDensity, 0.0012); // past this the haze has swallowed everything
-  for (const c of lodCells) {
-    const d = camPos.distanceTo(c.c) - c.r;
-    const on = d < maxD, full = on && (d < NEAR || !c.far);
-    c.near.visible = full;
-    if (c.far) c.far.visible = on && !full;
+  const maxD2 = (2.4 / Math.max(fogDensity, 0.0012)) ** 2, near2 = NEAR * NEAR;
+  for (const B of batches) {
+    const n = B.items.length, per = Math.min(n, 6000);
+    for (let k = 0; k < per; k++) {
+      const i = B.cursor; B.cursor = (B.cursor + 1) % n;
+      const it = B.items[i], dx = it.x - camPos.x, dz = it.z - camPos.z, d2 = dx * dx + dz * dz;
+      const on = d2 < maxD2, lod = d2 < near2 ? 1 : 0;
+      if (on !== it.on) { it.on = on; B.m.setVisibleAt(B.ids[i], on); }
+      if (on && lod !== it.lod) { it.lod = lod; B.m.setGeometryIdAt(B.ids[i], lod ? it.nearId : it.farId); }
+    }
   }
 }
 
@@ -284,24 +286,26 @@ export function buildVegetation() {
   glowMats.push(palmLeafMat);
   const bushMat = leafMaterial({ height: 1.4, amp: 0.1, flutter: 0.04, backlight: 0.4 });
 
-  for (let v = 0; v < 3; v++) {
-    const t = broadleaf(rng(770 + v)), tFar = broadleaf(rng(770 + v), 0);
-    const items = layout.trees.filter((it) => it.v === v);
-    const lm = instanced(t.leaves, leafMat, items, { far: tFar.leaves });
-    leafMeshes.push(lm);
-    group.add(instanced(t.trunk, trunkMat, items, { far: tFar.trunk }), lm);
-    const p = palm(rng(780 + v)), pFar = palm(rng(780 + v), 0);
-    const pitems = layout.palms.filter((it) => it.v === v);
-    group.add(instanced(p.trunk, palmTrunkMat, pitems, { far: pFar.trunk }), instanced(p.leaves, palmLeafMat, pitems, { far: pFar.leaves }));
-    const b = bush(rng(790 + v)), bFar = bush(rng(790 + v), 0);
-    group.add(instanced(b, bushMat, layout.bushes.filter((it) => it.v === v), { cast: false, sink: 0.1, far: bFar }));
-  }
+  // the three variants of each kind of tree share one batch per material
+  const T = [0, 1, 2].map((v) => ({ v, t: broadleaf(rng(770 + v)), tf: broadleaf(rng(770 + v), 0), p: palm(rng(780 + v)), pf: palm(rng(780 + v), 0), b: bush(rng(790 + v)), bf: bush(rng(790 + v), 0) }));
+  const of = (list, v) => list.filter((it) => it.v === v);
+  const lm = batched(leafMat, T.map((o) => ({ near: o.t.leaves, far: o.tf.leaves, items: of(layout.trees, o.v), sink: 0.15 })));
+  leafMeshes.push(lm);
+  group.add(lm, batched(trunkMat, T.map((o) => ({ near: o.t.trunk, far: o.tf.trunk, items: of(layout.trees, o.v), sink: 0.15 }))));
+  group.add(batched(palmTrunkMat, T.map((o) => ({ near: o.p.trunk, far: o.pf.trunk, items: of(layout.palms, o.v), sink: 0.15 }))));
+  group.add(batched(palmLeafMat, T.map((o) => ({ near: o.p.leaves, far: o.pf.leaves, items: of(layout.palms, o.v), sink: 0.15 }))));
+  group.add(batched(bushMat, T.map((o) => ({ near: o.b, far: o.bf, items: of(layout.bushes, o.v), sink: 0.1 })), { cast: false }));
 
   // rocks
   const rockGeo = new THREE.DodecahedronGeometry(1, 0);
   const rockMat = new THREE.MeshStandardMaterial({ color: '#8d877c', roughness: 0.9, flatShading: true });
   const rockItems = layout.rocks.map((r) => ({ ...r, sv: new V3(r.s * 1.2, r.s * 0.6, r.s) }));
-  group.add(instanced(rockGeo, rockMat, rockItems, { sink: 0.2 }));
+  {
+    const rm = new THREE.InstancedMesh(rockGeo, rockMat, Math.max(1, rockItems.length));
+    rockItems.forEach((it, i) => { dummy.position.set(it.x, heightAt(it.x, it.z) - 0.2, it.z); dummy.rotation.set(0, it.rot, 0); dummy.scale.copy(it.sv); dummy.updateMatrix(); rm.setMatrixAt(i, dummy.matrix); });
+    rm.castShadow = rm.receiveShadow = true; rm.computeBoundingSphere();
+    group.add(rm);
+  }
 
   group.add(buildBanyan());
   return group;

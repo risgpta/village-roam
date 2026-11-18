@@ -6,52 +6,19 @@ import {
 } from './world.js';
 
 const E = 2960; // half extent of the map, metres (out past the edge of the land)
-const N = 2560; // baked image size, px
+const N = 2560; // baked image size, px (must match BAKE.map in bakers.js)
 const toU = (x) => ((x + E) / (2 * E)) * N;
 const toV = (z) => ((z + E) / (2 * E)) * N; // north (-z) at the top
 
 const FIELD_COL = [null, [214, 184, 52], [124, 156, 64], [96, 150, 128], [70, 112, 50], [218, 170, 40], [136, 94, 60]];
 
-function bake() {
+// the painted picture of the whole area: the ground (baked in workers, see bakers.js), then trees, houses
+// and the railway drawn over it
+function bake(pixels) {
   const c = document.createElement('canvas');
   c.width = c.height = N;
   const g = c.getContext('2d');
-  const img = g.createImageData(N, N);
-  const H = new Float32Array(N * N);
-  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-    const x = (i / N) * 2 * E - E, z = (j / N) * 2 * E - E;
-    H[j * N + i] = heightAt(x, z);
-  }
-  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-    const x = (i / N) * 2 * E - E, z = (j / N) * 2 * E - E;
-    const h = H[j * N + i];
-    let col;
-    const d = Math.hypot(x, z);
-    if (riverDist(x, z) < RIVER_HALF - 0.5 || tribDist(x, z) < TRIB.half - 0.3 || (layout.bv && Math.hypot(x - layout.bv.pond.x, z - layout.bv.pond.z) < layout.bv.pond.r)) col = [74, 140, 168];
-    else {
-      const hill = Math.min(1, Math.max(0, (h - 4) / 50));
-      col = [128 - hill * 30, 160 - hill * 40, 92 - hill * 30];
-      const ft = fieldType(x, z);
-      if (ft) col = FIELD_COL[ft].slice();
-      const dsm = desertMask(x, z);
-      if (dsm > 0) col = col.map((c0, k) => c0 + ([222, 186, 130][k] - c0) * dsm);
-      if (d < PLAY_RADIUS) {
-        const dm = dirtMask(x, z);
-        if (dm > 0.35) col = [196, 160, 112];
-      }
-      if (trackDist(x, z) < 2.2) col = [92, 86, 80];
-      if (riverDist(x, z) < RIVER_HALF + 3) col = [214, 196, 150];
-      // hill shading from the height slope, light from the north-west
-      const hx = H[j * N + Math.min(N - 1, i + 1)] - H[j * N + Math.max(0, i - 1)];
-      const hz = H[Math.min(N - 1, j + 1) * N + i] - H[Math.max(0, j - 1) * N + i];
-      const sh = Math.max(0.6, Math.min(1.35, 1 - (hx + hz) * 0.18));
-      col = col.map((v) => v * sh);
-    }
-    if (d > PLAY_RADIUS) col = col.map((v) => v * 0.55);
-    const k = (j * N + i) * 4;
-    img.data[k] = col[0]; img.data[k + 1] = col[1]; img.data[k + 2] = col[2]; img.data[k + 3] = 255;
-  }
-  g.putImageData(img, 0, 0);
+  g.putImageData(new ImageData(pixels, N, N), 0, 0);
   // trees, houses
   g.fillStyle = 'rgba(40, 80, 36, 0.75)';
   for (const t of [...layout.trees, ...layout.palms]) { g.beginPath(); g.arc(toU(t.x), toV(t.z), 1.3 * (t.s ?? 1), 0, 7); g.fill(); }
@@ -128,8 +95,10 @@ function drawTrain(g, t, toPx, s, label) {
 }
 
 export class MapUI {
-  constructor() {
-    this.img = bake();
+  // pixels: a promise of the baked ground; the map fills in when it arrives (the game doesn't wait for it)
+  constructor(pixels) {
+    this.img = null;
+    Promise.resolve(pixels).then((px) => { this.img = bake(px); });
     this.places = places();
     this.mini = document.getElementById('mm-canvas');
     this.big = document.getElementById('bm-canvas');
@@ -255,6 +224,7 @@ export class MapUI {
     if (this.open) this.drawBig(player, yaw, rides);
   }
   drawMini(player, yaw, rides) {
+    if (!this.img) return;
     const c = this.mini, g = c.getContext('2d');
     const W = c.width, R = W / 2;
     const span = 150; // metres from centre to edge
@@ -300,6 +270,7 @@ export class MapUI {
     g.fillText('N', R, 11);
   }
   drawBig(player, yaw, rides) {
+    if (!this.img) return;
     const c = this.big, g = c.getContext('2d');
     const W = c.width, V = this.view, k = this.pxPerM();
     // world (x, z) → canvas pixels in the current view

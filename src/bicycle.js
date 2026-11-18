@@ -155,6 +155,7 @@ export class Bicycle {
     // kickstand (down when parked)
     this.stand = new THREE.Mesh(tube(V(0.04, 0.27, -0.05), V(0.14, 0.0, -0.18), 0.008), mats.frame);
     this.frame.add(this.stand);
+    this.stand.userData.keep = true;
     this.crank = 0;
     this.roll = 0;
     this.L = BIKE;
@@ -306,6 +307,7 @@ export class Moped {
     lens.position.copy(fl(V(0, 0.76, 0.62)));
     this.frontW = wheel(mats, 1.9); this.frontW.scale.setScalar(MR / WR); this.frontW.position.copy(fl(M.front)); this.fork.add(this.frontW);
     this.stand = add(tube(V(0.05, 0.3, -0.15), V(0.16, 0.0, -0.25), 0.012), mats.frame);
+    this.stand.userData.keep = true;
     this.exhaust = new THREE.Vector3(0.16, 0.24, -0.76);
   }
   foot(side, out) { return out.set(side * MOPED.peg.x, MOPED.peg.y + 0.03, MOPED.peg.z); }

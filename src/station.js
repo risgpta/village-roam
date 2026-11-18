@@ -141,6 +141,7 @@ function buildStation(scene, train, h, hooks, line = [train]) {
   };
   const at = (u, v) => { const f = frame(u); return { x: f.x + f.nx * v, z: f.z + f.nz * v }; };
   const group = new THREE.Group();
+  group.userData.stream = true;
   scene.add(group);
   const parts = { plat: [], edge: [], step: [], cope: [], face: [] };
   const box = (list, w, hgt, d, x, y, z, rot) => list.push(new THREE.BoxGeometry(w, hgt, d).rotateY(rot).translate(x, y, z));

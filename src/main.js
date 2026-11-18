@@ -8,9 +8,10 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { noise2, clamp } from './noise.js';
 import {
-  roadX, groundHeight, resolveCollisions, pushOut, colliders, NP, MP, heightAt, riverDist, WATER_Y, WATER, PLAY_RADIUS, layout, regionName, WF, RIVER_HALF, MARKET, TEA, tunnelAt, LID_W, TRACK_Y,
+  roadX, groundHeight, resolveCollisions, pushOut, colliders, forColliders, NP, MP, heightAt, riverDist, WATER_Y, WATER, PLAY_RADIUS, layout, regionName, WF, RIVER_HALF, MARKET, TEA, tunnelAt, LID_W, TRACK_Y,
 } from './world.js';
 import { buildTerrain, buildGrassData } from './terrain.js';
+import { startBakes } from './bakepool.js';
 import { buildGrass } from './grass.js';
 import { buildVegetation, setFoliageGlow, setFoliageSeason, updateVegetation } from './vegetation.js';
 import { buildRiver, buildWaterfall, streamDist } from './water.js';
@@ -30,13 +31,13 @@ import { buildHerds } from './herds.js';
 import { buildHamlets } from './hamlet.js';
 import { buildShrineLife } from './shrine.js';
 import { buildTrackside } from './trackside.js';
-import { ALL_PEOPLE } from './people.js';
+import { ALL_PEOPLE, EYE } from './people.js';
 import { buildPassengers } from './passengers.js';
 import { buildConstruction } from './construction.js';
 import { buildKites } from './kites.js';
 import { Crashes, shapeOf } from './crash.js';
 import { buildFarm } from './farm.js';
-import { buildFish } from './animals.js';
+import { buildFish, consolidate } from './animals.js';
 import { buildWildlife } from './wildlife.js';
 import { MapUI } from './map.js';
 import { Puffs } from './particles.js';
@@ -46,12 +47,18 @@ import { Ambience, THEMES } from './audio.js';
 import { windUniforms } from './wind.js';
 import { createEnvironment, addSurfaceGrain } from './realism.js';
 import { sampleAtmo, WEATHERS, TIMES, clockText } from './daycycle.js';
-import { updateCull } from './perf.js';
+import { updateCull, streamGroup, updateStream } from './perf.js';
 import { buildBuffaloes } from './buffalo.js';
 import { buildShops } from './shops.js';
 
 const $ = (id) => document.getElementById(id);
-const status = (s) => { $('start').textContent = s; };
+// ?prof: time each loading step and each part of the frame (read with __gaon.prof())
+const PROF = new URLSearchParams(location.search).has('prof');
+const loadTimes = [['page start → modules loaded (incl. layout generation)', Math.round(performance.now())]]; let loadMark = performance.now();
+const status = (s) => { const t = performance.now(); loadTimes.push([s, Math.round(t - loadMark)]); loadMark = t; $('start').textContent = s; };
+const lap = (name) => { const t = performance.now(); loadTimes.push(['  · ' + name, Math.round(t - loadMark)]); loadMark = t; };
+const profAcc = new Map(); let profT = 0, profFrames = 0;
+const mark = PROF ? (name) => { const t = performance.now(); profAcc.set(name, (profAcc.get(name) ?? 0) + (t - profT)); profT = t; } : () => {};
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 
 // ---------------- renderer ----------------
@@ -60,6 +67,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.autoUpdate = false; // redrawn when needed (see the frame loop)
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 document.body.prepend(renderer.domElement);
 
@@ -335,6 +343,7 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
+  dyn.ema = 16;
 });
 
 // ---------------- state ----------------
@@ -473,7 +482,7 @@ const flames = new Puffs({ max: 160, color: '#9fd0ff', dark: '#ff7a1a', opacity:
 scene.add(flames.mesh);
 const dust = new Puffs({ max: 120, color: '#c8a77a', dark: '#a8875a', opacity: 0.45, buoyancy: 0.2, drag: 1.8 });
 scene.add(dust.mesh);
-let ridePromptT = 0, ridePitch = 0;
+let ridePromptT = 0, ridePitch = 0, rideRoll = 0;
 // headlights: L switches them on and off on anything with wheels. The lamps glow, and a real beam lights the road.
 const lamps = { on: false };
 const headlight = new THREE.SpotLight('#fff0cf', 0, 80, 0.5, 0.75, 1.3);
@@ -595,6 +604,13 @@ function makeWay() {
     if (along > 0 && along < reach + 15 && side < 6) t.yieldT = 6;
   }
 }
+// a vehicle's footprint relative to its driver: how far it reaches forward and back, and its half-width
+function reachOf(v) {
+  if (v.probes) return { fr: Math.max(...v.probes) + v.rad * 0.6, bk: Math.min(...v.probes) - v.rad * 0.6, w: v.box ? v.box[2] : v.rad };
+  return { fr: 0.9, bk: -0.9, w: 0.25 };
+}
+// how steep a slope each kind can climb (rise over run)
+const CLIMB = { cart: 0.32, bus: 0.38, minibus: 0.4, erick: 0.38, auto: 0.45, car: 0.5, jeep: 0.65, bicycle: 0.42, moped: 0.6, scooter: 0.55 };
 function hornFor(v) {
   if (v.name === 'bicycle') audio.cycleBell();
   else if (v.name === 'moped') audio.mopedHorn();
@@ -1011,13 +1027,17 @@ function collectHittables() {
   hitList = [];
   for (const p of ALL_PEOPLE) {
     if (p.noHit || p.fallT > 0) continue;
+    // the cheap test first: most people are far away
+    const e = p.root.matrixWorld.elements, x = e[12], y = e[13], z = e[14];
+    if (!(Math.abs(x - player.x) + Math.abs(z - player.z) <= 160)) continue;
+    if (!Number.isFinite(y)) continue;
     let o = p.root, vis = true;
     while (o) { if (!o.visible) { vis = false; break; } o = o.parent; }
     if (!vis) continue;
-    const e = p.root.matrixWorld.elements, x = e[12], y = e[13], z = e[14];
-    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
-    if (!(Math.abs(x - player.x) + Math.abs(z - player.z) <= 160)) continue;
-    if (y - groundHeight(x, z, y + 0.3) > 0.6) continue; // up on a ride, a cart or a seat
+    // up on a ride, a cart or a seat? (the ground under them is looked up again only once they've moved a little)
+    let gc = p._hitG;
+    if (!gc || Math.abs(gc.x - x) + Math.abs(gc.z - z) > 0.5 || Math.abs(gc.y - y) > 0.3) { gc = p._hitG = { x, y, z, g: groundHeight(x, z, y + 0.3) }; }
+    if (y - gc.g > 0.6) continue;
     hitList.push({ x, z, person: p });
   }
 }
@@ -1244,17 +1264,13 @@ function paxCamera(dt) {
 
 // ---------------- build ----------------
 async function build() {
-  status('Shaping the land and hills…');
-  await nextFrame();
-  terrainObj = buildTerrain();
-  scene.add(terrainObj);
-  status('Growing the grass…');
-  await nextFrame();
-  grass = buildGrass(buildGrassData());
-  scene.add(grass);
+  // the heavy bakes (terrain heights and colours, grass, the map) start at once on the other CPU cores, while
+  // this thread builds the trees, the village, the railway and the people
+  const bakes = startBakes(['height', 'color', 'grass', 'map']);
   status('Planting neem, banyan and coconut trees…');
   await nextFrame();
-  scene.add(buildVegetation());
+  const vegGroup = buildVegetation();
+  scene.add(vegGroup);
   status('Letting the river flow…');
   await nextFrame();
   river = buildRiver();
@@ -1272,6 +1288,7 @@ async function build() {
     const d = Math.hypot(p.x - player.x, p.z - player.z);
     audio.chuff(clamp(1 - d / 230, 0, 1) ** 2, sp, n);
   };
+  lap('railway');
   stations = buildStations(scene, train, {
     sonpur: layout.sonpur,
     villageFor: (h) => h.village ?? (h.name.startsWith('Noorpur') ? NP : h.name === 'Mariapur' ? MP : null),
@@ -1316,10 +1333,14 @@ async function build() {
     obstacles: () => vehicles.filter((v) => v !== ride && !v.water && !v.crash).map((v) => { const sh = parkedShape(v); return { x: sh.x, z: sh.z, r: (v.box ? Math.max(v.box[2], v.box[3]) : v.rad) + 0.3 }; }),
     onBat: (d) => { audio.tock(clamp(1 - d / 60, 0, 1)); if (d < 35 && Math.random() < 0.5) { const [hi, ro] = pick([['चौका!', 'Chauka!'], ['शाबाश!', 'Shaabaash!'], ['भागो!', 'Bhaago!']]); setTimeout(() => audio.say(hi, { roman: ro, pitch: 1.9, rate: 1.2, volume: 1 - d / 40 }), 250); } },
   });
+  // every vehicle's fixed parts merged material by material (moving parts and gauges are left alone)
+  for (const v of vehicles) if (!v.fly && !v.water) consolidate(v.obj.root); // (the plane, helicopter and boat move their own parts)
   for (const v of vehicles) parkVehicle(v, v.park.x, v.park.z, v.park.rot);
+  lap('people');
   passengers = buildPassengers(scene);
   {
     const say = (hi, ro, d, pitch) => { if (d < 45) audio.say(hi, { roman: ro, pitch, rate: 1.1, volume: clamp(1 - d / 50, 0.2, 1) }); };
+  lap('passengers');
     site = buildConstruction(scene, layout.build, {
       tink: (v) => audio.tink(v), thud: (v) => audio.tock(v * 0.5),
       say: (hi, ro) => say(hi, ro, 0, 0.8),
@@ -1329,11 +1350,15 @@ async function build() {
     helipad = AS?.pad ? buildHelipad(scene, AS.pad, groundHeight) : null;
     mela = buildMela(scene, layout.mela, { say: (hi, ro, d, pitch = 1) => say(hi, ro, d, pitch), pop: () => {} });
   }
+  lap('site/kites/airstrip/mela');
   farm = buildFarm(scene);
+  lap('farm');
   wild = buildWildlife(scene);
+  lap('wildlife');
   fish = buildFish(scene, (d) => audio.splash(clamp(1 - d / 45, 0, 1) * 0.8));
   animals = buildAnimals(scene);
   for (const pc of animals.peacocks) pc.onCall = (d) => audio.peacock(clamp(1 - d / 120, 0, 1));
+  lap('fish/animals');
   lanterns = new LanternLights(scene, 4);
   lanterns.add({ gear: boy.gear, weight: 1.1 });
   for (const v of people.villagers) lanterns.add({ gear: v.person.gear });
@@ -1342,6 +1367,7 @@ async function build() {
   birds = new GroundBirds(scene, (x, z) => groundHeight(x, z), (x, z) => wet(x, z));
   birds.onCaw = (v) => audio.caw(v);
   birds.onChirp = (v) => audio.sparrow(v);
+  lap('lanterns/birds');
   herds = buildHerds(scene, layout.pasture, {
     say: (hi, ro, d, pitch) => { if (d < 45) audio.say(hi, { roman: ro, pitch, rate: 1.05, volume: clamp(1 - d / 50, 0.2, 1) }); },
     moo: (v) => audio.moo(v), cowbell: (v) => audio.cowbell(v), bleat: (v) => (Math.random() < 0.5 ? audio.baa(v) : audio.bleat(v)),
@@ -1350,23 +1376,50 @@ async function build() {
     grunt: (v, calf) => audio.buffalo(v, calf),
     ripple: (x, y, z, d) => { const a = Math.random() * 6.28; swim.splash.emit(x, y + 0.03, z, Math.cos(a) * 0.4, 0.5 + Math.random() * 0.4, Math.sin(a) * 0.4, 0.7, 0.05, 0.3, 0.6); if (d < 40 && Math.random() < 0.04) audio.splash(0.25 * (1 - d / 40)); },
   });
+  lap('herds/buffaloes');
   hamlets = buildHamlets(scene, layout.newVillages ?? []);
+  lap('hamlets');
   shops = buildShops(scene);
+  lap('shops');
   shrineLife = buildShrineLife(scene);
   trackside = buildTrackside(scene, train, { moo: (v) => audio.moo(v) });
+  lap('shrine/trackside');
   motes = buildMotes();
   scene.add(motes);
   boy.root.rotation.order = 'YXZ';
   scene.add(boy.root);
   status('Drawing the map…');
   await nextFrame();
-  map = new MapUI();
+  status('Shaping the land and hills…');
+  await nextFrame();
+  terrainObj = buildTerrain(await bakes.height, await bakes.color);
+  scene.add(terrainObj);
+  status('Growing the grass…');
+  await nextFrame();
+  grass = buildGrass(buildGrassData(await bakes.grass));
+  scene.add(grass);
+  map = new MapUI(bakes.map); // the map fills in by itself once its bake is done
   applySeason(true);
   {
     // grain on every plain surface — walls, wood, tin, and the weave of people's clothes (skin is left smooth)
     if (REAL) addSurfaceGrain(scene);
   }
   tickClock(0);
+  // ---- performance ----
+  // things that never move: work out their matrices once and stop updating them every frame
+  for (const o of [terrainObj, vegGroup]) { o.updateMatrixWorld(true); o.matrixWorldAutoUpdate = false; o.userData.frozen = true; }
+  // little pieces (buttons, eyes, sweets in a jar…) make no shadow worth the cost of drawing them into the map
+  {
+    const _s = new THREE.Vector3();
+    scene.traverse((o) => {
+      if (!o.isMesh || !o.castShadow || o.isInstancedMesh || o.isBatchedMesh || !o.geometry) return;
+      if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+      o.getWorldScale(_s);
+      if (o.geometry.boundingSphere.radius * Math.max(_s.x, _s.y, _s.z) < 0.18) o.castShadow = false;
+    });
+  }
+  // the big static clusters (the village's props, the railway, the stations, the mela) stream by distance
+  for (const c of scene.children) if (c.userData.stream || c === village.group) streamGroup(c);
   renderer.compile(scene, camera);
   status('Begin the walk');
   $('start').disabled = false;
@@ -1515,6 +1568,27 @@ function toast(text) {
 
 // ---------------- loop ----------------
 let last = 0, time = 0, regionTimer = 0, currentRegion = '';
+let shadowTick = 0;
+// Dynamic resolution: if frames start taking too long the picture renders at a lower resolution (and is
+// scaled up), and goes back up when there is time to spare — so the frame rate stays smooth.
+const MAX_PR = Math.min(window.devicePixelRatio, 1.5), MIN_PR = Math.min(MAX_PR, 0.6);
+const dyn = { pr: MAX_PR, ema: 16, slowT: 0, fastT: 0, cpu: 8 };
+function setPixelRatio(pr) {
+  dyn.pr = pr;
+  renderer.setPixelRatio(pr);
+  composer.setPixelRatio(pr);
+  composer.setSize(window.innerWidth, window.innerHeight);
+}
+function dynamicResolution(frameMs) {
+  if (!started || document.hidden) return;
+  dyn.ema += (Math.min(frameMs, 100) - dyn.ema) * 0.05;
+  // lowering the resolution only helps when the GPU is the bottleneck: when the frame's own work (the CPU)
+  // takes nearly the whole frame, leave the resolution alone
+  const gpuBound = dyn.cpu < dyn.ema * 0.7;
+  if (dyn.ema > 21 && gpuBound) { dyn.slowT += frameMs / 1000; dyn.fastT = 0; } else if (dyn.ema < 14) { dyn.fastT += frameMs / 1000; dyn.slowT = 0; } else { dyn.slowT = 0; dyn.fastT = 0; }
+  if (dyn.slowT > 1 && dyn.pr > MIN_PR + 0.01) { setPixelRatio(Math.max(MIN_PR, dyn.pr - 0.15)); dyn.slowT = 0; }
+  else if (dyn.fastT > 4 && dyn.pr < MAX_PR - 0.01) { setPixelRatio(Math.min(MAX_PR, dyn.pr + 0.1)); dyn.fastT = 0; }
+}
 const camPos = new THREE.Vector3();
 const camTarget = new THREE.Vector3();
 const tmp = new THREE.Vector3();
@@ -1636,7 +1710,14 @@ function updatePlayer(dt) {
       const g = groundHeight(x, z, player.y);
       // vehicles can't go into the river; on foot you can wade in and swim
       if (riding && ride.water) return g > WY() - 0.22 || !wet(x, z); // the boat needs water under it
-      return (riding && g < WY() - 0.2 && wet(x, z)) || g > Math.max(player.y, swim.on ? WY() - 0.6 : player.y) + STEP_UP;
+      if ((riding && g < WY() - 0.2 && wet(x, z)) || g > Math.max(player.y, swim.on ? WY() - 0.6 : player.y) + STEP_UP) return true;
+      // a slope too steep for this vehicle, ahead of it in the way it's going (its nose would dig in)
+      if (riding && !ride.fly) {
+        const R = reachOf(ride), ext = (four && drive.v < 0) ? -R.bk : R.fr;
+        const ga = groundHeight(x + player.dirX * ext, z + player.dirZ * ext, player.y + 1);
+        if ((ga - g) / Math.max(0.5, ext) > (CLIMB[ride.name] ?? 0.5) && ga > player.y) return true;
+      }
+      return false;
     };
     if (blocked(p.x, p.z)) {
       if (!blocked(p.x, player.z)) p.z = player.z;
@@ -1674,12 +1755,20 @@ function updatePlayer(dt) {
     swim.stroke += dt * (1.6 + player.speed * 1.4);
     if (swim.stroke > Math.PI) { swim.stroke -= Math.PI; if (player.speed > 0.3) { splashAround(5, 0.8); audio.splash(0.45); } }
   }
+  if (riding && !ride.water && !ride.fly) {
+    const R = reachOf(ride), fx = Math.sin(player.facing), fz = Math.cos(player.facing);
+    const hf = groundHeight(player.x + fx * R.fr, player.z + fz * R.fr, player.y + 1), hb = groundHeight(player.x + fx * R.bk, player.z + fz * R.bk, player.y + 1);
+    gy = Math.max(gy, hb + (hf - hb) * (-R.bk / (R.fr - R.bk)));
+  }
   if (player.grounded) {
     if (gy < player.y - 0.5) {
       player.grounded = false; // stepped off an edge
       player.vy = 0;
     } else {
       player.y += (gy - player.y) * (1 - Math.exp(-dt * (ride && !ride.water ? 9 : 16)));
+      // easing is only for settling down onto the ground: going uphill it would trail behind the slope (half a metre
+      // at speed) and the wheels and nose would sink into the hill, so never sit below the ground
+      if (player.y < gy - 0.02) player.y = gy - 0.02;
     }
   }
   if (!player.grounded) {
@@ -1702,12 +1791,19 @@ function updatePlayer(dt) {
     if (four) bikeSteer = -drive.steer * 0.45;
     else bikeSteer += (clamp(yawRate * 0.25, -0.5, 0.5) - bikeSteer) * (1 - Math.exp(-dt * 8));
     bikeRoll += (clamp(-yawRate * player.speed * 0.05 * ride.lean, -0.32, 0.32) - bikeRoll) * (1 - Math.exp(-dt * 5));
-    boy.root.rotation.z = bikeRoll;
+    boy.root.rotation.z = bikeRoll + rideRoll;
     // pitch with the slope of the ground under the wheels
     if (!ride.water) {
-      const fx = Math.sin(player.facing), fz = Math.cos(player.facing), hl = ride.name === 'minibus' ? 2.1 : ride.name === 'bus' ? 2.6 : 0.9;
-      const hf = groundHeight(player.x + fx * hl, player.z + fz * hl, player.y + 0.5), hb = groundHeight(player.x - fx * hl, player.z - fz * hl, player.y + 0.5);
-      ridePitch += (-Math.atan2(hf - hb, hl * 2) - ridePitch) * (1 - Math.exp(-dt * 6));
+      // tilt along the ground under its real front and back (a bullock cart reaches 4.5 m ahead of its driver)
+      const fx = Math.sin(player.facing), fz = Math.cos(player.facing), R = reachOf(ride);
+      const hf = groundHeight(player.x + fx * R.fr, player.z + fz * R.fr, player.y + 1), hb = groundHeight(player.x + fx * R.bk, player.z + fz * R.bk, player.y + 1);
+      ridePitch += (-Math.atan2(hf - hb, R.fr - R.bk) - ridePitch) * (1 - Math.exp(-dt * 11));
+      // and sideways, on a slope across the way it's going (local +x is the left side)
+      if (four) {
+        const lx = Math.cos(player.facing), lz = -Math.sin(player.facing);
+        const hL = groundHeight(player.x + lx * R.w, player.z + lz * R.w, player.y + 1), hR = groundHeight(player.x - lx * R.w, player.z - lz * R.w, player.y + 1);
+        rideRoll += (Math.atan2(hL - hR, 2 * R.w) - rideRoll) * (1 - Math.exp(-dt * 11));
+      } else rideRoll *= 0.9;
     } else ridePitch *= 0.9;
     // the body squats back under power and dips its nose under the brakes
     const vNow = four ? drive.v : player.speed;
@@ -1949,11 +2045,11 @@ const _pw = new THREE.Vector3(), _pf = new THREE.Vector3(), _pu = new THREE.Vect
 // what the plane can run into: anything with a height it is below, anything without one when it's low
 function planeHit(p, r, y, agl = 0) {
   const x0 = p.x, z0 = p.z;
-  for (const o of colliders) {
-    if (o.height !== undefined ? y > o.height : agl > 6.5) continue;
-    if (o.minY !== undefined && y < o.minY) continue;
+  forColliders(p.x, p.z, r, (o) => {
+    if (o.height !== undefined ? y > o.height : agl > 6.5) return;
+    if (o.minY !== undefined && y < o.minY) return;
     pushOut(p, r, o);
-  }
+  });
   if (agl < 2.5) for (const v of vehicles) if (v !== ride && !v.water && !v.crash) pushOut(p, r, parkedShape(v));
   return Math.hypot(p.x - x0, p.z - z0) > 0.002;
 }
@@ -2597,6 +2693,9 @@ function loop(now) {
   }
 }
 function frame(now) {
+  const cpu0 = performance.now();
+  if (PROF) { profT = performance.now(); profFrames++; }
+  if (last) dynamicResolution(now - last);
   const dt = Math.min(0.05, Math.max(0, (now - last) / 1000) || 0);
   last = now;
   time += dt;
@@ -2616,8 +2715,11 @@ function frame(now) {
     headlight.visible = headlight.intensity > 0.5 || !started;
   }
   if (!started) yaw += dt * 0.04;
+  mark('pre');
   collectHittables();
+  mark('hittables');
   people.update(dt, player);
+  mark('people');
   trafficHits();
   site.update(dt, player);
   kites.update(dt, player);
@@ -2626,36 +2728,48 @@ function frame(now) {
   updateRobbed(dt);
   updateDiyas(dt);
   pumpToasts(dt);
+  mark('site/kites/mela');
   {
     const carriers = vehicles.filter((v) => v.obj.seats);
     const act = carriers.includes(ride) && !ride.crash ? ride : null;
     const evs = passengers.update(dt, player, carriers.map((v) => v.obj), act?.obj ?? null, act ? drive.v : 0);
     busEvents(evs);
   }
+  mark('passengers');
   animals.update(dt, player);
+  mark('animals');
   train.update(time);
+  mark('train');
   for (const X of train.crossings) {
     if (!X.closed) continue;
     X.bellT = (X.bellT ?? 0) - dt;
     if (X.bellT <= 0) { X.bellT = 0.45; const d = Math.hypot(player.x - X.cx, player.z - X.cz); if (d < 90) audio.tink(clamp(1 - d / 90, 0.1, 1) * 0.8); }
   }
   stations?.update(dt, player, !!ATMO.night);
+  mark('stations');
   updatePlayer(dt);
+  mark('player');
   crashCheck(dt);
   crashes.update(dt);
+  mark('crash');
   updateCamera(dt);
-  updateShadows();
+  // the shadow map is redrawn every other frame (each frame when going fast, so nothing lags behind)
+  shadowTick++;
+  if (shadowTick % 2 === 0 || player.speed > 7 || (ride && ride.fly) || drv || pax) { updateShadows(); renderer.shadowMap.needsUpdate = true; }
 
   updateVegetation(camera.position, scene.fog.density);
   terrainObj.userData.update(camera.position);
   updateCull(camera.position);
+  updateStream(camera.position, 2.6 / Math.max(scene.fog.density, 0.0012));
   grass.userData.setCenter(player.x, player.z);
   river.material.uniforms.uTime.value = time;
   const mu = motes.material.uniforms;
   mu.uTime.value = time;
   mu.uCenter.value.set(player.x, player.y, player.z);
   mu.uScale.value = renderer.getPixelRatio();
+  mark('camera/lod');
   village.update(time, dt, player);
+  mark('village');
   waterfall.update(time, dt, Math.abs(player.x - WF.x) + Math.abs(player.z - WF.z) < 260);
   lanterns.update(player, time);
   farm.update(dt, time, player);
@@ -2664,7 +2778,9 @@ function frame(now) {
   scare.cool -= dt;
   updateStorm(dt);
   if (started) villageVoices(dt);
+  mark('wild/farm/etc');
   if (started) map.update(player, yaw, vehicles.map((v) => ({ name: v.name, x: v === ride ? player.x : v.park.x, z: v === ride ? player.z : v.park.z, ridden: v === ride })), mapTrains());
+  mark('map');
   flocks.update(time, dt, player);
   birds.update(dt, player, !!ATMO.night);
   herds?.update(dt, player);
@@ -2673,6 +2789,7 @@ function frame(now) {
   shops?.update(dt, player);
   shrineLife?.update(dt, player);
   trackside?.update(dt, player, !!ATMO.night);
+  mark('herds/hamlets/shops');
   clouds.material.uniforms.uTime.value = time;
   sky.position.copy(camera.position);
   clouds.position.x = camera.position.x;
@@ -2742,7 +2859,23 @@ function frame(now) {
     sun.intensity = ATMO.sunI * tunnelK;
     hemi.intensity *= 0.35 + 0.65 * tunnelK; // (the storm code sets it afresh every frame)
   }
+  mark('rest');
+  // whatever is hidden this frame needs no matrix update (it picks up again the frame it shows)
+  for (const c of scene.children) if (!c.userData.frozen) c.matrixWorldAutoUpdate = c.visible;
+  EYE.x = camera.position.x; EYE.z = camera.position.z;
+  // people more than 120 m off are a few pixels tall: leave them out of this frame's drawing (and its shadows).
+  // Done just around the render, so every system's own showing and hiding of its people is left untouched.
+  const farFolk = [];
+  for (const q of ALL_PEOPLE) {
+    const r = q.root;
+    if (!r.visible) continue;
+    const e = r.matrixWorld.elements, dx = e[12] - camera.position.x, dz = e[14] - camera.position.z;
+    if (dx * dx + dz * dz > 14400) { r.visible = false; farFolk.push(r); }
+  }
   composer.render();
+  for (const r of farFolk) r.visible = true;
+  mark('render');
+  dyn.cpu += (performance.now() - cpu0 - dyn.cpu) * 0.05;
   if (wantShot) { wantShot = false; postcard(); }
 }
 // P: a postcard of what the boy is looking at, with the place and the hour written along the bottom
@@ -2796,6 +2929,8 @@ function busEvents(evs) {
 
 // small debug hook for screenshots / tinkering from the console
 window.__gaon = {
+  prof: () => ({ load: loadTimes, bakes: globalThis.__bakeTimes, frames: profFrames, ms: Object.fromEntries([...profAcc].map(([k, v]) => [k, +(v / Math.max(1, profFrames)).toFixed(2)])), calls: renderer.info.render.calls, tris: renderer.info.render.triangles, objects: (() => { let n = 0; scene.traverse(() => n++); return n; })() }),
+  profReset: () => { profAcc.clear(); profFrames = 0; },
   player,
   view(y, p, d) { yaw = y; pitch = p; targetDist = dist = d; },
   // the old preset numbers still work: 0 golden, 1 morning, 2 noon, 3 dusk, 4 night, 5 moonless, 6 windy, 7 storm, 8 rain

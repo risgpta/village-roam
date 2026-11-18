@@ -6,7 +6,7 @@ import { backlightGLSL } from './realism.js';
 import { DATA_HALF } from './world.js';
 
 const TILE = 80;
-const COUNT = 260000;
+const COUNT = 220000; // (a touch fewer blades: they are the biggest single cost on the GPU)
 
 function bladeGeometry() {
   const rows = [0, 0.3, 0.55, 0.8];

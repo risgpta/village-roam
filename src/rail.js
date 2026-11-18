@@ -8,7 +8,8 @@ import { TRACK, TRACK3, TRACK5, OUTER_LOOP, TRACKS, RING, TRACK_Y, riverX, RIVER
 import { toTexture } from './textures.js';
 import { lathe, boulder } from './shapes.js';
 import { Puffs } from './particles.js';
-import { Person } from './people.js';
+import { Person, EYE } from './people.js';
+import { consolidate } from './animals.js';
 
 const std = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.85, ...o });
 const RAIL_TOP = TRACK_Y + 0.42;
@@ -294,6 +295,7 @@ function buildLoco(mats) {
   // rods: coupling rod (translates on a circle) and main rod from the crosshead to the middle crank
   const rods = [-1, 1].map((sx) => {
     const coupling = add(new THREE.BoxGeometry(0.06, 0.13, drv[2] - drv[0] + 0.3), mats.steel, sx * 1.04, 0, 0);
+    coupling.userData.keep = true; // it moves on its own: never merged
     const cross = add(new THREE.BoxGeometry(0.14, 0.2, 0.3), mats.steel, sx * 1.18, 1.32, 1.0);
     add(alongZ(new THREE.CylinderGeometry(0.04, 0.04, 1.9, 8)).translate(0, 0, 0.95), mats.steel, 0, 0, 0, cross);
     const main = new THREE.Group();
@@ -335,6 +337,7 @@ function gravelTex() {
 }
 export function buildRailway(scene) {
   const group = new THREE.Group();
+  group.userData.stream = true; // static: its pieces are streamed in and out by distance (perf.js)
   for (const T of TRACKS) buildLine(group, T);
   // a gated level crossing, with its gateman, wherever a road crosses a line
   for (const X of ROAD_X) roadCrossing(group, X);
@@ -850,6 +853,7 @@ class Train {
       const l2 = buildLoco(this.mats); l2.rev = true; this.cars.push(l2); this.locos.push(l2);
     }
     let off = 0;
+    for (const c of this.cars) consolidate(c.g); // fixed parts merged by material (the axles turn on their own)
     for (const c of this.cars) {
       c.off = off + c.L / 2;
       off += c.L + 0.7;
@@ -1118,9 +1122,11 @@ class Train {
       const a = this.point(sc + this.dir * Math.max(0.5, c.L / 2 - 3)), b = this.point(sc - this.dir * Math.max(0.5, c.L / 2 - 3));
       c.g.position.set((a.x + b.x) / 2, RAIL_TOP - 0.42, (a.z + b.z) / 2);
       c.g.rotation.y = Math.atan2(a.x - b.x, a.z - b.z) + (c.rev ? Math.PI : 0);
+      // far off in the haze it isn't drawn (it keeps running, of course)
+      const far = Math.abs(c.g.position.x - EYE.x) + Math.abs(c.g.position.z - EYE.z) > 1100;
+      if (far) c.g.visible = false;
       const tv = c.rev ? -this.travel : this.travel;
-      for (const w of c.wheels) w.o.rotation.x = tv / w.r;
-      if (c.animate) c.animate(tv / 0.82);
+      if (!far) { for (const w of c.wheels) w.o.rotation.x = tv / w.r; if (c.animate) c.animate(tv / 0.82); }
       const vs = c.rev ? -this.v : this.v;
       this.boxes.push({ kind: 'b', x: c.g.position.x, z: c.g.position.z, rot: c.g.rotation.y, hw: 1.7, hd: c.L / 2 + 0.35, vx: Math.sin(c.g.rotation.y) * vs, vz: Math.cos(c.g.rotation.y) * vs, loco: c === this.loco, moving: speed > 0.3 });
     }

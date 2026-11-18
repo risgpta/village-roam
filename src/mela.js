@@ -73,6 +73,7 @@ const SKIN = ['#7a4c33', '#6e4530', '#86573b', '#80523a', '#5f3a26', '#8a5a3c', 
 export function buildMela(scene, site, hooks = {}) {
   if (!site) return { update() {}, setWeather() {}, distTo: () => 999, people: [], parking: [] };
   const G = new THREE.Group();
+  G.userData.stream = true;
   const Y = heightAt(site.x, site.z);
   G.position.set(site.x, Y, site.z);
   G.rotation.y = site.rot;

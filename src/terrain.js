@@ -96,34 +96,24 @@ function freeAfterUpload(geo) {
   for (const a of Object.values(geo.attributes)) a.onUpload(drop);
   if (geo.index) geo.index.onUpload(drop);
 }
-export function buildTerrain() {
+// heights: the terrain grid (BAKE.height), colors: the colour map's pixels (BAKE.color) — both baked in workers
+export function buildTerrain(heights, colors) {
   const group = new THREE.Group();
-  // --- inner: baked color map ---
-  const N = 3840; // the colour map (~1.54 m a pixel over the whole land)
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = N;
-  const g = cv.getContext('2d');
-  const img = g.createImageData(N, N);
   const col = [0, 0, 0];
-  for (let py = 0; py < N; py++) {
-    const z = -INNER_HALF + ((py + 0.5) / N) * INNER_HALF * 2;
-    for (let px = 0; px < N; px++) {
-      const x = -INNER_HALF + ((px + 0.5) / N) * INNER_HALF * 2;
-      terrainColor(x, z, col);
-      const i = (py * N + px) * 4;
-      img.data[i] = col[0]; img.data[i + 1] = col[1]; img.data[i + 2] = col[2]; img.data[i + 3] = 255;
-    }
-  }
-  g.putImageData(img, 0, 0);
-  const map = toTexture(cv);
+  // --- inner: the baked colour map ---
+  const CN = Math.round(Math.sqrt(colors.length / 4));
+  const map = new THREE.DataTexture(colors, CN, CN, THREE.RGBAFormat);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.magFilter = THREE.LinearFilter; map.minFilter = THREE.LinearMipmapLinearFilter; map.generateMipmaps = true;
   map.wrapS = map.wrapT = THREE.ClampToEdgeWrapping;
   map.anisotropy = 16;
+  map.needsUpdate = true;
+  map.onUpdate = () => { map.image = { data: null, width: CN, height: CN }; map.onUpdate = null; }; // the GPU has it now
 
   // The inner land is cut into square tiles that share one colour map: tiles out of view are skipped, and
   // far tiles draw every third vertex (same vertices, a lighter index list).
-  const GRID = 1968, TILES = 16, TN = GRID / TILES, STEP = (INNER_HALF * 2) / GRID, COARSE = 3;
-  const W = GRID + 1, hgt = new Float32Array(W * W);
-  for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) hgt[j * W + i] = heightAt(-INNER_HALF + i * STEP, -INNER_HALF + j * STEP);
+  const W = Math.round(Math.sqrt(heights.length)), GRID = W - 1, TILES = 16, TN = GRID / TILES, STEP = (INNER_HALF * 2) / GRID, COARSE = 3;
+  const hgt = heights;
   const H = (i, j) => hgt[Math.min(GRID, Math.max(0, j)) * W + Math.min(GRID, Math.max(0, i))];
   const indexFor = (st) => {
     const idx = [], w = TN + 1;
@@ -144,7 +134,7 @@ export function buildTerrain() {
       // the normal from the heights either side, so neighbouring tiles agree along their shared edge
       const nx = H(gi - 1, gj) - H(gi + 1, gj), nz = H(gi, gj - 1) - H(gi, gj + 1), ny = 2 * STEP, l = Math.hypot(nx, ny, nz);
       Nn[o * 3] = nx / l; Nn[o * 3 + 1] = ny / l; Nn[o * 3 + 2] = nz / l;
-      U[o * 2] = gi / GRID; U[o * 2 + 1] = 1 - gj / GRID;
+      U[o * 2] = gi / GRID; U[o * 2 + 1] = gj / GRID;
     }
     const attrs = { position: new THREE.BufferAttribute(P, 3), normal: new THREE.BufferAttribute(Nn, 3), uv: new THREE.BufferAttribute(U, 2) };
     const make = (index) => {
@@ -165,7 +155,7 @@ export function buildTerrain() {
   for (const a of [fineIdx, coarseIdx]) a.onUpload(function () { this.array = new Uint16Array(0); });
   group.userData.update = (camPos) => {
     for (const t of tiles) {
-      const near = camPos.distanceTo(t.c) - t.r < 380;
+      const near = camPos.distanceTo(t.c) - t.r < 260;
       t.fine.visible = near; t.coarse.visible = !near;
     }
   };
@@ -234,44 +224,9 @@ export function buildTerrain() {
   return group;
 }
 
-// RGBA half-float: r = height, g = grass density, b = type (0 grass, 0.5 wheat, 1 mustard)
-export function buildGrassData() {
-  const N = 3200;
-  const data = new Uint16Array(N * N * 4);
-  const toH = THREE.DataUtils.toHalfFloat;
-  for (let py = 0; py < N; py++) {
-    const z = -DATA_HALF + ((py + 0.5) / N) * DATA_HALF * 2;
-    for (let px = 0; px < N; px++) {
-      const x = -DATA_HALF + ((px + 0.5) / N) * DATA_HALF * 2;
-      const h = heightAt(x, z);
-      const dr = Math.abs(x - riverX(z));
-      let dens = 1 - dirtMask(x, z) * 1.15;
-      dens *= smoothstep(RIVER_HALF + 1.5, RIVER_HALF + 4.5, dr);
-      dens *= smoothstep(TRIB.half + 0.5, TRIB.half + 3.5, tribDist(x, z));
-      dens *= smoothstep(3.0, 5.0, trackDist(x, z));
-      if (tunnelMask(x, z)) dens = 0;
-      { const jm = jungleMask(x, z); if (jm > 0) dens *= 1 - jm * 0.7; } // under the jungle canopy the grass grows thin
-      dens *= (1 - waterfallMask(x, z)) * (1 - fallsRock(x, z));
-      if (Math.abs(x - GARDEN.x) < GARDEN.hw && Math.abs(z - GARDEN.z) < GARDEN.hd) dens *= 0.08;
-      { const dm2 = desertMask(x, z); if (dm2 > 0) dens *= 1 - dm2 * 0.85; }
-      let type = 0;
-      const ft = fieldType(x, z);
-      if (ft && !isBund(x, z)) {
-        if (ft === 1) type = 1;
-        else if (ft === 2) type = 0.5;
-        else if (ft === 3) { type = 0.5; dens *= 0.75; } // rice shoots poking out of the water
-        else if (ft === 4) dens *= 0.12;
-        else if (ft === 5) dens *= 0.3;
-        else if (ft === 6) dens = 0;
-      } else if (ft) dens *= 0.5;
-      else dens *= 0.5 + 0.5 * smoothstep(-0.35, 0.25, fbm(x * 0.07, z * 0.07, 2));
-      const i = (py * N + px) * 4;
-      data[i] = toH(h);
-      data[i + 1] = toH(Math.max(0, Math.min(1, dens)));
-      data[i + 2] = toH(type);
-      data[i + 3] = toH(1);
-    }
-  }
+// the grass data texture (RGBA half-float: height, density, crop type), from the rows baked in workers
+export function buildGrassData(data) {
+  const N = Math.round(Math.sqrt(data.length / 4));
   const tex = new THREE.DataTexture(data, N, N, THREE.RGBAFormat, THREE.HalfFloatType);
   tex.minFilter = tex.magFilter = THREE.LinearFilter;
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
