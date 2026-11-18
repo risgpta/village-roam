@@ -26,7 +26,7 @@ export function consolidate(root) {
   for (const n of nodes) {
     const buckets = new Map();
     for (const c of n.children) {
-      if (!c.isMesh || c.userData.keep || c.isSprite || c.children.length || Array.isArray(c.material) || c.isInstancedMesh || c.isBatchedMesh) continue; // (multi-material meshes keep their face groups)
+      if (!c.isMesh || c.userData.keep || !c.visible || c.isSkinnedMesh || c.isSprite || c.children.length || Array.isArray(c.material) || c.material.vertexColors || c.isInstancedMesh || c.isBatchedMesh || !c.geometry.attributes.normal) continue; // (multi-material meshes keep their face groups)
       if (!buckets.has(c.material)) buckets.set(c.material, []);
       buckets.get(c.material).push(c);
     }

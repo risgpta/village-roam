@@ -31,7 +31,7 @@ export function streamGroup(group) {
     _box.setFromObject(c);
     if (_box.isEmpty()) continue;
     _box.getBoundingSphere(_sph);
-    streams.push({ c, g: group, x: _sph.center.x, z: _sph.center.z, r: _sph.radius, maxD: Math.min(2400, 110 + _sph.radius * 60), on: true });
+    streams.push({ c, g: group, x: _sph.center.x, z: _sph.center.z, r: _sph.radius, maxD: Math.min(2400, 220 + _sph.radius * 90), on: true });
   }
 }
 let streamCursor = 0;

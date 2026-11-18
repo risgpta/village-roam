@@ -227,7 +227,7 @@ const dummy = new THREE.Object3D();
 // All the trees of one material go into a single BatchedMesh: one draw for the whole forest, each tree culled
 // on its own against the view (and the sun's shadow box), and each switching between its full and its light
 // version by distance. sets: [{ near, far, items, sink }] — one per variant of the tree.
-const NEAR = 110;
+const NEAR = 240;
 const batches = [];
 function batched(mat, sets, { cast = true } = {}) {
   let verts = 0, count = 0;

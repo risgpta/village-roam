@@ -504,11 +504,11 @@ export class Person {
   // position; the offset rides on top of it)
   dodge(dx, dz, hold = 3.5) { this.dodgeV = { dx, dz, t: 0, hold }; }
   update(dt, speed, action) {
-    // far away, the pose needn't change every frame: every 3rd frame past 50 m, every 6th past 110 m (with the
+    // far away, the pose needn't change every frame: every 2nd frame past 90 m, every 4th past 180 m (with the
     // time saved up, so they don't slow down)
     if (!(this.fallT > 0) && !this.dodgeV) {
       const e = this.root.matrixWorld.elements, dx = e[12] - EYE.x, dz = e[14] - EYE.z, d2 = dx * dx + dz * dz;
-      const every = d2 > 12100 ? 6 : d2 > 2500 ? 3 : 1;
+      const every = d2 > 32400 ? 4 : d2 > 8100 ? 2 : 1;
       if (every > 1) {
         this._acc = (this._acc ?? 0) + dt;
         this._n = ((this._n ?? 0) + 1) % every;

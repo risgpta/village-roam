@@ -11,8 +11,8 @@ import { terrainColor } from './terrain.js';
 
 export const BAKE = {
   height: { N: 1969, half: INNER_HALF }, // terrain mesh heights: a grid of N × N vertices (1.83 m apart)
-  color: { N: 3072, half: INNER_HALF }, // the terrain's colour map (1.17 m a pixel)
-  grass: { N: 2048, half: DATA_HALF }, // grass height / density / crop type (1.76 m a texel)
+  color: { N: 4096, half: INNER_HALF }, // the terrain's colour map (0.88 m a pixel)
+  grass: { N: 3200, half: DATA_HALF }, // grass height / density / crop type (as fine as it always was)
   map: { N: 2560, half: 2960 }, // the painted area map
 };
 

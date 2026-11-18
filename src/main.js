@@ -1408,14 +1408,14 @@ async function build() {
   // ---- performance ----
   // things that never move: work out their matrices once and stop updating them every frame
   for (const o of [terrainObj, vegGroup]) { o.updateMatrixWorld(true); o.matrixWorldAutoUpdate = false; o.userData.frozen = true; }
-  // little pieces (buttons, eyes, sweets in a jar…) make no shadow worth the cost of drawing them into the map
+  // only the tiniest pieces (buttons, eyes) make no shadow worth drawing into the map
   {
     const _s = new THREE.Vector3();
     scene.traverse((o) => {
       if (!o.isMesh || !o.castShadow || o.isInstancedMesh || o.isBatchedMesh || !o.geometry) return;
       if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
       o.getWorldScale(_s);
-      if (o.geometry.boundingSphere.radius * Math.max(_s.x, _s.y, _s.z) < 0.18) o.castShadow = false;
+      if (o.geometry.boundingSphere.radius * Math.max(_s.x, _s.y, _s.z) < 0.05) o.castShadow = false;
     });
   }
   // the big static clusters (the village's props, the railway, the stations, the mela) stream by distance
@@ -1571,7 +1571,8 @@ let last = 0, time = 0, regionTimer = 0, currentRegion = '';
 let shadowTick = 0;
 // Dynamic resolution: if frames start taking too long the picture renders at a lower resolution (and is
 // scaled up), and goes back up when there is time to spare — so the frame rate stays smooth.
-const MAX_PR = Math.min(window.devicePixelRatio, 1.5), MIN_PR = Math.min(MAX_PR, 0.6);
+// (never far below full sharpness: a blurry picture is worse than a few dropped frames)
+const MAX_PR = Math.min(window.devicePixelRatio, 1.5), MIN_PR = MAX_PR * 0.85;
 const dyn = { pr: MAX_PR, ema: 16, slowT: 0, fastT: 0, cpu: 8 };
 function setPixelRatio(pr) {
   dyn.pr = pr;
@@ -2753,9 +2754,9 @@ function frame(now) {
   crashes.update(dt);
   mark('crash');
   updateCamera(dt);
-  // the shadow map is redrawn every other frame (each frame when going fast, so nothing lags behind)
+  // the shadow map is redrawn every frame, so moving people and vehicles never leave a stuttering shadow
   shadowTick++;
-  if (shadowTick % 2 === 0 || player.speed > 7 || (ride && ride.fly) || drv || pax) { updateShadows(); renderer.shadowMap.needsUpdate = true; }
+  updateShadows(); renderer.shadowMap.needsUpdate = true;
 
   updateVegetation(camera.position, scene.fog.density);
   terrainObj.userData.update(camera.position);
@@ -2863,14 +2864,14 @@ function frame(now) {
   // whatever is hidden this frame needs no matrix update (it picks up again the frame it shows)
   for (const c of scene.children) if (!c.userData.frozen) c.matrixWorldAutoUpdate = c.visible;
   EYE.x = camera.position.x; EYE.z = camera.position.z;
-  // people more than 120 m off are a few pixels tall: leave them out of this frame's drawing (and its shadows).
+  // people more than 260 m off are a few pixels tall: leave them out of this frame's drawing (and its shadows).
   // Done just around the render, so every system's own showing and hiding of its people is left untouched.
   const farFolk = [];
   for (const q of ALL_PEOPLE) {
     const r = q.root;
     if (!r.visible) continue;
     const e = r.matrixWorld.elements, dx = e[12] - camera.position.x, dz = e[14] - camera.position.z;
-    if (dx * dx + dz * dz > 14400) { r.visible = false; farFolk.push(r); }
+    if (dx * dx + dz * dz > 67600) { r.visible = false; farFolk.push(r); }
   }
   composer.render();
   for (const r of farFolk) r.visible = true;

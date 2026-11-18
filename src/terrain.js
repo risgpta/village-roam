@@ -155,7 +155,7 @@ export function buildTerrain(heights, colors) {
   for (const a of [fineIdx, coarseIdx]) a.onUpload(function () { this.array = new Uint16Array(0); });
   group.userData.update = (camPos) => {
     for (const t of tiles) {
-      const near = camPos.distanceTo(t.c) - t.r < 260;
+      const near = camPos.distanceTo(t.c) - t.r < 420;
       t.fine.visible = near; t.coarse.visible = !near;
     }
   };
