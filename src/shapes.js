@@ -156,13 +156,32 @@ export function furMat(color, { rough = 0.9, sheen = 0.55, map = null, short = f
     sheen: short ? sheen * 0.6 : sheen, sheenRoughness: 0.75, sheenColor: sc,
   });
   // countershading: darker along the back, paler on the belly and inside the legs, as on most animals
+  // ...and patchiness: the coat is never one flat colour — broad, soft patches of lighter and darker hair
+  // (from the position on the animal, so they move with it) — and fuzz: at the silhouette the hair tips
+  // catch the light, so the edges glow softly instead of ending in a hard line
   m.onBeforeCompile = (sh) => {
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vUpN;')
-      .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\nvUpN = normalize(mat3(modelMatrix) * objectNormal).y;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vUpN;')
-      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= mix(1.12, 0.84, smoothstep(-0.7, 0.9, vUpN));');
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vUpN;\nvarying vec3 vFurP;')
+      .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\nvUpN = normalize(mat3(modelMatrix) * objectNormal).y;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFurP = (modelMatrix * vec4(position, 1.0)).xyz - modelMatrix[3].xyz;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+varying float vUpN;
+varying vec3 vFurP;
+float furH(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+float furN(vec3 p) {
+  vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(furH(i), furH(i + vec3(1,0,0)), f.x), mix(furH(i + vec3(0,1,0)), furH(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(furH(i + vec3(0,0,1)), furH(i + vec3(1,0,1)), f.x), mix(furH(i + vec3(0,1,1)), furH(i + vec3(1,1,1)), f.x), f.y), f.z);
+}`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+diffuseColor.rgb *= mix(1.12, 0.84, smoothstep(-0.7, 0.9, vUpN));
+float fp = furN(vFurP * 3.1) * 0.65 + furN(vFurP * 7.3) * 0.35;
+diffuseColor.rgb *= 0.86 + fp * 0.26;`)
+      .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+{ float rim = pow(1.0 - clamp(dot(normalize(vNormal), normalize(vViewPosition)), 0.0, 1.0), 2.6);
+  reflectedLight.indirectDiffuse += diffuseColor.rgb * rim * 0.32;
+  reflectedLight.directDiffuse += diffuseColor.rgb * rim * 0.18 * (0.6 + 0.4 * vUpN); }`);
   };
-  m.customProgramCacheKey = () => 'fur-cs';
+  m.customProgramCacheKey = () => 'fur-cs2';
   furCache.set(key, m);
   return m;
 }

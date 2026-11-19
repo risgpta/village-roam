@@ -1123,7 +1123,8 @@ class Train {
       c.g.position.set((a.x + b.x) / 2, RAIL_TOP - 0.42, (a.z + b.z) / 2);
       c.g.rotation.y = Math.atan2(a.x - b.x, a.z - b.z) + (c.rev ? Math.PI : 0);
       // far off in the haze it isn't drawn (it keeps running, of course)
-      const far = Math.abs(c.g.position.x - EYE.x) + Math.abs(c.g.position.z - EYE.z) > 1100;
+      // (never the train someone is riding or driving: the camera is inside it)
+      const far = !this.occupied && Math.abs(c.g.position.x - EYE.x) + Math.abs(c.g.position.z - EYE.z) > 1100;
       if (far) c.g.visible = false;
       const tv = c.rev ? -this.travel : this.travel;
       if (!far) { for (const w of c.wheels) w.o.rotation.x = tv / w.r; if (c.animate) c.animate(tv / 0.82); }

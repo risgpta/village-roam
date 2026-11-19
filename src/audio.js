@@ -62,7 +62,7 @@ export class Ambience {
       b0 = 0.99765 * b0 + w[i] * 0.099; b1 = 0.963 * b1 + w[i] * 0.2965; b2 = 0.57 * b2 + w[i] * 1.0526;
       pk[i] = (b0 + b1 + b2 + w[i] * 0.1848) * 0.2;
     }
-    this.white = white;
+    this.white = white; this._brownBuf = brown;
     const loop = (buf) => { const s = ctx.createBufferSource(); s.buffer = buf; s.loop = true; s.start(0, Math.random() * 3); return s; };
     const filt = (type, f, q = 0.7) => { const n = ctx.createBiquadFilter(); n.type = type; n.frequency.value = f; n.Q.value = q; return n; };
     const gain = (v = 0) => { const g = ctx.createGain(); g.gain.value = v; return g; };

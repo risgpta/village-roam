@@ -1,5 +1,7 @@
-// A small two-seat helicopter on a helipad beside the airstrip: a bubble canopy, a slim tail boom with a
-// tail rotor, skids, and a two-bladed main rotor that spins up when the boy climbs in. It flies like an easy
+// An army helicopter on the helipad beside the airstrip: olive-drab camouflage with the tricolour roundel,
+// stencilled markings, a tinted canopy, a four-bladed main rotor with yellow tips, a four-bladed tail rotor,
+// a sensor ball under the nose, wire cutters, antennas, exhaust stacks and a searchlight. (No guns — it's
+// a quiet country.) The rotor spins up when the boy climbs in. It flies like an easy
 // arcade helicopter: R/F climb and sink (let go and it holds its height), W/S tilt the nose to fly forward
 // and back, A/D turn, Z/X slide sideways; let go of everything and it slows to a hover.
 import * as THREE from 'three';
@@ -25,16 +27,28 @@ export class Helicopter {
     this.root = new THREE.Group();
     const g = new THREE.Group(); g.position.x = BX; this.root.add(g); this.body = g;
     const add = (geo, m, x = 0, y = 0, z = 0, p = g, shadow = true) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = shadow; o.receiveShadow = true; p.add(o); return o; };
-    const livery = canvas(512, 256, (c, w, h) => {
-      c.fillStyle = '#f4f2ec'; c.fillRect(0, 0, w, h);
-      c.fillStyle = '#f08a24'; c.fillRect(0, h * 0.56, w, h * 0.07);
-      c.fillStyle = '#178a4a'; c.fillRect(0, h * 0.64, w, h * 0.05);
-      c.fillStyle = '#21304a'; c.fillRect(0, h * 0.86, w, h * 0.14);
+    // olive-drab camouflage: blotches of dark green, khaki and brown, a few panel lines and rivets
+    const camo = (w, h, seed) => canvas(w, h, (c) => {
+      let s0 = seed; const R = () => ((s0 = (s0 * 16807) % 2147483647) / 2147483647);
+      c.fillStyle = '#4d5524'; c.fillRect(0, 0, w, h);
+      for (const [col, n, sz] of [['#5f6533', 26, 0.16], ['#353b18', 30, 0.13], ['#6e6440', 14, 0.1], ['#2a2a1a', 12, 0.07]]) {
+        c.fillStyle = col;
+        for (let i = 0; i < n; i++) { c.beginPath(); c.ellipse(R() * w, R() * h, (0.4 + R()) * sz * w, (0.3 + R() * 0.6) * sz * h, R() * 3, 0, 7); c.fill(); }
+      }
+      c.strokeStyle = 'rgba(0,0,0,0.25)'; c.lineWidth = 2;
+      for (let x = w * 0.12; x < w; x += w * 0.17) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke(); }
+      c.fillStyle = 'rgba(0,0,0,0.22)';
+      for (let x = w * 0.12; x < w; x += w * 0.17) for (let y = 4; y < h; y += 10) c.fillRect(x + 4, y, 2, 2);
+      // weathering: dust low down, a little fading
+      const gr = c.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, 'rgba(255,255,230,0.05)'); gr.addColorStop(1, 'rgba(120,100,60,0.18)');
+      c.fillStyle = gr; c.fillRect(0, 0, w, h);
     });
-    const paint = new THREE.MeshStandardMaterial({ map: livery, roughness: 0.32, metalness: 0.15 });
-    const white = std('#f4f2ec', { roughness: 0.32, metalness: 0.15 }), navy = std('#21304a', { roughness: 0.4 });
-    const dark = std('#26262a', { roughness: 0.6 }), metal = std('#b8bcc2', { metalness: 0.85, roughness: 0.3 }), black = std('#141416', { roughness: 0.5 });
-    const glass = new THREE.MeshPhysicalMaterial({ color: '#a8c8da', transparent: true, opacity: 0.28, roughness: 0.04, metalness: 0.1, depthWrite: false, side: THREE.DoubleSide });
+    const livery = camo(512, 256, 77);
+    const paint = new THREE.MeshStandardMaterial({ map: livery, roughness: 0.82, metalness: 0.05 });
+    const white = new THREE.MeshStandardMaterial({ map: camo(256, 256, 131), roughness: 0.82, metalness: 0.05 }), navy = std('#2f3517', { roughness: 0.8 });
+    const dark = std('#23251c', { roughness: 0.7 }), metal = std('#8a8d84', { metalness: 0.7, roughness: 0.45 }), black = std('#161714', { roughness: 0.6 });
+    const glass = new THREE.MeshPhysicalMaterial({ color: '#7f9a86', transparent: true, opacity: 0.38, roughness: 0.06, metalness: 0.2, depthWrite: false, side: THREE.DoubleSide });
+    const yellow = std('#e8b818', { roughness: 0.5 });
     this.mats = { paint: white };
     // the cabin: a rounded lower tub, and the big glass bubble over the seats
     const tub = add(new THREE.SphereGeometry(1, 28, 18, 0, Math.PI * 2, Math.PI * 0.48, Math.PI * 0.52), paint, 0, 1.0, 0.15);
@@ -54,7 +68,10 @@ export class Helicopter {
     void fin;
     add(new THREE.BoxGeometry(1.1, 0.04, 0.32), navy, 0, 1.5, -4.55);
     this.tailRotor = new THREE.Group(); this.tailRotor.position.set(0.12, 1.75, -5.05); g.add(this.tailRotor);
-    for (const s of [1, -1]) add(new THREE.BoxGeometry(0.03, 0.62, 0.08), dark, 0, s * 0.31, 0, this.tailRotor);
+    for (const a of [0, Math.PI / 2]) for (const s of [1, -1]) {
+      const tb = add(new THREE.BoxGeometry(0.03, 0.62, 0.08), dark, 0, 0, 0, this.tailRotor); tb.geometry = tb.geometry.clone().translate(0, s * 0.31, 0); tb.rotation.x = a;
+      add(new THREE.BoxGeometry(0.032, 0.08, 0.082), yellow, 0, s * 0.58, 0, tb);
+    }
     this.tailDisc = add(new THREE.CircleGeometry(0.62, 24).rotateY(Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#2a2a2a', transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }), 0.13, 1.75, -5.05, g, false);
     // skids on their curved struts
     for (const sx of [-1, 1]) {
@@ -64,9 +81,13 @@ export class Helicopter {
     }
     // the main rotor: two long blades, and a faint disc when it's spinning fast
     this.rotor = new THREE.Group(); this.rotor.position.set(0, ROTOR_Y, -0.1); g.add(this.rotor);
-    const blade = new THREE.BoxGeometry(ROTOR_R, 0.035, 0.26).translate(ROTOR_R / 2 + 0.15, 0, 0);
-    for (const r of [0, Math.PI]) { const b = add(blade, black, 0, 0, 0, this.rotor); b.rotation.y = r; }
-    add(new THREE.CylinderGeometry(0.2, 0.2, 0.12, 12), dark, 0, 0, 0, this.rotor);
+    const blade = new THREE.BoxGeometry(ROTOR_R, 0.035, 0.3).translate(ROTOR_R / 2 + 0.15, 0, 0);
+    for (const r of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
+      const b = add(blade, black, 0, 0, 0, this.rotor); b.rotation.y = r;
+      add(new THREE.BoxGeometry(0.28, 0.037, 0.302), yellow, ROTOR_R + 0.0, 0, 0, b); // the yellow tips
+    }
+    add(new THREE.CylinderGeometry(0.26, 0.26, 0.16, 12), dark, 0, 0, 0, this.rotor);
+    add(new THREE.CylinderGeometry(0.1, 0.18, 0.18, 10), metal, 0, 0.14, 0, this.rotor);
     this.disc = add(new THREE.CircleGeometry(ROTOR_R + 0.15, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#202022', transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }), 0, ROTOR_Y + 0.02, -0.1, g, false);
     // inside: two seats, a little panel, the cyclic stick between the pilot's knees, pedals
     for (const sx of [0.32, -0.32]) {
@@ -80,10 +101,34 @@ export class Helicopter {
     add(new THREE.SphereGeometry(0.03, 8, 6), black, 0, 0.45, 0, this.cyclic);
     this.pedals = [];
     for (const s of [-1, 1]) this.pedals.push(add(new THREE.BoxGeometry(0.08, 0.12, 0.03), dark, 0.32 + s * 0.13, 0.66, 0.66));
-    // registration on the boom, lights
-    const reg = canvas(256, 64, (c, w, h) => { c.fillStyle = '#21304a'; c.font = 'bold 44px Arial'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('VT-HELI', w / 2, h / 2); });
-    const regM = new THREE.MeshBasicMaterial({ map: reg, transparent: true });
-    for (const s of [1, -1]) { const r = add(new THREE.PlaneGeometry(1.2, 0.3), regM, s * 0.165, 1.56, -3.0, g, false); r.rotation.y = s * Math.PI / 2; }
+    // stencilled markings on the boom, and the tricolour roundel on the cabin sides and the tail
+    const reg = canvas(512, 96, (c, w, h) => { c.fillStyle = '#16170f'; c.font = 'bold 60px "Arial Narrow", Arial'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('ARMY  IA-1203', w / 2, h / 2); });
+    const regM = new THREE.MeshStandardMaterial({ map: reg, transparent: true, roughness: 0.8, depthWrite: false });
+    for (const s of [1, -1]) { const r = add(new THREE.PlaneGeometry(1.6, 0.3), regM, s * 0.17, 1.56, -3.0, g, false); r.rotation.y = s * Math.PI / 2; }
+    const roundel = canvas(128, 128, (c, w) => { for (const [r, col] of [[0.5, '#ff8c1a'], [0.34, '#ffffff'], [0.18, '#138808']]) { c.fillStyle = col; c.beginPath(); c.arc(w / 2, w / 2, w * r - 1, 0, 7); c.fill(); } });
+    const rM = new THREE.MeshStandardMaterial({ map: roundel, transparent: true, roughness: 0.7, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+    for (const s of [1, -1]) {
+      const r1 = add(new THREE.CircleGeometry(0.22, 24), rM, s * 0.83, 0.92, -0.35, g, false); r1.rotation.y = s * Math.PI / 2;
+      const r2 = add(new THREE.CircleGeometry(0.16, 24), rM, s * 0.04, 1.95, -4.95, g, false); r2.rotation.y = s * Math.PI / 2;
+    }
+    // the kit of a working army machine: a sensor ball under the nose, wire cutters top and bottom, antennas,
+    // exhaust stacks, a searchlight, steps on the skids and a winch over the door
+    add(new THREE.SphereGeometry(0.17, 16, 12), dark, 0, 0.5, 1.15);
+    add(new THREE.CircleGeometry(0.08, 14), new THREE.MeshPhysicalMaterial({ color: '#1a2a40', roughness: 0.05, metalness: 0.6 }), 0, 0.5, 1.32, g, false);
+    for (const [y, z, rx] of [[2.05, 1.05, -0.5], [0.42, 1.3, 0.9]]) { const wc = add(new THREE.BoxGeometry(0.03, 0.55, 0.06), metal, 0, y, z); wc.rotation.x = rx; }
+    for (const [x, z, h] of [[0.2, -1.2, 0.5], [-0.15, -2.6, 0.35], [0, -0.9, 0.25]]) add(new THREE.CylinderGeometry(0.008, 0.012, h, 5), black, x, 2.25 + h / 2, z);
+    add(new THREE.BoxGeometry(0.5, 0.03, 0.1), black, 0, 0.42, -0.6);
+    for (const s of [1, -1]) {
+      const ex = add(new THREE.CylinderGeometry(0.11, 0.13, 0.38, 12), std('#2b2a26', { metalness: 0.5, roughness: 0.6 }), s * 0.3, 2.0, -0.95); ex.rotation.set(-0.9, 0, s * 0.5);
+      add(new THREE.CylinderGeometry(0.075, 0.075, 0.02, 12), std('#0c0c0c'), s * 0.36, 2.12, -1.1).rotation.set(-0.9, 0, s * 0.5);
+      add(new THREE.BoxGeometry(0.22, 0.03, 0.3), metal, s * 0.9, 0.3, 0.45);
+    }
+    const lightM = new THREE.MeshStandardMaterial({ color: '#f8f4e0', emissive: '#fff6d0', emissiveIntensity: 0.1 });
+    this.searchM = lightM;
+    add(new THREE.CylinderGeometry(0.11, 0.09, 0.12, 14).rotateX(Math.PI / 2 - 0.5), dark, -0.42, 0.42, 0.85);
+    add(new THREE.CircleGeometry(0.09, 14), lightM, -0.42, 0.37, 0.92, g, false).rotation.x = 0.5 - Math.PI / 2 + Math.PI;
+    add(new THREE.BoxGeometry(0.08, 0.08, 0.5), dark, 0.78, 1.82, 0.15);
+    add(new THREE.CylinderGeometry(0.06, 0.06, 0.14, 10), metal, 0.78, 1.72, 0.38);
     const lamp = (c) => new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.1 });
     this.navL = lamp('#ff2a20'); this.navR = lamp('#20ff5a'); this.beacon = lamp('#ff3020');
     const bulb = new THREE.SphereGeometry(0.05, 8, 6);
@@ -114,6 +159,7 @@ export class Helicopter {
     const k = s.engine ? (s.night ? 4 : 1.2) : 0.05;
     this.navL.emissiveIntensity = this.navR.emissiveIntensity = k;
     this.beacon.emissiveIntensity = s.engine ? 0.3 + Math.max(0, Math.sin(this.t * 6)) * (s.night ? 6 : 2.5) : 0.05;
+    if (this.searchM) this.searchM.emissiveIntensity = s.engine && s.night ? 5 : 0.1;
   }
 }
 

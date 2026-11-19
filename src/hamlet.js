@@ -58,6 +58,15 @@ export function buildHamlets(scene, villages) {
     { const f = add(L.man(2), 'elder'); f.p.prop('stick', true); }
     for (let i = 0; i < 2; i++) add(kid(i + (v.style === 'kutch' ? 2 : 0)), 'kid');
     { const f = add(L.man(3), 'farmer'); f.p.prop('hay', true); }
+    // the canal villages are big, busy places: more of everyone
+    if (v.canal) {
+      for (let i = 0; i < 3; i++) { const f = add(L.woman(i + 3), 'water'); f.p.prop(i === 1 ? 'bundle' : 'potHead', true); }
+      for (let i = 0; i < 2; i++) add(L.woman(i + 1), 'door');
+      for (let i = 0; i < 3; i++) add(kid(i), 'kid');
+      for (let i = 0; i < 2; i++) { const f = add(L.man(i + 4), 'farmer'); f.p.prop(i ? 'stick' : 'hay', true); }
+      for (let i = 0; i < 2; i++) { const f = add(L.man(i + 1), 'talk'); f.x = centre.x + (i ? 1.6 : -1.6); f.z = centre.z - 3; f.face = i ? -Math.PI / 2 : Math.PI / 2; }
+      { const f = add(L.man(5), 'elder'); f.p.prop('stick', true); }
+    }
     // the animals: cows at Khetpura; goats and a decorated camel at Rannvas
     const animals = [];
     const pen = { x: v.x + Math.cos(v.th + Math.PI) * 44, z: v.z + Math.sin(v.th + Math.PI) * 44, r: 14 };

@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { fbm, noise2, smoothstep } from './noise.js';
 import {
+  canalDist, canalPlain, CANAL,
   INNER_HALF, OUTER_HALF, MID_HALF, DATA_HALF, WATER_Y, RIVER_HALF, heightAt, riverX, dirtMask, fieldType, isBund, trackDist, waterfallMask, fallsRock, roadX, GARDEN, desertMask, TRACKS, LID_W, tunnelMask, dipMask, jungleMask, tribDist, TRIB,
 } from './world.js';
 import { detailCanvas, toTexture } from './textures.js';
@@ -27,6 +28,8 @@ export function terrainColor(x, z, out) {
   mix(c, C.dry, dry * 0.5, c);
   mix(c, C.hill, smoothstep(140, 230, d) * 0.6, c);
   if (d > 380) mix(c, C.rock, smoothstep(0.1, 0.5, fbm(x * 0.01, z * 0.01, 3)) * smoothstep(380, 600, d) * 0.6, c);
+  // the canal plain is green, watered farmland rather than rocky upland
+  { const cp = canalPlain(x, z); if (cp > 0) mix(c, mix(C.meadow, C.g2, n, [0, 0, 0]), cp * 0.7, c); }
   const ft = fieldType(x, z);
   if (ft) {
     const bund = isBund(x, z);
@@ -53,6 +56,12 @@ export function terrainColor(x, z, out) {
     }
   }
   mix(c, C.sand, (1 - smoothstep(RIVER_HALF + 1.5, RIVER_HALF + 5, dr)) * 0.9, c);
+  // the canal: brick-lined sides, a packed-earth track along the top of each bank, grassy outer slopes
+  { const cd = canalDist(x, z); if (cd < CANAL.half + 7) {
+    const hw = CANAL.half;
+    if (cd < hw + 1.1) mix(c, mix([142, 92, 72], [96, 72, 58], 1 - smoothstep(hw - 1.5, hw + 1.0, cd), [0, 0, 0]), 0.9, c);
+    else if (cd < hw + 6.2) mix(c, mix(C.dirt, C.dirt2, noise2(x * 0.6, z * 0.6) * 0.5 + 0.5, [0, 0, 0]), 0.85 * (1 - smoothstep(hw + 5.4, hw + 6.2, cd)), c);
+  } }
   { const td = tribDist(x, z); if (td < TRIB.half + 5) mix(c, C.sand, (1 - smoothstep(TRIB.half + 0.5, TRIB.half + 4.5, td)) * 0.85, c); } // the little river's sandy banks
   if (h < WATER_Y + 0.1 && dipMask(x, z) < 0.05) mix(c, C.mud, smoothstep(WATER_Y + 0.1, WATER_Y - 1.0, h), c);
   { const wm = waterfallMask(x, z); if (wm > 0) mix(c, C.mud, wm * 0.85, c); const fr = fallsRock(x, z); if (fr > 0) mix(c, C.rock, fr, c); }

@@ -1422,6 +1422,7 @@ function buildTravellers(scene, hooks) {
   if (layout.newRoads?.khet) routes.khet = layout.newRoads.khet;
   if (layout.newRoads?.rann) routes.rann = layout.newRoads.rann;
   if (layout.newRoads?.outer) routes.outer = layout.newRoads.outer;
+  if (layout.newRoads?.canal) { routes.canal = layout.newRoads.canal; routes.canalBank = layout.newRoads.canalBank; }
   // the shrine shuttle: from the village bus stop down the main road to the hilltop shrine, then all the way
   // up the hill road to the summit; it waits a while at each end and comes back
   routes.shrine = [...along(66, HILLTOP.z + 14, 10), ...SHRINE_ROAD.pts.map((q) => [q.x, q.z])];
@@ -1449,6 +1450,18 @@ function buildTravellers(scene, hooks) {
     ] : []),
     ...(routes.khet ? [{ route: 'khet', kind: Bicycle, o: { dress: 'kurta', top: '#c9d8e8', bottom: '#f4f1e8', skin: '#7a4c33', beard: true, mustache: true, headwear: 'turban', turban: '#1e6fa8' }, v: 4 }] : []),
     ...(routes.rann ? [{ route: 'rann', kind: Moped, o: { dress: 'dhoti', top: '#f4f1e8', bottom: '#f4f1e8', skin: '#6e4530', headwear: 'turban', turban: '#ffffff', mustache: true }, v: 8 }] : []),
+    // the canal country: cyclists along the bank track, motorbikes and a scooter on the road in from Noorpur
+    ...(routes.canal ? [
+      { route: 'canal', kind: Bicycle, o: { dress: 'kurta', top: '#f4f2ec', bottom: '#f4f1e8', skin: '#7a4c33', mustache: true, headwear: 'turban', turban: '#f2a41a' }, v: 4.2 },
+      { route: 'canal', kind: Bicycle, o: { dress: 'shorts', k: 0.72, headScale: 1.2, top: '#ffffff', bottom: '#1e3a6a', skin: '#8a5a3c', sleeves: 'short' }, v: 4.6 },
+      { route: 'canal', kind: Bicycle, o: { dress: 'saree', k: 0.92, top: '#e85fc8', bottom: '#7a2b6e', veil: false, skin: '#86573b' }, v: 3.5 },
+      { route: 'canal', kind: Moped, o: { dress: 'pants', top: '#8fa6c4', bottom: '#2a2a32', skin: '#83553a', sleeves: 'short', mustache: true }, v: 8 },
+      { route: 'canal', kind: Moped, o: { dress: 'kurta', top: '#c9d8e8', bottom: '#f4f1e8', skin: '#7f5238', beard: true, headwear: 'turban', turban: '#1e6fa8' }, v: 7.5 },
+      { route: 'canal', kind: Scooter, o: { dress: 'saree', k: 0.92, top: '#f2b705', bottom: '#c4241c', veil: false, skin: '#80523a' }, v: 7 },
+      { route: 'canalBank', kind: Bicycle, o: { dress: 'dhoti', top: '#e9dcc3', bottom: '#f4f1e8', skin: '#6f4834', mustache: true, sleeves: 'short' }, v: 3.8 },
+      { route: 'canalBank', kind: Bicycle, o: { dress: 'pants', top: '#c8323a', bottom: '#3a3a42', skin: '#7a4c33', sleeves: 'short' }, v: 4.4 },
+      { route: 'canalBank', kind: Moped, o: { dress: 'pants', top: '#f2efe6', bottom: '#5b5246', skin: '#6f4834', sleeves: 'short', headwear: 'cap', turban: '#f2efe6' }, v: 7.5 },
+    ] : []),
     { route: 'ne', kind: Moped, o: { dress: 'pants', top: '#e0612b', bottom: '#3a3a42', skin: '#7a4c33', sleeves: 'short' }, v: 8 },
     { route: 'ne', kind: Bicycle, o: { dress: 'saree', k: 0.92, top: '#1e6fa8', bottom: '#f2b705', veil: false, skin: '#86573b' }, v: 3.4 },
     { route: 'west', kind: Scooter, o: { dress: 'pants', top: '#f2efe6', bottom: '#4a4a52', skin: '#83553a', sleeves: 'short', mustache: true }, v: 7.5 },
@@ -1481,6 +1494,7 @@ function buildTravellers(scene, hooks) {
   if (routes.khet) extra.push('khet', 'khet', 'khet');
   if (routes.rann) extra.push('rann', 'rann', 'rann');
   if (routes.outer) extra.push('outer', 'outer', 'outer', 'outer', 'outer', 'outer', 'outer');
+  if (routes.canal) extra.push('canal', 'canal', 'canal', 'canal', 'canal', 'canal', 'canalBank', 'canalBank', 'canalBank', 'canalBank');
   extra.forEach((route, i) => {
     const female = i % 2 === 0;
     const [top, bottom] = SAREES[i % SAREES.length];
@@ -1588,6 +1602,8 @@ function buildTravellers(scene, hooks) {
         }
         if (t.nightOff && weather.night) { t.holder.visible = false; continue; }
         t.loop.at(t.s + (t.kind === 'cart' ? 3.5 : big ? t.veh.len / 2 + 3 : t.motor ? 4 : 1.6), ahead);
+        // (looking ahead along its own line: if it has pulled over or out, that's where it's going)
+        if (t.lat) { ahead.x += Math.cos(t.heading) * t.lat; ahead.z -= Math.sin(t.heading) * t.lat; }
         // the boy standing in the road: wait for him a moment (and toot), then go round him
         const boyBlock = !(t.squeezeT > 0) && Math.hypot(boy.x - ahead.x, boy.z - ahead.z) < (t.kind === 'cart' ? 2.4 : big ? 3.2 : t.motor ? 2.6 : 1.8);
         // (people on foot just wait a couple of seconds, then step round him)
@@ -1649,7 +1665,16 @@ function buildTravellers(scene, hooks) {
           t.passT = Math.max(0, (t.passT ?? 0) - dt);
           // swing out to pass, then tuck back in; or pull over to the side of the road when the boy honks behind
           t.yieldT = Math.max(0, (t.yieldT ?? 0) - dt);
-          t.lat = (t.lat ?? 0) + ((t.yieldT > 0 ? 2.4 : t.squeezeT > 0 ? t.squeezeSide * 2.7 : t.passT > 0 ? -2.6 : 0) - (t.lat ?? 0)) * damp(dt, 2.5);
+          // A vehicle can only move sideways by steering while it rolls: the sideways speed is limited by how
+          // fast it's going (none at all when stopped), eased in and out like a steering wheel, and the nose
+          // turns into the move (see yawOff below) — no more sliding across the road.
+          const latWant = t.yieldT > 0 ? 2.4 : t.squeezeT > 0 ? t.squeezeSide * 2.7 : t.passT > 0 ? -2.6 : 0;
+          t.lat = t.lat ?? 0;
+          const maxRate = Math.min(1.8, t.speed * (t.kind === 'bike' ? 0.5 : 0.42));
+          const rateWant = Math.max(-maxRate, Math.min(maxRate, (latWant - t.lat) * 1.6));
+          t.latV = (t.latV ?? 0) + (rateWant - (t.latV ?? 0)) * damp(dt, 3);
+          t.latV = Math.max(-maxRate, Math.min(maxRate, t.latV)); // never faster sideways than the wheels allow
+          t.lat += t.latV * dt;
         }
         // buses and jeeps pause at the villages at each end of their run
         if (big) {
@@ -1659,7 +1684,9 @@ function buildTravellers(scene, hooks) {
             if (ds < t.speed * dt + 0.01 && t.wait <= 0 && t.lastStop !== stop) { t.wait = t.stopWait ?? 7; t.lastStop = stop; }
           }
         }
-        const target = blocked || t.wait > 0 ? 0 : t.yieldT > 0 ? t.v * 0.3 : t.squeezeT > 0 ? Math.min(t.v, 2.5 + t.v * 0.25) : t.v;
+        // pulling over for a horn: keep rolling while easing across to the side, then slow right down there
+        const yieldSp = Math.abs((t.lat ?? 0) - 2.4) > 0.4 ? t.v * 0.55 : t.v * 0.22;
+        const target = blocked || t.wait > 0 ? 0 : t.yieldT > 0 ? yieldSp : t.squeezeT > 0 ? Math.min(t.v, 2.5 + t.v * 0.25) : t.v;
         t.speed += (target - t.speed) * damp(dt, blocked ? 6 : big ? 0.8 : 1.5);
         t.s += t.speed * dt;
         t.loop.at(t.s, tmp);
@@ -1673,14 +1700,16 @@ function buildTravellers(scene, hooks) {
         t.holder.visible = !far;
         if (far) continue;
         t.holder.position.set(tmp.x, groundHeight(tmp.x, tmp.z), tmp.z);
-        t.holder.rotation.y = t.heading;
+        // pointing the way it's really going: along the road, plus the angle of any sideways move
+        const yawOff = t.latV ? Math.max(-0.45, Math.min(0.45, Math.atan2(t.latV, Math.max(t.speed, 0.8)))) : 0;
+        t.holder.rotation.y = t.heading + yawOff;
         if (big) {
-          t.veh.update(dt, t.speed, Math.max(-0.45, Math.min(0.45, dh * 6)), false, weather.night ? 1 : 0); // wheels into the bends; headlights on after dark
+          t.veh.update(dt, t.speed, Math.max(-0.45, Math.min(0.45, dh * 6 + (t.latV ?? 0) * 0.5)), false, weather.night ? 1 : 0); // wheels into the bends (and into a pull-over); headlights on after dark
           // tilt with the road
           const back = { x: 0, z: 0 }; t.loop.at(t.s - t.veh.len / 2, back);
           const hf = groundHeight(ahead.x, ahead.z), hb = groundHeight(back.x, back.z);
           t.pitch += (-Math.atan2(hf - hb, Math.hypot(ahead.x - back.x, ahead.z - back.z) || 1) - t.pitch) * damp(dt, 4);
-          t.holder.rotation.set(t.pitch, t.heading, 0, 'YXZ');
+          t.holder.rotation.set(t.pitch, t.heading + yawOff, 0, 'YXZ');
           t.person.update(dt, 0, 'drive');
           for (const q of t.riders) q.update(dt, 0, 'sit');
           t.bellCool -= dt;
@@ -1693,7 +1722,7 @@ function buildTravellers(scene, hooks) {
           continue;
         }
         if (t.kind === 'bike') {
-          t.bike.update(dt, t.speed, dh * 0.8, true, weather.night ? 1 : 0);
+          t.bike.update(dt, t.speed, dh * 0.8 + (t.latV ?? 0) * 0.25, true, weather.night ? 1 : 0);
           poseRider(t.person, t.bike, t.motor ? 0.18 : 0.3);
           t.person.head.rotation.y = Math.sin(performance.now() * 0.0004 + t.s) * 0.4;
           t.person.setGear(weather.rain ? 'umbrella' : weather.night ? 'lantern' : 'none');
@@ -1708,7 +1737,7 @@ function buildTravellers(scene, hooks) {
             const fr = { x: 0, z: 0 }, bk = { x: 0, z: 0 }; t.loop.at(t.s + 3.2, fr); t.loop.at(t.s - 3.2, bk);
             const hf = groundHeight(fr.x, fr.z), hb = groundHeight(bk.x, bk.z);
             t.pitch = (t.pitch ?? 0) + (-Math.atan2(hf - hb, 6.4) - (t.pitch ?? 0)) * damp(dt, 4);
-            t.holder.rotation.set(t.pitch, t.heading, 0, 'YXZ');
+            t.holder.rotation.set(t.pitch, t.heading + yawOff, 0, 'YXZ');
             t.holder.position.y = Math.max(t.holder.position.y, (hf + hb) / 2);
           }
           t.person.update(dt, 0, 'drive');

@@ -239,15 +239,29 @@ export function headShape({ len, w, h, muzzleW = w * 0.62, muzzleH = h * 0.6, dr
   geo.computeVertexNormals();
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array((pts.length / 3) * 2), 2));
   part(geo, coat, g);
-  if (noseM) part(ellipsoid(muzzleW * 0.7, muzzleH * 0.55, len * 0.06, 12, 8), noseM, g, 0, -drop * h * 0.85 + muzzleH * 0.15, -len * 0.25 + len * 0.99);
+  if (noseM) part(ellipsoid(muzzleW * 0.7, muzzleH * 0.55, len * 0.06, 12, 8), wetNose(noseM), g, 0, -drop * h * 0.85 + muzzleH * 0.15, -len * 0.25 + len * 0.99);
   void nose;
   g.userData.tip = new THREE.Vector3(0, -drop * h * 0.9, len * 0.75);
   return g;
 }
 
+// eyes: dark, wet and glossy, each catching a bright little highlight; a soft lid of skin over the top
+const EYE_M = new THREE.MeshPhysicalMaterial({ color: '#1a120c', roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.03, sheen: 0 });
+const LID_M = new THREE.MeshStandardMaterial({ color: '#2a201a', roughness: 0.7 });
 export function eyes(head, x, y, z, s = 0.012) {
-  const m = mat('#120d0a', 0.25);
-  for (const sx of [-1, 1]) part(new THREE.SphereGeometry(s, 8, 6), m, head, sx * x, y, z);
+  for (const sx of [-1, 1]) {
+    part(new THREE.SphereGeometry(s, 14, 10), EYE_M, head, sx * x, y, z);
+    const lid = part(new THREE.SphereGeometry(s * 1.12, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.42), LID_M, head, sx * x, y + s * 0.08, z);
+    lid.rotation.x = -0.25;
+  }
+}
+// a moist nose: whatever colour it is, it shines
+const wetCache = new Map();
+export function wetNose(m) {
+  if (!m || !m.color) return m;
+  const k = m.color.getHexString();
+  if (!wetCache.has(k)) wetCache.set(k, new THREE.MeshPhysicalMaterial({ color: m.color, roughness: 0.35, clearcoat: 0.8, clearcoatRoughness: 0.15 }));
+  return wetCache.get(k);
 }
 
 // ---------------- dog ----------------
@@ -327,7 +341,7 @@ export class Dog {
       }
     } else {
       const d = Math.hypot(this.target.x - this.p.x, this.target.z - this.p.z);
-      want = d > 6 ? 1.7 : 1.0;
+      want = this.rush || (d > 6 ? 1.7 : 1.0); // (rush: off after a train at a full gallop)
       this.stuck = (this.stuck || 0) + dt;
       if (d < 0.6 || this.stuck > 25) { this.state = 'rest'; this.timer = 12 + this.R() * 30; want = 0; }
     }
@@ -833,7 +847,7 @@ function featherTexture() {
   featherTex.colorSpace = THREE.SRGBColorSpace;
   return featherTex;
 }
-class Peacock {
+export class Peacock {
   constructor(home, R) {
     const blue = mat('#1f4fb8', 0.35), green = mat('#2a6a4a', 0.5), brown = mat('#8a5a32', 0.8), grey = mat('#8a8a86', 0.7), white = mat('#f2f0ea', 0.5), dark = mat('#121010', 0.3);
     this.root = new THREE.Group();

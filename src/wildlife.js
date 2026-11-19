@@ -413,7 +413,7 @@ class Wolf {
 }
 
 // ---------------- Asian elephants ----------------
-class Elephant {
+export class Elephant {
   constructor(home, R, scale = 1, leader = null, tusks = false) {
     const skin = mat('#6f6a66', 0.95), dark = mat('#4e4a47', 0.95), pink = mat('#8a6a62', 0.9), ivory = mat('#ece4d0', 0.4);
     const q = quadruped({ L: 2.1, r: 0.85, legH: 1.75, legR: 0.2, coat: skin, belly: dark, hoof: 'paw', sock: skin, deep: 1.1, wide: 0.95, neckLen: 0.3, neckTilt: 1.3, neckR: 0.55 });

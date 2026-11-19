@@ -1,16 +1,16 @@
 // World definition: terrain height, river, railway, paths, and the deterministic village layout.
 import { fbm, noise2, rng, smoothstep, lerp } from './noise.js';
 
-export const INNER_HALF = 2950; // detailed terrain half-size (m)
-export const OUTER_HALF = 6200; // far hills / mountains
-export const MID_HALF = 3700; // a mid-detail ring round the inner terrain
-export const DATA_HALF = 2950; // grass data texture half-size (m)
+export const INNER_HALF = 3350; // detailed terrain half-size (m)
+export const OUTER_HALF = 6800; // far hills / mountains
+export const MID_HALF = 4100; // a mid-detail ring round the inner terrain
+export const DATA_HALF = 3350; // grass data texture half-size (m)
 export const WATER_Y = -0.4;
 // the season can lower the river (summer): physics and swimmers use WATER_Y + WATER.off
 export const WATER = { off: 0 };
 export const RIVER_HALF = 10;
 export const SQUARE = { x: -2, z: 2, r: 12 };
-export const PLAY_RADIUS = 2900; // a wide belt of country outside the ring line, the land rising into the far mountains near the edge
+export const PLAY_RADIUS = 3300; // a wide belt of country outside the ring line, the land rising into the far mountains near the edge
 export const TRACK_Y = 1.3;
 
 export const riverX = (z) => 72 + 22 * Math.sin(z * 0.011) + 8 * Math.sin(z * 0.027 + 1.3);
@@ -312,6 +312,37 @@ export const TRIB = (() => {
 })();
 export const tribLevel = (s) => WATER_Y + 0.05 + 9 * Math.pow(Math.max(0, 1 - s / TRIB.path.L / 0.6), 1.6);
 export const tribDist = (x, z) => { const n = TRIB.path.near(x, z); return n ? n.d : Infinity; };
+// ---------- the canal country: out east beyond Noorpur ----------
+// A broad, level plain of fields watered by a long irrigation canal (a nahar) that sweeps round in a gentle
+// arc: brick-lined water between raised banks with a dirt track along the top, rows of eucalyptus, little
+// bridges. Two villages sit on it — Naharpur by the canal's middle and Kheri Kalan near its far end.
+export const CANAL = (() => {
+  const th0 = -0.3, th1 = 0.6, Rc = (th) => 2470 + 45 * Math.sin(th * 6 + 0.5) + 18 * Math.sin(th * 15);
+  const pts = [];
+  for (let th = th0; th <= th1 + 1e-9; th += 2 / 2470) pts.push({ x: Math.cos(th) * Rc(th), z: Math.sin(th) * Rc(th) });
+  return { path: makePath(pts, false, false, 90), half: 3.2, th0, th1, Rc, level: 2.35 };
+})();
+const CANAL_PLAIN_Y = 2.6;
+export const canalDist = (x, z) => { const n = CANAL.path.near(x, z); return n ? n.d : Infinity; };
+// how far from the canal's arc (out to its ends), for the plain round it
+function canalArcD(x, z) {
+  const r = Math.hypot(x, z), th = Math.atan2(z, x);
+  const tc = Math.max(CANAL.th0, Math.min(CANAL.th1, th));
+  return Math.hypot(r - CANAL.Rc(tc), (th - tc) * r);
+}
+const CV = (() => {
+  const at = (th, dr) => { const r = CANAL.Rc(th) + dr; return { x: Math.cos(th) * r, z: Math.sin(th) * r }; };
+  return { nahar: { ...at(0.12, -95), th: 0.12 }, kheri: { ...at(0.5, 90), th: 0.5 } };
+})();
+export const CANAL_VILLAGES = CV;
+export const canalPlain = (x, z) => 1 - smoothstep(240, 430, canalArcD(x, z));
+// they join the other new villages (houses, folk, animals, the map, the region names)
+NEWV.push(
+  { th: CV.nahar.th, x: CV.nahar.x, z: CV.nahar.z, name: 'Naharpur', hi: 'नहरपुर', style: 'punjab', canal: true, desc: 'a canal village of brick houses among the wheat and mustard', icon: '🌊' },
+  { th: CV.kheri.th, x: CV.kheri.x, z: CV.kheri.z, name: 'Kheri Kalan', hi: 'खेड़ी कलां', style: 'bihar', canal: true, desc: 'a farming village across the canal, sugarcane and sunflowers all round', icon: '🌻' },
+);
+// where roads cross the canal: earth causeways over culverts, with low concrete parapets
+CANAL.crossings = [-0.16, 0.12, 0.5].map((th) => { const r = CANAL.Rc(th); return CANAL.path.sOf(Math.cos(th) * r, Math.sin(th) * r); });
 // the valleys the station lines and the ring run along: a coarse distance field, stamped once
 const FLATD = (() => {
   const C = 8, H = INNER_HALF + 80, n = Math.ceil((2 * H) / C) + 1, R = 140, rc = Math.ceil(R / C);
@@ -375,9 +406,9 @@ function rawHeight(x, z) {
   let h = fbm(x * 0.006, z * 0.006, 4) * 4 + fbm(x * 0.03 + 7, z * 0.03 - 3, 2) * 0.6;
   const hill = smoothstep(440, 840, d);
   h += hill * (0.55 + 0.45 * fbm(x * 0.009 + 11, z * 0.009 + 5, 3)) * 55;
-  h += smoothstep(2650, 3700, d) * (0.6 + 0.4 * fbm(x * 0.0025 + 3, z * 0.0025, 3)) * 160;
+  h += smoothstep(3050, 4100, d) * (0.6 + 0.4 * fbm(x * 0.0025 + 3, z * 0.0025, 3)) * 160;
   // and all round the edge of the land the ground climbs into the foothills, so you never meet a wall on the flat
-  h += smoothstep(2700, 3050, d) * (26 + 10 * fbm(x * 0.004 + 9, z * 0.004, 2));
+  h += smoothstep(3100, 3450, d) * (26 + 10 * fbm(x * 0.004 + 9, z * 0.004, 2));
   // the big mountain: a broad cone with craggy flanks
   { const dp2 = (x - PEAK.x) ** 2 + (z - PEAK.z) ** 2; h += Math.exp(-dp2 / (2 * 105 * 105)) * (140 + fbm(x * 0.02, z * 0.02, 3) * 10 * Math.min(1, Math.sqrt(dp2) / 40)); }
   const flat = Math.max(1 - smoothstep(160, 420, d), 1 - smoothstep(25, 55, Math.hypot(x - EH.x, z - EH.z)), 1 - smoothstep(35, 70, Math.hypot(x - NV.x, z - NV.z)), 1 - smoothstep(55, 105, Math.hypot(x - RV.x, z - RV.z)),
@@ -391,6 +422,8 @@ function rawHeight(x, z) {
   const sv = 1 - smoothstep(60, 125, segD(x, z, STATION.x + 160, STATION.x - 150));
   const cor = 1 - smoothstep(38, 100, FLATD(x, z));
   h = lerp(h, 0.35 + fbm(x * 0.03, z * 0.03, 2) * 0.35, Math.max(flat * 0.85, valley * 0.97, sv * 0.98, cor * 0.97));
+  // the canal plain: dead level farmland, just a few hand-spans of rise and fall
+  { const cp = 1 - smoothstep(240, 430, canalArcD(x, z)); if (cp > 0) h = lerp(h, CANAL_PLAIN_Y + fbm(x * 0.02, z * 0.02, 2) * 0.25, cp * 0.985); }
   // a wooded ridge over the old Mail line west of the village: its train still vanishes into a tunnel there
   h += 30 * Math.exp(-(((x + 620) / 34) ** 2)) * (1 - smoothstep(12, 26, Math.abs(z - trackZ2(x))));
   // the ring's tunnel hill, and the low valley under its viaduct
@@ -684,6 +717,16 @@ export function heightAt(x, z, bore = true) {
     h = lerp(bank, h, smoothstep(5, 60, n.d));
     if (n.d < TRIB.half + 1.5) h = Math.min(h, lerp(ws - 1.0, bank, smoothstep(TRIB.half - 1.6, TRIB.half + 1.5, n.d)));
   } }
+  // the canal: a brick-lined channel with raised banks either side, a track along the top, easing down to
+  // the fields
+  { const n = CANAL.path.near(x, z); if (n && n.d < CANAL.half + 12) {
+    const lv = CANAL.level, top = lv + 0.85, hw = CANAL.half;
+    const xing = CANAL.crossings.some((cs) => Math.abs(n.s - cs) < 3.6);
+    if (xing) h = top; // the causeway
+    else if (n.d < hw + 1.0) h = lerp(lv - 1.35, top, smoothstep(hw - 1.4, hw + 1.0, n.d));
+    else if (n.d < hw + 6.2) h = top;
+    else h = lerp(top, h, smoothstep(hw + 6.2, hw + 12, n.d));
+  } }
   const dr = Math.abs(x - riverX(z));
   if (dr < RIVER_HALF) {
     const q = dr / RIVER_HALF;
@@ -715,8 +758,32 @@ export function heightAt(x, z, bore = true) {
 }
 
 // ---------- fields ----------
+// the canal plain's patchwork: plots of mustard, wheat, sugarcane, sunflower and fresh-ploughed earth on both
+// sides of the canal, clear of the banks, the villages and the roads (checked once the layout is made)
+const CANAL_FIELDS = [];
+{
+  const R = rng(9090), kinds = [1, 2, 2, 1, 4, 5, 6, 2, 1, 5];
+  for (let th = CANAL.th0 + 0.03; th < CANAL.th1 - 0.02; th += 0.034) for (const side of [-1, 1]) {
+    if (R() < 0.18) continue;
+    const r = CANAL.Rc(th) + side * (34 + R() * 60), cx = Math.cos(th) * r, cz = Math.sin(th) * r;
+    const w = 26 + R() * 30, d = 24 + R() * 28;
+    if (Math.hypot(cx - CV.nahar.x, cz - CV.nahar.z) < 110 || Math.hypot(cx - CV.kheri.x, cz - CV.kheri.z) < 105) continue;
+    CANAL_FIELDS.push([kinds[Math.floor(R() * kinds.length)], cx - w / 2, cx + w / 2, cz - d / 2, cz + d / 2]);
+  }
+  // keep each plot off the canal and its banks
+  for (let i = CANAL_FIELDS.length - 1; i >= 0; i--) {
+    const [, x0, x1, z0, z1] = CANAL_FIELDS[i];
+    let bad = false;
+    for (let u = 0; u <= 4 && !bad; u++) for (let v = 0; v <= 4 && !bad; v++) { const x = x0 + ((x1 - x0) * u) / 4, z = z0 + ((z1 - z0) * v) / 4; if (canalDist(x, z) < CANAL.half + 14) bad = true; }
+    if (bad || CANAL_FIELDS.some((f, j) => j !== i && f[1] < x1 + 4 && f[2] > x0 - 4 && f[3] < z1 + 4 && f[4] > z0 - 4)) CANAL_FIELDS.splice(i, 1);
+  }
+  FIELDS.push(...CANAL_FIELDS);
+}
+const CF_BOX = (() => { let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity; for (const f of CANAL_FIELDS) { a = Math.min(a, f[1]); b = Math.max(b, f[2]); c = Math.min(c, f[3]); d = Math.max(d, f[4]); } return [a, b, c, d]; })();
+const HOME_FIELDS = FIELDS.length - CANAL_FIELDS.length;
 export function fieldType(x, z) {
-  for (const f of FIELDS) if (x > f[1] && x < f[2] && z > f[3] && z < f[4]) return f[0];
+  if (x > CF_BOX[0] && x < CF_BOX[1] && z > CF_BOX[2] && z < CF_BOX[3]) { for (const f of CANAL_FIELDS) if (x > f[1] && x < f[2] && z > f[3] && z < f[4]) return f[0]; return 0; }
+  for (let i = 0; i < HOME_FIELDS; i++) { const f = FIELDS[i]; if (x > f[1] && x < f[2] && z > f[3] && z < f[4]) return f[0]; }
   return 0;
 }
 export const FIELD_NAMES = ['', 'Mustard fields', 'Wheat fields', 'Rice paddies', 'Sugarcane', 'Sunflower field', 'Ploughed field'];
@@ -927,7 +994,7 @@ const occupy = (x, z, r) => {
       c.push(o);
     }
 };
-function isFree(x, z, r) {
+export function isFree(x, z, r) {
   for (let i = Math.floor((x - r) / OCC_CELL); i <= Math.floor((x + r) / OCC_CELL); i++)
     for (let j = Math.floor((z - r) / OCC_CELL); j <= Math.floor((z + r) / OCC_CELL); j++) {
       const c = occGrid.get(occKey(i, j));
@@ -1692,7 +1759,21 @@ export const layout = {
       const ghat = { x: q.x + ((N.x - q.x) / d) * (TRIB.half + 3), z: q.z + ((N.z - q.z) / d) * (TRIB.half + 3) };
       road([[N.x, N.z], [(N.x + ghat.x) / 2, (N.z + ghat.z) / 2], [ghat.x, ghat.z]], 2.0);
       layout.tribGhat = { ...ghat, rot: Math.atan2(q.x - N.x, q.z - N.z) }; }
-    layout.newRoads = { khet: kRoad, rann: rRoad, outer: oRoad };
+    // the canal country: a road out from Noorpur to Naharpur, then the track along the canal's inner bank,
+    // over the causeway to Kheri Kalan
+    const NH = CV.nahar, KH = CV.kheri, bank = (th, off) => { const r = CANAL.Rc(th) + off; return [Math.cos(th) * r, Math.sin(th) * r]; };
+    const cRoad = [[NP.x + 16, NP.z + 6], [(NP.x + NH.x) / 2, (NP.z + NH.z) / 2 + 40], [NH.x - 30, NH.z - 10], [NH.x, NH.z]];
+    const bankOff = -(CANAL.half + 3.7);
+    cRoad.push(bank(0.12, -40), bank(0.12, bankOff));
+    for (let th = 0.15; th < 0.5; th += 0.03) cRoad.push(bank(th, bankOff));
+    cRoad.push(bank(0.5, bankOff), bank(0.5, CANAL.half + 8), [KH.x, KH.z]);
+    road(cRoad, 2.4);
+    // and the bank track the other way, past the first causeway to the canal's head
+    const bRoad = [bank(0.12, bankOff)];
+    for (let th = 0.09; th > CANAL.th0 + 0.02; th -= 0.03) bRoad.push(bank(th, bankOff));
+    road(bRoad, 2.0);
+    road([bank(-0.16, bankOff), bank(-0.16, CANAL.half + 10), bank(-0.16, CANAL.half + 60)], 2.0);
+    layout.newRoads = { khet: kRoad, rann: rRoad, outer: oRoad, canal: cRoad, canalBank: bRoad };
   }
   // bus stops: a shelter beside the road at each village
   layout.busStops = [];
@@ -2066,6 +2147,7 @@ export function regionName(x, z) {
   if (Math.hypot(x - JUNGLE_HOMES.rhinos.x, z - JUNGLE_HOMES.rhinos.z) < 90) return 'Gainda hills — the rhinos graze here';
   for (const v of NEWV) if (Math.hypot(x - v.x, z - v.z) < 55) return `${v.name} — ${v.desc}`;
   if (tribDist(x, z) < 14) return 'Choti Nadi — the little river';
+  if (canalDist(x, z) < 30) return 'The nahar — the canal';
   if (layout.pasture && Math.hypot(x - layout.pasture.x, z - layout.pasture.z) < layout.pasture.r + 6) return 'The charagah — village grazing ground';
   if (layout.pasture && Math.hypot(x - layout.pasture.pen.x, z - layout.pasture.pen.z) < 10) return 'The cattle pen';
   for (const T of TRACKS) for (const h of T.halts) if (h.yard && Math.hypot(x - h.yard.x, z - h.yard.z) < (h.big ? 70 : 40)) return h.big ? `${h.name} railway station` : h.W ? h.name : `${h.name} halt`;

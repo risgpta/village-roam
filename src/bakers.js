@@ -5,15 +5,15 @@
 import { smoothstep, fbm } from './noise.js';
 import {
   INNER_HALF, DATA_HALF, RIVER_HALF, PLAY_RADIUS, heightAt, riverX, riverDist, dirtMask, fieldType, isBund, trackDist, waterfallMask, fallsRock, GARDEN,
-  desertMask, tunnelMask, jungleMask, tribDist, TRIB, layout,
+  desertMask, tunnelMask, jungleMask, tribDist, TRIB, layout, canalDist, CANAL,
 } from './world.js';
 import { terrainColor } from './terrain.js';
 
 export const BAKE = {
-  height: { N: 1969, half: INNER_HALF }, // terrain mesh heights: a grid of N × N vertices (1.83 m apart)
-  color: { N: 4096, half: INNER_HALF }, // the terrain's colour map (0.88 m a pixel)
-  grass: { N: 3200, half: DATA_HALF }, // grass height / density / crop type (as fine as it always was)
-  map: { N: 2560, half: 2960 }, // the painted area map
+  height: { N: 2257, half: INNER_HALF }, // terrain mesh heights: a grid of N × N vertices (2.97 m apart; N − 1 = 16 tiles × 3 × 47)
+  color: { N: 4096, half: INNER_HALF }, // the terrain's colour map (1.64 m a pixel)
+  grass: { N: 3600, half: DATA_HALF }, // grass height / density / crop type (1.86 m a texel)
+  map: { N: 2900, half: 3360 }, // the painted area map
 };
 
 // float32 → float16 bits (as THREE.DataUtils.toHalfFloat, without needing three here)
@@ -46,6 +46,7 @@ function colorRows(j0, j1) {
 }
 
 // RGBA half-float: r = height, g = grass density, b = type (0 grass, 0.5 wheat, 1 mustard)
+const PAD = layout.airstrip?.pad ?? null;
 function grassRows(j0, j1) {
   const { N, half } = BAKE.grass, data = new Uint16Array((j1 - j0) * N * 4), one = toHalf(1);
   for (let j = j0; j < j1; j++) {
@@ -58,6 +59,8 @@ function grassRows(j0, j1) {
       dens *= smoothstep(RIVER_HALF + 1.5, RIVER_HALF + 4.5, dr);
       if (dens > 0) dens *= smoothstep(TRIB.half + 0.5, TRIB.half + 3.5, tribDist(x, z));
       if (dens > 0) dens *= smoothstep(3.0, 5.0, trackDist(x, z));
+      if (dens > 0) { const cd = canalDist(x, z); if (cd < CANAL.half + 8) dens *= smoothstep(CANAL.half + 6.0, CANAL.half + 7.4, cd); }
+      if (dens > 0 && PAD) { const dp = Math.hypot(x - PAD.x, z - PAD.z); if (dp < 9) dens *= smoothstep(7.4, 8.6, dp); } // nothing grows through the helipad
       if (dens > 0 && tunnelMask(x, z)) dens = 0;
       if (dens > 0) { const jm = jungleMask(x, z); if (jm > 0) dens *= 1 - jm * 0.7; } // under the jungle canopy the grass grows thin
       if (dens > 0) dens *= (1 - waterfallMask(x, z)) * (1 - fallsRock(x, z));
@@ -96,7 +99,7 @@ function mapRows(j0, j1) {
   for (let j = j0; j < j1; j++) for (let i = 0; i < N; i++) {
     const x = (i / N) * 2 * E - E, z = (j / N) * 2 * E - E, d = Math.hypot(x, z);
     let r, g, b;
-    if (riverDist(x, z) < RIVER_HALF - 0.5 || tribDist(x, z) < TRIB.half - 0.3 || (pond && Math.hypot(x - pond.x, z - pond.z) < pond.r)) { r = 74; g = 140; b = 168; }
+    if (riverDist(x, z) < RIVER_HALF - 0.5 || tribDist(x, z) < TRIB.half - 0.3 || canalDist(x, z) < CANAL.half + 1.5 || (pond && Math.hypot(x - pond.x, z - pond.z) < pond.r)) { r = 74; g = 140; b = 168; }
     else {
       const hill = Math.min(1, Math.max(0, (h(i, j) - 4) / 50));
       r = 128 - hill * 30; g = 160 - hill * 40; b = 92 - hill * 30;

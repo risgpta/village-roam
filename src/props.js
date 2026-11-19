@@ -84,7 +84,7 @@ const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
 const cyl = (rt, rb, h, s = 12, open = false) => new THREE.CylinderGeometry(rt, rb, h, s, 1, open);
 
 // ---------------- buildings ----------------
-function rectHouse(R) {
+export function rectHouse(R) {
   const g = new THREE.Group();
   const w = 5.5 + R() * 2, d = 4.5 + R() * 1.4, h = 2.6 + R() * 0.4, ph = 0.35;
   const mud = R() < 0.6 ? M.mudA : M.mudB;
@@ -127,7 +127,7 @@ function rectHouse(R) {
   return { g, w, d, ph, ext, h };
 }
 
-function roundHut(R) {
+export function roundHut(R) {
   const g = new THREE.Group();
   const r = 2.3 + R() * 0.6, h = 2.3, ph = 0.3;
   const mud = R() < 0.5 ? M.mudRoundA : M.mudRoundB;
@@ -189,7 +189,7 @@ function well() {
   return g;
 }
 
-function haystack(R) {
+export function haystack(R) {
   const g = new THREE.Group();
   const prof = [[0.01, 3.3], [0.5, 3.1], [1.3, 2.4], [1.75, 1.4], [1.75, 0.5], [1.55, 0]].reverse().map(([x, y]) => new THREE.Vector2(x, y));
   mesh(new THREE.LatheGeometry(prof, 18), M.thatch, 0, -0.05, 0, g);
@@ -197,7 +197,7 @@ function haystack(R) {
   return g;
 }
 
-function charpai() {
+export function charpai() {
   const g = new THREE.Group();
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) mesh(box(0.08, 0.45, 0.08), M.wood, sx * 0.42, 0.225, sz * 0.92, g);
   for (const sx of [-1, 1]) mesh(box(0.06, 0.07, 1.9), M.wood, sx * 0.42, 0.42, 0, g);
@@ -206,7 +206,7 @@ function charpai() {
   return g;
 }
 
-function pot(s = 1) {
+export function pot(s = 1) {
   const prof = [[0, 0], [0.12, 0.01], [0.2, 0.08], [0.24, 0.2], [0.22, 0.32], [0.14, 0.4], [0.1, 0.43], [0.115, 0.47], [0.1, 0.48]].map(([x, y]) => new THREE.Vector2(x * s, y * s));
   return new THREE.Mesh(new THREE.LatheGeometry(prof, 14), M.terracotta);
 }
@@ -335,7 +335,7 @@ function hilltopShrine() {
   return g;
 }
 
-function woodpile(R) {
+export function woodpile(R) {
   const g = new THREE.Group();
   for (let row = 0; row < 3; row++) {
     for (let i = 0; i < 4 - row; i++) {
@@ -994,7 +994,7 @@ function pukur() {
   }
   return g;
 }
-function bananaPlant(R) {
+export function bananaPlant(R) {
   const g = new THREE.Group();
   const stem = std('#6a8a3a'), leaf = std('#5a9a3a', { side: THREE.DoubleSide, roughness: 0.6 });
   mesh(cyl(0.1, 0.14, 2.2, 8), stem, 0, 1.1, 0, g);
@@ -1168,7 +1168,7 @@ function stiltHouse(R) {
   void R;
   return { g, w, d, floor };
 }
-function bambooClump(R) {
+export function bambooClump(R) {
   const g = new THREE.Group();
   const cane = std('#8aa04a', { roughness: 0.6 }), leaf = std('#5a8a32', { roughness: 0.7 });
   for (let i = 0; i < 9; i++) {

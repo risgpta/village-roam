@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { noise2, clamp } from './noise.js';
 import {
-  roadX, groundHeight, resolveCollisions, pushOut, colliders, forColliders, NP, MP, heightAt, riverDist, WATER_Y, WATER, PLAY_RADIUS, layout, regionName, WF, RIVER_HALF, MARKET, TEA, tunnelAt, LID_W, TRACK_Y,
+  CANAL, canalDist, roadX, groundHeight, resolveCollisions, pushOut, colliders, forColliders, NP, MP, heightAt, riverDist, WATER_Y, WATER, PLAY_RADIUS, layout, regionName, WF, RIVER_HALF, MARKET, TEA, tunnelAt, LID_W, TRACK_Y,
 } from './world.js';
 import { buildTerrain, buildGrassData } from './terrain.js';
 import { startBakes } from './bakepool.js';
@@ -31,6 +31,7 @@ import { buildHerds } from './herds.js';
 import { buildHamlets } from './hamlet.js';
 import { buildShrineLife } from './shrine.js';
 import { buildTrackside } from './trackside.js';
+import { buildTrackScenery } from './trackscene.js';
 import { ALL_PEOPLE, EYE } from './people.js';
 import { buildPassengers } from './passengers.js';
 import { buildConstruction } from './construction.js';
@@ -44,6 +45,8 @@ import { Puffs } from './particles.js';
 import { Flocks, GroundBirds, buildMotes } from './life.js';
 import { buildNightSky, buildClouds, buildRain } from './atmosphere.js';
 import { Ambience, THEMES } from './audio.js';
+import { buildCoachInside, FLOOR as COACH_FLOOR, WALL_X as COACH_WALL } from './coachinside.js';
+import './audio2.js'; // lifelike horns, whistle, brakes, helicopter and animal voices
 import { windUniforms } from './wind.js';
 import { createEnvironment, addSurfaceGrain } from './realism.js';
 import { sampleAtmo, WEATHERS, TIMES, clockText } from './daycycle.js';
@@ -122,6 +125,7 @@ const WY = () => WATER_Y + WATER.off;
 // only the river (and its ghat and pool) holds water: low dry hollows elsewhere are just ground
 const wet = (x, z) => riverDist(x, z) < RIVER_HALF + 3;
 let tunnelK = 1;
+let trackScene = null;
 let herds = null, birds = null, hamlets = null, shrineLife = null, trackside = null, buffs = null, shops = null;
 let stations = null, drv = null, drvLoco = null, drvView = 0;
 let river, motes, train, flocks, people, animals, waterfall, lanterns, farm, fish, wild, map;
@@ -423,6 +427,9 @@ const vehicles = [
     const a = v.th + Math.PI * 0.5, cx = v.x + Math.cos(v.th) * 9, cz = v.z + Math.sin(v.th) * 9;
     add('moped', paint(new Moped(), 'paint', v.style === 'kutch' ? '#c4241c' : '#2a5aa8'), cx + Math.cos(a) * 1.2, cz + Math.sin(a) * 1.2, -v.th);
     add('bicycle', new Bicycle(), cx - Math.cos(a) * 1.2, cz - Math.sin(a) * 1.2, -v.th);
+    // the canal villages have a row of them by the square
+    if (v.canal) for (const [k, name, mk] of [[2.4, 'bicycle', () => paint(new Bicycle(), 'frame', '#2e6b4a')], [3.6, 'scooter', () => new Scooter('#e8b020')], [-2.4, 'moped', () => paint(new Moped(), 'paint', '#c4241c')], [-3.6, 'bicycle', () => new Bicycle()]])
+      add(name, mk(), cx + Math.cos(a) * k, cz + Math.sin(a) * k, -v.th);
   }
   // by the roadside, wherever the verge is clear
   for (const [name, mk, z, side] of [
@@ -1098,6 +1105,7 @@ function sitDown(msg) {
 }
 function standUp() {
   sit.on = false; sit.chai = 0; cup.visible = false;
+  if (fishing.on) { fishing.on = false; fishRod.visible = false; if (fishing.n) toast(`Rod over the shoulder — ${fishing.n} fish today 🎣`); }
   document.body.classList.remove('sitting');
 }
 function updateSit(dt) {
@@ -1107,6 +1115,7 @@ function updateSit(dt) {
   if (sit.t > 0.5 && started && moving) { standUp(); return; }
   sit.chai = Math.max(0, sit.chai - dt);
   cup.visible = sit.chai > 0;
+  if (fishing.on) fishTick(dt);
   player.y = groundHeight(player.x, player.z, player.y); player.speed = 0;
   boy.root.position.set(player.x, player.y, player.z);
   boy.root.rotation.set(0, player.facing, 0);
@@ -1164,17 +1173,105 @@ function haveChai() {
   sitDown('');
   sit.chai = 40;
 }
+// ---- fishing from the bank: sit with a rod; now and then the float bobs under and something comes up
+const FISH = [['rohu', 'a silvery rohu'], ['catla', 'a fat catla'], ['magur', 'a whiskery magur'], ['singhi', 'a little singhi'], ['puthi', 'a handful-sized puthi'], ['mrigal', 'a mrigal'], ['tilapia', 'a tilapia']];
+const fishing = { on: false, t: 0, next: 0, bite: 0, n: 0, wx: 0, wz: 0, wy: 0 };
+const fishRod = (() => {
+  const g = new THREE.Group();
+  const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.016, 2.6, 6).translate(0, 1.3, 0), new THREE.MeshStandardMaterial({ color: '#8a6a3a', roughness: 0.6 }));
+  rod.rotation.x = 0.95; rod.position.set(0.12, 0.62, 0.15); rod.castShadow = true;
+  g.add(rod);
+  const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: '#e8e8e8', transparent: true, opacity: 0.7 }));
+  line.frustumCulled = false;
+  g.add(line);
+  const float = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), new THREE.MeshStandardMaterial({ color: '#e0301e', roughness: 0.5 }));
+  g.add(float);
+  g.userData = { rod, line, float };
+  g.visible = false;
+  return g;
+})();
+function startFishing(wx, wz, wy) {
+  const want = Math.atan2(wx - player.x, wz - player.z);
+  player.facing = want;
+  sitDown('Fishing from the bank 🎣 — wait for a bite');
+  if (!sit.on) return;
+  Object.assign(fishing, { on: true, t: 0, next: 4 + Math.random() * 8, bite: 0, wx, wz, wy });
+  if (!fishRod.parent) scene.add(fishRod);
+  fishRod.visible = true;
+}
+function fishTick(dt) {
+  fishing.t += dt;
+  const R = fishRod.userData;
+  fishRod.position.copy(boy.root.position); fishRod.rotation.y = player.facing;
+  fishRod.updateMatrixWorld(true);
+  // the rod tip, the float out on the water, the line between
+  const tip = R.rod.localToWorld(new THREE.Vector3(0, 2.6, 0));
+  const fx = player.x + Math.sin(player.facing) * 3.6, fz = player.z + Math.cos(player.facing) * 3.6;
+  const bob = fishing.bite > 0 ? -0.06 - Math.max(0, Math.sin(fishing.t * 18)) * 0.05 : Math.sin(fishing.t * 2.2) * 0.012;
+  const fl = new THREE.Vector3(fx, fishing.wy + 0.02 + bob, fz);
+  R.float.position.copy(fishRod.worldToLocal(fl.clone()));
+  R.line.geometry.setFromPoints([fishRod.worldToLocal(tip.clone()), R.float.position.clone()]);
+  R.rod.rotation.x = 0.95 + (fishing.bite > 0 ? Math.sin(fishing.t * 14) * 0.08 : 0);
+  if (fishing.bite > 0) {
+    fishing.bite -= dt;
+    if (fishing.bite <= 0) {
+      // up it comes
+      const [, name] = FISH[Math.floor(Math.random() * FISH.length)];
+      fishing.n++;
+      for (let i = 0; i < 10; i++) { const a = Math.random() * 6.28; swim.splash.emit(fx, fishing.wy + 0.05, fz, Math.cos(a) * 0.9, 1.2 + Math.random(), Math.sin(a) * 0.9, 0.6, 0.05, 0.2, 0.85); }
+      audio.splash(0.35); boy.greetT = 1.2;
+      toast(`You caught ${name}! 🐟 (${fishing.n} today) — and let it go`);
+      fishing.next = fishing.t + 6 + Math.random() * 12;
+    }
+  } else if (fishing.t > fishing.next) {
+    fishing.bite = 1.4;
+    audio.splash(0.12);
+    toast('A bite! The float bobs under…');
+  }
+}
+// ---- the hand pump: a few strokes of the handle and cold water gushes out
+function pumpWater(P) {
+  boy.greetT = 2.2;
+  for (let k = 0; k < 5; k++) setTimeout(() => {
+    audio.tock?.(0.35);
+    for (let i = 0; i < 8; i++) swim.splash.emit(P.x + Math.sin(P.rot ?? 0) * 0.45, groundHeight(P.x, P.z) + 0.75, P.z + Math.cos(P.rot ?? 0) * 0.45, (Math.random() - 0.5) * 0.3, -0.6 - Math.random(), (Math.random() - 0.5) * 0.3, 0.5, 0.04, 0.12, 0.8);
+    if (k > 0) audio.splash(0.12);
+  }, k * 380);
+  toast('Creak, creak — cold water gushes from the hand pump 💧');
+}
 // the small thing at hand, if the boy is standing somewhere that has one
 function nearAct() {
   if (ride || drv || pax || swim.on || sit.on || knock.on) return null;
   const px = player.x, pz = player.z;
+  // the tame elephant by the line: she raises her trunk and blesses you
+  const ele = trackScene?.elephants.find((e) => e.mahout && Math.hypot(e.p.x - px, e.p.z - pz) < 6.5);
+  if (ele) return { ask: 'offer the elephant a banana', run: () => { ele.bless = 3.2; audio.trumpet(4); boy.greetT = 2.5; toast('She takes the banana, lifts her trunk and touches your head — a blessing! 🐘'); } };
+  // the hand pump
+  const P = layout.pump;
+  if (P && Math.hypot(px - P.x, pz - P.z) < 2.6) return { ask: 'pump some water', run: () => pumpWater(P) };
+  // a cow: offer her a roti
+  const cow = layout.cows.find((c) => Math.hypot(c.x - px, c.z - pz) < 3.2);
+  if (cow) return { ask: 'feed the cow a roti', run: () => { audio.moo(0.9); boy.greetT = 1.5; toast('She takes the roti gently from your hand, and lows 🐄'); } };
+  // a shop: something sweet
+  const shop = layout.shops?.find((S) => Math.hypot(S.x - px, S.z - pz) < 5.5);
+  if (shop) {
+    const what = ['a packet of Parle-G', 'two hot samosas', 'a jalebi, dripping syrup', 'an orange ice lolly', 'a bottle of cold Gold Spot', 'a handful of toffees'][Math.floor((shop.x * 7 + shop.z) % 6 + 6) % 6];
+    return { ask: `buy ${what} · ₹20`, run: () => { if (wallet() >= 20) { purse.spent += 20; toast(`${what[0].toUpperCase() + what.slice(1)} 🍬 · ₹20`); } else toast(`“Take it, beta — pay next time” · ${what} 🍬`); audio.tink(0.5); boy.greetT = 1; } };
+  }
+  // fishing: from the canal's bank
+  { const n = CANAL.path.near(px, pz); if (n && n.d > CANAL.half + 0.6 && n.d < CANAL.half + 3.4) { const q = CANAL.path.at(n.s); return { ask: 'sit and fish in the canal', run: () => startFishing(q.x, q.z, CANAL.level) }; } }
   if (Math.hypot(px - TEA.x, pz - TEA.z) < 6.5) return { ask: wallet() >= 10 ? 'have a cup of chai · ₹10' : 'have a cup of chai', run: haveChai };
   const T = layout.temple;
   if (T && Math.hypot(px - T.x, pz - T.z) < 8) return { ask: 'ring the temple bell', run: () => { audio.bell(1); boy.greetT = 2.4; toast('The bell rings out over the village 🔔'); } };
   const dog = people?.dogs.find((d) => d.follower && Math.hypot(d.p.x - px, d.p.z - pz) < 1.9);
   if (dog) return { ask: 'pat the dog', run: () => { dog.bark(); audio.bark(0.35); boy.greetT = 1; toast('The dog leans in, tail going'); } };
   const rd = riverDist(px, pz);
-  if (rd < RIVER_HALF + 2.6 && rd > RIVER_HALF - 2.5) return ATMO.glow > 0.3 ? { ask: 'float a diya on the river', run: floatDiya } : { ask: 'scatter puffed rice for the fish', run: feedFish };
+  if (rd < RIVER_HALF + 2.6 && rd > RIVER_HALF - 2.5) {
+    if (ATMO.glow > 0.3) return { ask: 'float a diya on the river', run: floatDiya };
+    // (on alternate visits: feed the fish, or sit down and catch one)
+    return nearAct.fishNext ? { ask: 'sit and fish (or E again later to feed them)', run: () => { nearAct.fishNext = false; startFishing(riverX(pz), pz, WY()); } }
+      : { ask: 'scatter puffed rice for the fish (E again: fish)', run: () => { nearAct.fishNext = true; feedFish(); } };
+  }
   return null;
 }
 
@@ -1197,18 +1294,28 @@ function nearCoach() {
   }
   return null;
 }
+// one coach interior, moved into whichever coach you board: you take a window seat
+let coachIn = null;
+const PAX_WIN = -4.5; // the window you sit at (coach-local z)
 function boardTrain(pc) {
   pax = pc;
+  pc.tr.occupied = true;
+  coachIn ??= buildCoachInside();
+  pc.car.g.add(coachIn.group);
+  coachIn.seat(PAX_WIN, pc.sx);
+  coachIn.group.visible = true;
   pc.car.g.add(boy.root);
-  boy.root.position.set(pc.sx * 1.5, 1.5, -6.4);
-  boy.root.rotation.set(0, pc.sx > 0 ? Math.PI / 2 : -Math.PI / 2, 0);
+  // on the bench by the window, facing along the coach with the window at his shoulder
+  boy.root.position.set(pc.sx * (COACH_WALL - 0.27), COACH_FLOOR + 0.45 - 0.1, PAX_WIN + 0.47);
+  boy.root.rotation.set(0, Math.PI, 0);
   boy.setGear('none');
   pc.yaw0 = yaw; pitch = 0.3;
-  toast(`Aboard the ${pc.tr.name} — sit back, it leaves soon`);
+  toast(`Aboard the ${pc.tr.name} — a window seat! Sit back, it leaves soon`);
 }
 function leaveTrain() {
   const { tr, car, sx } = pax;
   if (Math.abs(tr.v) > 0.05) { toast('Wait for the next station to step down'); return; }
+  tr.occupied = false;
   car.g.updateMatrixWorld();
   let best = null;
   for (const s2 of [sx, -sx]) {
@@ -1216,6 +1323,7 @@ function leaveTrain() {
     if (!best || g > best.g + 0.2) best = { x: q.x, z: q.z, g };
   }
   pax = null;
+  if (coachIn) { coachIn.group.visible = false; coachIn.group.removeFromParent(); }
   scene.add(boy.root);
   player.x = best.x; player.z = best.z; player.y = best.g + 0.05; player.vy = 0; player.grounded = true; player.speed = 0;
   player.facing = car.g.rotation.y;
@@ -1226,6 +1334,7 @@ function leaveTrain() {
 function updatePassenger(dt) {
   const { tr } = pax;
   boy.sit(dt, false, true);
+  coachIn?.update(dt, Math.abs(tr.v));
   boy.root.updateWorldMatrix(true, false);
   boy.root.getWorldPosition(_cw);
   player.x = _cw.x; player.z = _cw.z; player.y = _cw.y;
@@ -1252,9 +1361,10 @@ function paxCamera(dt) {
   const lg = pax.car.g, sx = pax.sx;
   if (pax.view === 1) { trainCamera(dt, lg, 0); return; }
   lg.updateMatrixWorld();
-  // from the doorway: looking out across the country, the mouse turns the head
-  const a = clamp(-(yaw - pax.yaw0) * sx, -1.35, 1.35);
-  camIn.set(sx * 1.62, 1.5 + 0.86, -6.4);
+  // at the window seat, eyes level with the window: looking out across the country through the bars, the
+  // mouse turns the head (round to the rest of the coach, too)
+  const a = clamp(-(yaw - pax.yaw0) * sx, -2.6, 2.6);
+  camIn.set(sx * (COACH_WALL - 0.5), COACH_FLOOR + 1.25, PAX_WIN + 0.3);
   lookIn.set(camIn.x + sx * Math.cos(a) * 20, camIn.y + (0.3 - pitch) * 16, camIn.z + Math.sin(a) * 20);
   lg.localToWorld(camIn); lg.localToWorld(lookIn);
   camera.position.copy(camIn);
@@ -1383,6 +1493,7 @@ async function build() {
   lap('shops');
   shrineLife = buildShrineLife(scene);
   trackside = buildTrackside(scene, train, { moo: (v) => audio.moo(v) });
+  trackScene = buildTrackScenery(scene, train, { peacock: (d) => audio.peacock(clamp(1 - d / 140, 0, 1)), bark: (d) => audio.bark(clamp(1.1 - d / 45, 0, 1)) });
   lap('shrine/trackside');
   motes = buildMotes();
   scene.add(motes);
@@ -1454,7 +1565,7 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.code === 'KeyQ' && !e.repeat && !ride && !drv && !pax) { if (sit.on) standUp(); else sitDown(); }
   if (e.code === 'KeyP' && !e.repeat && !(ride && ride.fly)) wantShot = true;
-  if (e.code === 'KeyV' && pax && !e.repeat) { pax.view = 1 - pax.view; pax.yaw0 = yaw; toast(pax.view ? 'Outside view' : 'From the doorway'); }
+  if (e.code === 'KeyV' && pax && !e.repeat) { pax.view = 1 - pax.view; pax.yaw0 = yaw; toast(pax.view ? 'Outside view' : 'At the window'); }
   if (e.code === 'KeyH') toggleHelp();
   if (e.code === 'KeyC') cycleCamera();
   if (e.code === 'KeyY') { const k = Object.keys(SEASONS); season = k[(k.indexOf(season) + 1) % k.length]; applySeason(); }
@@ -1699,6 +1810,7 @@ function updatePlayer(dt) {
     for (const b of crashes.bodies) if (b.state !== 'fly') pushOut(p, rad, { kind: 'c', x: b.p.x, z: b.p.z, r: b.radius });
     for (const c of farm.colliders()) pushOut(p, rad, c);
     for (const c of wild.colliders()) pushOut(p, rad, c);
+    if (trackScene) for (const c of trackScene.bodies()) pushOut(p, rad, c);
     if (!(riding && ride.water)) {
       for (const c of people.colliders()) if (!(c.person && riding)) pushOut(p, rad, c);
       for (const c of animals.colliders()) pushOut(p, rad, c);
@@ -1930,6 +2042,7 @@ function nearCab() {
 }
 function startDriving(tr) {
   drv = tr;
+  tr.occupied = true;
   tr.takeControl();
   const L = tr.cabLoco ?? tr.loco;
   tr.cabSign = L.rev ? -1 : 1;
@@ -1956,7 +2069,7 @@ function stopDriving() {
     const g = groundHeight(p.x, p.z, 3);
     if (!best || g > best.g) best = { x: p.x, z: p.z, g };
   }
-  drv = null;
+  drv = null; tr.occupied = false;
   tr.release();
   scene.add(boy.root);
   player.x = best.x; player.z = best.z; player.y = best.g + 0.05; player.vy = 0; player.grounded = true; player.speed = 0;
@@ -2669,6 +2782,27 @@ function updateStorm(dt) {
 }
 
 // the trains as the map draws them: where each coach is, the engine, speed, and the station it's at or bound for
+// train brakes: the loudest braking train near you squeals and grinds; once one stops, its brakes hiss off
+function trainBrakes(dt) {
+  if (!started || dt <= 0) return;
+  let lvl = 0, sp = 0;
+  for (const tr of train.trains) {
+    const v = Math.abs(tr.v ?? 0), pv = tr._pv ?? v;
+    tr._pv = v;
+    const dec = (pv - v) / dt;
+    tr._dec = (tr._dec ?? 0) + (dec - (tr._dec ?? 0)) * (1 - Math.exp(-dt * 5));
+    const mine = tr === drv || tr === pax?.tr;
+    const d = mine ? 0 : tr.distanceTo(player.x, player.z);
+    if (d > 420) { tr._braking = 0; continue; }
+    const near = mine ? 1 : clamp(1 - d / 400, 0, 1) ** 2;
+    const braking = v > 0.25 && tr._dec > 0.18 ? clamp((tr._dec - 0.18) / 1.2, 0.15, 1) : 0;
+    if (braking) tr._braking = 2.5; else tr._braking = Math.max(0, (tr._braking ?? 0) - dt);
+    if (braking * near > lvl) { lvl = braking * near; sp = v; }
+    // came to a stand after a proper stop: let the brakes off
+    if (pv > 0.12 && v <= 0.12 && tr._braking > 0) { audio.brakeHiss(near * (mine ? 1 : 0.85)); tr._braking = 0; }
+  }
+  audio.setTrainBrake(lvl, sp);
+}
 function mapTrains() {
   const out = [];
   for (const tr of train.trains) {
@@ -2740,6 +2874,7 @@ function frame(now) {
   animals.update(dt, player);
   mark('animals');
   train.update(time);
+  trainBrakes(dt);
   mark('train');
   for (const X of train.crossings) {
     if (!X.closed) continue;
@@ -2790,6 +2925,7 @@ function frame(now) {
   shops?.update(dt, player);
   shrineLife?.update(dt, player);
   trackside?.update(dt, player, !!ATMO.night);
+  trackScene?.update(dt, player, !!ATMO.night, 2.6 / Math.max(scene.fog.density, 0.0012));
   mark('herds/hamlets/shops');
   clouds.material.uniforms.uTime.value = time;
   sky.position.copy(camera.position);
@@ -2965,6 +3101,9 @@ window.__gaon = {
   startDriving: (t) => startDriving(t),
   stopDriving: () => stopDriving(),
   get plane() { return planeV; },
+  // (testing) board the first coach of a train, wherever it is
+  paxBoard: (i = 0, sx = 1) => { const tr = train.trains[i]; const car = tr.cars.find((c) => c.coach); if (car) boardTrain({ tr, car, sx, view: 0 }); return !!car; },
+  get trackScene() { return trackScene; },
   get flyView() { return flyView; }, set flyView(v) { flyView = v; },
   takeNear: () => { const t = nearTraffic(); return t ? takeTraffic(t) : null; },
   vehicles,

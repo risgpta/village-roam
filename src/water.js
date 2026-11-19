@@ -1,6 +1,6 @@
 // Flowing river: a ribbon along the river curve with a procedural normal-mapped water shader.
 import * as THREE from 'three';
-import { WATER_Y, RIVER_HALF, riverX, heightAt, WF, fallsMeander, fallsFloor, PLAY_RADIUS, TRIB, tribLevel } from './world.js';
+import { WATER_Y, RIVER_HALF, riverX, heightAt, WF, fallsMeander, fallsFloor, PLAY_RADIUS, TRIB, tribLevel, CANAL, WATER } from './world.js';
 import { boulder } from './shapes.js';
 import { fbm, noise2 } from './noise.js';
 import { Puffs } from './particles.js';
@@ -150,6 +150,26 @@ export function buildRiver() {
     const tm = new THREE.Mesh(tg, mat);
     tm.renderOrder = 2; // its levels are absolute; as a child it rises and falls with the river through the seasons
     mesh.add(tm);
+  }
+  // the canal: a level ribbon of water between its brick sides (fed from upstream, it doesn't drop with the
+  // river in summer — its parent's seasonal offset is taken back out each frame)
+  {
+    const P = CANAL.path, q = {}, w = CANAL.half + 0.35, n = Math.ceil(P.L / 2.5), acr = 4, cp = [], cu = [], ci = [];
+    for (let i = 0; i <= n; i++) {
+      const s2 = (P.L * i) / n; P.at(s2, q);
+      if (CANAL.crossings.some((cs) => Math.abs(s2 - cs) < 2.6)) { for (let j = 0; j <= acr; j++) { cp.push(q.x, CANAL.level - 3, q.z); cu.push(j / acr, s2); } continue; } // (under the causeways)
+      for (let j = 0; j <= acr; j++) { const u = j / acr, o = (u * 2 - 1) * w; cp.push(q.x + q.tz * o, CANAL.level, q.z - q.tx * o); cu.push(u, s2); }
+    }
+    for (let i = 0; i < n; i++) for (let j = 0; j < acr; j++) { const a2 = i * (acr + 1) + j, b = a2 + acr + 1; ci.push(a2, b, a2 + 1, a2 + 1, b, b + 1); }
+    const cg = new THREE.BufferGeometry();
+    cg.setAttribute('position', new THREE.Float32BufferAttribute(cp, 3));
+    cg.setAttribute('uv', new THREE.Float32BufferAttribute(cu, 2));
+    cg.setIndex(ci);
+    cg.computeVertexNormals();
+    const cm = new THREE.Mesh(cg, mat);
+    cm.renderOrder = 2;
+    cm.onBeforeRender = () => { cm.position.y = -WATER.off; };
+    mesh.add(cm);
   }
   return mesh;
 }

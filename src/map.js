@@ -5,8 +5,8 @@ import {
   WILD, STATION, TRACK3, NEW_VILLAGES, SQUARE, TEA, GHAT, WF, FOOT, EH, NV, SCHOOL, GARDEN, MARKET, CRICKET, PUMP, TANK, CROSSING, HILLTOP, TRACKS, JUNGLE_HOMES, RING_SIGHTS, tribDist, TRIB, riverX, RBRIDGE, BRIDGES, desertMask, NP, MP, PEAK,
 } from './world.js';
 
-const E = 2960; // half extent of the map, metres (out past the edge of the land)
-const N = 2560; // baked image size, px (must match BAKE.map in bakers.js)
+const E = 3360; // half extent of the map, metres (out past the edge of the land)
+const N = 2900; // baked image size, px (must match BAKE.map in bakers.js)
 const toU = (x) => ((x + E) / (2 * E)) * N;
 const toV = (z) => ((z + E) / (2 * E)) * N; // north (-z) at the top
 
