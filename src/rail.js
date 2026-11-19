@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { cullBeyond } from './perf.js';
 import { streetLight } from './lights.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { TRACK, TRACK3, TRACK5, OUTER_LOOP, TRACKS, RING, TRACK_Y, riverX, RIVER_HALF, WATER_Y, CROSSING, CROSSING3, heightAt, colliders, roadX, BORE_HALF, ROAD_X } from './world.js';
+import { TRACK, TRACK3, TRACK5, TRACK6, OUTER_LOOP, TRACKS, RING, TRACK_Y, riverX, RIVER_HALF, WATER_Y, CROSSING, CROSSING3, heightAt, colliders, roadX, BORE_HALF, ROAD_X } from './world.js';
 import { toTexture } from './textures.js';
 import { lathe, boulder } from './shapes.js';
 import { Puffs } from './particles.js';
@@ -355,7 +355,9 @@ export function buildRailway(scene) {
   const LL = OUTER_LOOP.path.L;
   const G = new Train(scene, TRACK5, { service: OUTER_LOOP, livery: { base: '#6a2e62', line: '#f2e2c0', dark: '#46193f', door: '#552350' }, end: '#6a2e62', coaches: 4, startS: 40, boiler: '#221a20', name: 'Kinara Express — the outer line' });
   const H = new Train(scene, TRACK5, { service: OUTER_LOOP, livery: { base: '#9a7414', line: '#2a2010', dark: '#6a4f0c', door: '#7a5c10' }, end: '#9a7414', coaches: 4, startS: LL / 2, boiler: '#201c14', name: 'Sarson Gaadi — the mustard train' });
-  return new Railway([A, B, C, D, E, F, G, H]);
+  // the Naharpur shuttle: to and fro on the branch, between the bay at Nahar Road and the canal country
+  const I = new Train(scene, TRACK6, { livery: { base: '#1f6a6a', line: '#f4e6b8', dark: '#134646', door: '#185656' }, end: '#1f6a6a', coaches: 3, first: 18, boiler: '#1a2222', name: 'Nahar Shuttle — the canal branch' });
+  return new Railway([A, B, C, D, E, F, G, H, I]);
 }
 
 // a level crossing: a plank-and-concrete deck across the line, striped barrier booms on both sides of the

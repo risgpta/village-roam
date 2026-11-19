@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { noise2, clamp } from './noise.js';
 import {
-  CANAL, canalDist, roadX, groundHeight, resolveCollisions, pushOut, colliders, forColliders, NP, MP, heightAt, riverDist, WATER_Y, WATER, PLAY_RADIUS, layout, regionName, WF, RIVER_HALF, MARKET, TEA, tunnelAt, LID_W, TRACK_Y,
+  TRACKS, CANAL, canalDist, roadX, groundHeight, resolveCollisions, pushOut, colliders, forColliders, NP, MP, heightAt, riverDist, WATER_Y, WATER, PLAY_RADIUS, layout, regionName, WF, RIVER_HALF, MARKET, TEA, tunnelAt, LID_W, TRACK_Y,
 } from './world.js';
 import { buildTerrain, buildGrassData } from './terrain.js';
 import { startBakes } from './bakepool.js';
@@ -428,9 +428,17 @@ const vehicles = [
     add('moped', paint(new Moped(), 'paint', v.style === 'kutch' ? '#c4241c' : '#2a5aa8'), cx + Math.cos(a) * 1.2, cz + Math.sin(a) * 1.2, -v.th);
     add('bicycle', new Bicycle(), cx - Math.cos(a) * 1.2, cz - Math.sin(a) * 1.2, -v.th);
     // the canal villages have a row of them by the square
+    // Naharpur, the bigger of the two, has a car, an auto and an e-rickshaw about the square too
+    if (v.name === 'Naharpur') {
+      const bx = v.x - Math.cos(v.th) * 9, bz = v.z - Math.sin(v.th) * 9;
+      add('car', new SmallCar('#2a6a8a'), bx + Math.cos(a) * 2.5, bz + Math.sin(a) * 2.5, -v.th + Math.PI / 2);
+      add('auto', new AutoRickshaw(), bx - Math.cos(a) * 2.5, bz - Math.sin(a) * 2.5, -v.th + Math.PI / 2);
+    }
     if (v.canal) for (const [k, name, mk] of [[2.4, 'bicycle', () => paint(new Bicycle(), 'frame', '#2e6b4a')], [3.6, 'scooter', () => new Scooter('#e8b020')], [-2.4, 'moped', () => paint(new Moped(), 'paint', '#c4241c')], [-3.6, 'bicycle', () => new Bicycle()]])
       add(name, mk(), cx + Math.cos(a) * k, cz + Math.sin(a) * k, -v.th);
   }
+  // an auto and an e-rickshaw waiting for fares at Naharpur station
+  { const h = TRACKS.flatMap((T) => T.halts).find((o) => o.name === 'Naharpur' && o.yard); if (h) { const Y = h.yard; add('auto', new AutoRickshaw(), Y.x + 5, Y.z + 4, 0.6); add('erick', Object.assign(new ERickshaw(), { fare0: 10, fareK: 2 }), Y.x - 5, Y.z + 4, -0.6); } }
   // by the roadside, wherever the verge is clear
   for (const [name, mk, z, side] of [
     ['auto', () => new AutoRickshaw({ body: '#1a1a1a', top: '#f0c419' }), -42, 1],
@@ -1246,6 +1254,9 @@ function nearAct() {
   // the tame elephant by the line: she raises her trunk and blesses you
   const ele = trackScene?.elephants.find((e) => e.mahout && Math.hypot(e.p.x - px, e.p.z - pz) < 6.5);
   if (ele) return { ask: 'offer the elephant a banana', run: () => { ele.bless = 3.2; audio.trumpet(4); boy.greetT = 2.5; toast('She takes the banana, lifts her trunk and touches your head — a blessing! 🐘'); } };
+  // Naharpur's shrine: ring its bell
+  const SH = trackScene?.shrine;
+  if (SH && Math.hypot(px - SH.front.x, pz - SH.front.z) < 4.5) return { ask: 'ring the shrine bell', run: () => { audio.bell(0.9); boy.greetT = 2.4; toast('The bell rings out over the canal; the pujari smiles 🔔'); } };
   // the hand pump
   const P = layout.pump;
   if (P && Math.hypot(px - P.x, pz - P.z) < 2.6) return { ask: 'pump some water', run: () => pumpWater(P) };

@@ -1423,6 +1423,13 @@ function buildTravellers(scene, hooks) {
   if (layout.newRoads?.rann) routes.rann = layout.newRoads.rann;
   if (layout.newRoads?.outer) routes.outer = layout.newRoads.outer;
   if (layout.newRoads?.canal) { routes.canal = layout.newRoads.canal; routes.canalBank = layout.newRoads.canalBank; }
+  // the two new roads in to the canal country, and the long runs from home along them (round the edge of
+  // Marudhar's square, clear of its stepwell; through Khetpura)
+  if (layout.newRoads?.nahar) {
+    routes.nahar = layout.newRoads.nahar; routes.kheri = layout.newRoads.kheri;
+    routes.busN = [...routes.east, [RV.x - 6, RV.z - 16], [RV.x + 10, RV.z - 14], ...layout.newRoads.nahar];
+    if (routes.khet) routes.jeepK = [...routes.north, ...routes.khet, ...layout.newRoads.kheri];
+  }
   // the shrine shuttle: from the village bus stop down the main road to the hilltop shrine, then all the way
   // up the hill road to the summit; it waits a while at each end and comes back
   routes.shrine = [...along(66, HILLTOP.z + 14, 10), ...SHRINE_ROAD.pts.map((q) => [q.x, q.z])];
@@ -1462,6 +1469,15 @@ function buildTravellers(scene, hooks) {
       { route: 'canalBank', kind: Bicycle, o: { dress: 'pants', top: '#c8323a', bottom: '#3a3a42', skin: '#7a4c33', sleeves: 'short' }, v: 4.4 },
       { route: 'canalBank', kind: Moped, o: { dress: 'pants', top: '#f2efe6', bottom: '#5b5246', skin: '#6f4834', sleeves: 'short', headwear: 'cap', turban: '#f2efe6' }, v: 7.5 },
     ] : []),
+    ...(routes.nahar ? [
+      { route: 'nahar', kind: Moped, o: { dress: 'pants', top: '#2e8b57', bottom: '#3a3a42', skin: '#7a4c33', sleeves: 'short', mustache: true }, v: 8.5 },
+      { route: 'nahar', kind: Scooter, o: { dress: 'saree', k: 0.92, top: '#e85fc8', bottom: '#7a2b6e', veil: false, skin: '#86573b' }, v: 7.5 },
+      { route: 'nahar', kind: Bicycle, o: { dress: 'kurta', top: '#e9dcc3', bottom: '#f4f1e8', skin: '#6f4834', headwear: 'turban', turban: '#e07a1e', mustache: true }, v: 4 },
+      { route: 'nahar', kind: Bicycle, o: { dress: 'shorts', k: 0.72, headScale: 1.2, top: '#1e6fa8', bottom: '#2a3a6a', skin: '#8a5a3c', sleeves: 'short' }, v: 4.5 },
+      { route: 'kheri', kind: Moped, o: { dress: 'kurta', top: '#c9d8e8', bottom: '#f4f1e8', skin: '#7f5238', beard: true, headwear: 'turban', turban: '#c4241c' }, v: 8 },
+      { route: 'kheri', kind: Bicycle, o: { dress: 'dhoti', top: '#f4f1e8', bottom: '#f4f1e8', skin: '#6e4530', headwear: 'cap', turban: '#f2efe6' }, v: 3.8 },
+      { route: 'kheri', kind: Bicycle, o: { dress: 'saree', k: 0.92, top: '#f2b705', bottom: '#c4241c', veil: false, skin: '#80523a' }, v: 3.6 },
+    ] : []),
     { route: 'ne', kind: Moped, o: { dress: 'pants', top: '#e0612b', bottom: '#3a3a42', skin: '#7a4c33', sleeves: 'short' }, v: 8 },
     { route: 'ne', kind: Bicycle, o: { dress: 'saree', k: 0.92, top: '#1e6fa8', bottom: '#f2b705', veil: false, skin: '#86573b' }, v: 3.4 },
     { route: 'west', kind: Scooter, o: { dress: 'pants', top: '#f2efe6', bottom: '#4a4a52', skin: '#83553a', sleeves: 'short', mustache: true }, v: 7.5 },
@@ -1494,6 +1510,7 @@ function buildTravellers(scene, hooks) {
   if (routes.khet) extra.push('khet', 'khet', 'khet');
   if (routes.rann) extra.push('rann', 'rann', 'rann');
   if (routes.outer) extra.push('outer', 'outer', 'outer', 'outer', 'outer', 'outer', 'outer');
+  if (routes.nahar) extra.push('nahar', 'nahar', 'nahar', 'nahar', 'kheri', 'kheri', 'kheri');
   if (routes.canal) extra.push('canal', 'canal', 'canal', 'canal', 'canal', 'canal', 'canalBank', 'canalBank', 'canalBank', 'canalBank');
   extra.forEach((route, i) => {
     const female = i % 2 === 0;
@@ -1522,6 +1539,10 @@ function buildTravellers(scene, hooks) {
     // cars, another jeep and a bus out on the far roads
     ...(routes.outer ? [{ Kind: TrafficCar, opt: { color: '#e8e6e0' }, route: 'outer', v: 10, frac: 0.5 }, { Kind: VillageBus, opt: { color: '#2e7a4a', band: '#f2e6c8', dest: ['धनियापुर – नदीपार – पत्थरगाँव', 'DHANIYAPUR-NADIPAR'] }, route: 'outer', v: 7, frac: 0.15 }] : []),
     ...(routes.khet ? [{ Kind: TrafficCar, opt: { color: '#c0392b' }, route: 'khet', v: 10, frac: 0.6 }, { Kind: Jeep, opt: { color: '#3a5a8a' }, route: 'khet', v: 8.5, frac: 0.2 }] : []),
+    // the long runs out to the canal country: a bus to Naharpur, a jeep to Kheri Kalan, a car on the high road
+    ...(routes.busN ? [{ Kind: VillageBus, opt: { color: '#1f7a7a', band: '#f4e6b8', dest: ['गाँव – मारुधर – नहरपुर', 'GAON-NAHARPUR'] }, route: 'busN', v: 7.5, frac: 0.3 }] : []),
+    ...(routes.jeepK ? [{ Kind: Jeep, opt: { color: '#b0402a' }, route: 'jeepK', v: 8.5, frac: 0.55 }] : []),
+    ...(routes.nahar ? [{ Kind: TrafficCar, opt: { color: '#f2efe6' }, route: 'nahar', v: 10, frac: 0.2 }] : []),
     { Kind: TrafficCar, opt: { color: '#2a5aa8' }, route: 'ne', v: 9.5, frac: 0.4 },
     { Kind: Jeep, opt: { color: '#c9a95e' }, route: 'west', v: 8.5, frac: 0.7 },
     // the shrine shuttle runs from morning to night

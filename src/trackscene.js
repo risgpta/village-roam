@@ -7,11 +7,11 @@
 //  - peacocks strutting near the line, calling when a train goes past
 //  - a pair of tame elephants with their mahout, ambling about a clearing near the track
 import * as THREE from 'three';
-import { CANAL, canalDist, NEW_VILLAGES, TRACK, TRACK3, TRACK5, RING, TRACK_Y, heightAt, groundHeight, riverDist, RIVER_HALF, CROSSING, CROSSING3, jungleMask, fieldType, dirtMask, trackDist, tunnelMask, isFree, colliders, PLAY_RADIUS } from './world.js';
+import { layout, CANAL, canalDist, NEW_VILLAGES, TRACK, TRACK3, TRACK5, RING, TRACK_Y, heightAt, groundHeight, riverDist, RIVER_HALF, CROSSING, CROSSING3, jungleMask, fieldType, dirtMask, trackDist, tunnelMask, isFree, colliders, PLAY_RADIUS } from './world.js';
 import { rng, fbm } from './noise.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { applyFoliageWind } from './wind.js';
-import { roundHut, rectHouse, haystack, charpai, woodpile, bananaPlant, bambooClump } from './props.js';
+import { roundHut, rectHouse, haystack, charpai, woodpile, bananaPlant, bambooClump, temple } from './props.js';
 import { Dog, Peacock, consolidate } from './animals.js';
 import { Elephant } from './wildlife.js';
 import { Person } from './people.js';
@@ -296,6 +296,51 @@ export function buildTrackScenery(scene, railway, hooks = {}) {
     }
   }
 
+  // ---- Naharpur's shrine: a small whitewashed temple with a saffron flag, a great shade tree beside it, oil
+  // lamps on the step, the pujari sitting by the door and villagers come to pray
+  const shrineFolk = [];
+  let shrine = null;
+  if (layout.naharShrine) {
+    const S = layout.naharShrine;
+    const t = temple();
+    t.scale.setScalar(0.85);
+    t.position.set(S.x, groundHeight(S.x, S.z) + 0.1, S.z);
+    t.rotation.y = S.rot;
+    consolidate(t);
+    group.add(t);
+    // the tree: a broad peepal-like dome on a thick trunk
+    const tg = new THREE.Group();
+    tg.position.set(S.tree.x, groundHeight(S.tree.x, S.tree.z) - 0.1, S.tree.z);
+    tg.scale.setScalar(1.7);
+    for (const { geo, mat } of kinds.mango) { const m = new THREE.Mesh(geo, mat); m.castShadow = m.receiveShadow = true; tg.add(m); }
+    // a red thread tied round the trunk, as at every shrine tree
+    const thread = new THREE.Mesh(new THREE.TorusGeometry(0.43, 0.025, 6, 20).rotateX(Math.PI / 2), std('#c4241c'));
+    thread.position.y = 1.1; tg.add(thread);
+    group.add(tg);
+    // little clay diyas along the front step
+    const diyaM = new THREE.MeshStandardMaterial({ color: '#ffb84a', emissive: '#ff9a20', emissiveIntensity: 1.2 });
+    const fx = Math.sin(S.rot), fz = Math.cos(S.rot);
+    for (let i = -2; i <= 2; i++) {
+      const d = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), diyaM);
+      const x = S.x + fx * 3.3 + Math.cos(S.rot) * i * 0.45, z = S.z + fz * 3.3 - Math.sin(S.rot) * i * 0.45;
+      d.position.set(x, groundHeight(x, z) + 0.75, z); group.add(d);
+    }
+    const mk = (o, lx, lz, face, act) => {
+      const p = new Person(o);
+      const x = S.x + fx * lz + Math.cos(S.rot) * lx, z = S.z + fz * lz - Math.sin(S.rot) * lx;
+      p.root.position.set(x, groundHeight(x, z), z); p.root.rotation.y = face;
+      scene.add(p.root);
+      shrineFolk.push({ p, act });
+      return p;
+    };
+    const pujari = mk({ dress: 'dhoti', top: '#f08a24', bottom: '#f6e6c8', skin: '#7a4c33', beard: true, mustache: true, hair: '#dcd6cc', sleeves: 'short' }, 1.6, 3.6, S.rot, 'sit');
+    pujari.seatH = 0.0;
+    mk({ dress: 'saree', top: '#c4241c', bottom: '#f2b705', veil: true, skin: '#86573b' }, -0.4, 5.6, S.rot + Math.PI, 'pray');
+    mk({ dress: 'saree', top: '#2e8b57', bottom: '#7a2b6e', veil: true, skin: '#80523a' }, 0.6, 5.9, S.rot + Math.PI, 'pray');
+    mk({ dress: 'kurta', top: '#f4f2ec', bottom: '#f4f1e8', headwear: 'turban', turban: '#e07a1e', mustache: true, skin: '#6e4530' }, -1.8, 6.4, S.rot + Math.PI, 'pray');
+    shrine = { ...S, front: { x: S.x + fx * 4.5, z: S.z + fz * 4.5 } };
+  }
+
   // the nearest moving train car to a point
   const trainNear = (x, z) => {
     let best = Infinity, bx = 0, bz = 0, v = 0, tr = null;
@@ -308,7 +353,7 @@ export function buildTrackScenery(scene, railway, hooks = {}) {
   const FAR = { x: 1e6, z: 1e6, facing: 0, speed: 0 }; // the tame elephants pay no mind to anyone
   let callCool = 0;
   return {
-    group, dogs, peacocks, elephants, hamlets, trees: nTrees,
+    group, dogs, peacocks, elephants, hamlets, shrine, trees: nTrees,
     update(dt, player, night, haze = 900) {
       callCool -= dt;
       for (const c of cells.values()) c.g.visible = Math.hypot(c.x - player.x, c.z - player.z) < haze + 360;
@@ -346,6 +391,11 @@ export function buildTrackScenery(scene, railway, hooks = {}) {
         const tn = trainNear(pc.root.position.x, pc.root.position.z);
         if (tn.d < 70 && callCool <= 0 && !night) { callCool = 8; hooks.peacock?.(Math.hypot(pc.root.position.x - player.x, pc.root.position.z - player.z)); }
         pc.update(dt, player);
+      }
+      for (const f of shrineFolk) {
+        const pd = Math.abs(f.p.root.position.x - player.x) + Math.abs(f.p.root.position.z - player.z);
+        f.p.root.visible = pd < 360;
+        if (pd < 260) f.p.update(dt, 0, night && f.act === 'pray' ? 'idle' : f.act);
       }
       for (const e of elephants) {
         const pd = Math.abs(e.p.x - player.x) + Math.abs(e.p.z - player.z);

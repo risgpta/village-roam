@@ -341,6 +341,19 @@ NEWV.push(
   { th: CV.nahar.th, x: CV.nahar.x, z: CV.nahar.z, name: 'Naharpur', hi: 'नहरपुर', style: 'punjab', canal: true, desc: 'a canal village of brick houses among the wheat and mustard', icon: '🌊' },
   { th: CV.kheri.th, x: CV.kheri.x, z: CV.kheri.z, name: 'Kheri Kalan', hi: 'खेड़ी कलां', style: 'bihar', canal: true, desc: 'a farming village across the canal, sugarcane and sunflowers all round', icon: '🌻' },
 );
+// The Naharpur branch: a short line of its own from a bay platform beside the ring at Purab Junction
+// ("Nahar Road"), curving out east through a cutting to a terminus by Naharpur. A shuttle runs to and fro.
+const BRANCH_PTS = (() => {
+  const pol = (th, r) => ({ x: Math.cos(th) * r, z: Math.sin(th) * r });
+  const par = (th) => pol(th, ringR(th) + 13);
+  const o = [];
+  const th0 = -0.1, th1 = -0.005, thE = 0.075, rQ = 2080, rE = 2335;
+  for (let th = th0; th < th1; th += 2 / ringR(th)) o.push(par(th));
+  const tP = (() => { const a = par(th1 - 0.001), b = par(th1 + 0.001), l = Math.hypot(b.x - a.x, b.z - a.z); return { x: (b.x - a.x) / l, z: (b.z - a.z) / l }; })();
+  o.push(...bez(par(th1), tP, pol(thE, rQ), { x: Math.cos(thE), z: Math.sin(thE) }, 2));
+  for (let r = rQ + 2; r <= rE; r += 2) o.push(pol(thE, r));
+  return o;
+})();
 // where roads cross the canal: earth causeways over culverts, with low concrete parapets
 CANAL.crossings = [-0.16, 0.12, 0.5].map((th) => { const r = CANAL.Rc(th); return CANAL.path.sOf(Math.cos(th) * r, Math.sin(th) * r); });
 // the valleys the station lines and the ring run along: a coarse distance field, stamped once
@@ -353,7 +366,7 @@ const FLATD = (() => {
       const dd = Math.hypot(i * C - H - p.x, j * C - H - p.z); if (dd < d[j * n + i]) d[j * n + i] = dd;
     }
   };
-  for (const P of [MAIN_PTS, LINE3_PTS, RING_PTS, OUTER_PTS]) for (let k = 0; k < P.length; k += 2) stamp(P[k]);
+  for (const P of [MAIN_PTS, LINE3_PTS, RING_PTS, OUTER_PTS, BRANCH_PTS]) for (let k = 0; k < P.length; k += 2) stamp(P[k]);
   return (x, z) => {
     const fx = (x + H) / C, fz = (z + H) / C, i = Math.floor(fx), j = Math.floor(fz);
     if (i < 0 || j < 0 || i >= n - 1 || j >= n - 1) return 999;
@@ -587,7 +600,8 @@ export const TRACK2 = Object.assign(makeTrack(P_MAIL, false), { z: trackZ2, slop
 export const TRACK3 = Object.assign(makeTrack(P_LINE3, true), { z: trackZ3, slope: trackSlope3, termini: true, name: 'line3' });
 export const RING = Object.assign(makeTrack(P_RING, false), { loop: true, name: 'ring' });
 export const TRACK5 = Object.assign(makeTrack(P_OUTER, true), { name: 'outer' });
-export const TRACKS = [TRACK, TRACK2, TRACK3, RING, TRACK5];
+export const TRACK6 = Object.assign(makeTrack(makePath(BRANCH_PTS), true), { termini: true, name: 'nahar' });
+export const TRACKS = [TRACK, TRACK2, TRACK3, RING, TRACK5, TRACK6];
 // The route a driven train can take: its own line, and at each end on round the ring through the junction
 // (a whole loop each way), so the boy can run through onto the ring line and on to its stations. The line's
 // own stretch sits at s = off .. off + its length.
@@ -622,6 +636,14 @@ RING.halts = [
   { s: sTh(J_MW.th + 0.08), name: 'Paschim Junction', hi: 'पश्चिम जंक्शन', side: -1, L: 100 },
   { s: sTh(NEWV[1].th), name: NEWV[1].name, hi: NEWV[1].hi, side: 1, L: 110, village: NEWV[1] },
 ].sort((a, b) => a.s - b.s);
+// the branch: the bay at Nahar Road (platform on the outside, away from the ring), and Naharpur at the end
+{
+  const P = TRACK6.path, NH = NEWV.find((v) => v.name === 'Naharpur');
+  TRACK6.halts = [
+    { s: 70, name: 'Nahar Road', hi: 'नहर रोड', side: -1, L: 100 },
+    { s: P.L - 68, name: 'Naharpur', hi: 'नहरपुर', side: 1, L: 110, village: NH },
+  ];
+}
 // the outer line's stations, one at each of its villages (platforms on the inside, toward the village)
 TRACK5.halts = NEWV.filter((v) => v.outer).map((v) => { const p = outerPt(v.th); return { s: P_OUTER.sOf(p.x, p.z), name: v.name, hi: v.hi, side: 1, L: 110, village: v }; });
 // The outer trains run a loop: out along the outer line, back into the ring, and round it (the same way as
@@ -1773,7 +1795,30 @@ export const layout = {
     for (let th = 0.09; th > CANAL.th0 + 0.02; th -= 0.03) bRoad.push(bank(th, bankOff));
     road(bRoad, 2.0);
     road([bank(-0.16, bankOff), bank(-0.16, CANAL.half + 10), bank(-0.16, CANAL.half + 60)], 2.0);
-    layout.newRoads = { khet: kRoad, rann: rRoad, outer: oRoad, canal: cRoad, canalBank: bRoad };
+    // two more ways in to the canal country from home: the high road straight east from Marudhar, and a
+    // lane out from Khetpura to Kheri Kalan
+    const mRoad = [[RV.x + 16, RV.z + 4], [700, 236], [1050, 268], [1390, 300], [1720, 318], [2050, 312], [NH.x - 40, NH.z + 6], [NH.x, NH.z]];
+    road(mRoad, 2.6);
+    const xRoad = [[K.x + 16, K.z + 4], [1300, 1010], [1640, 1090], [1960, 1170], [KH.x - 30, KH.z - 4], [KH.x, KH.z]];
+    road(xRoad, 2.4);
+    layout.newRoads = { khet: kRoad, rann: rRoad, outer: oRoad, canal: cRoad, canalBank: bRoad, nahar: mRoad, kheri: xRoad };
+    // a little shrine between Naharpur and the canal, under a big shade tree, beside the bank track
+    for (let k = 0; k < 80 && !layout.naharShrine; k++) {
+      const th = 0.085 + (k % 8) * 0.008, r = CANAL.Rc(th) - 26 - Math.floor(k / 8) * 4;
+      const x = Math.cos(th) * r, z = Math.sin(th) * r;
+      if (!isFree(x, z, 9) || laneDist(x, z) < 6.5 || canalDist(x, z) < CANAL.half + 12 || fieldType(x, z)) continue;
+      const rot = Math.atan2(NH.x - x, NH.z - z) + Math.PI; // its door looks out over the canal, its back to the village
+      layout.naharShrine = { x, z, rot, tree: { x: x - Math.sin(rot) * 9 + Math.cos(rot) * 6, z: z - Math.cos(rot) * 9 - Math.sin(rot) * 6 } };
+      occupy(x, z, 7);
+      colliders.push({ kind: 'b', x, z, rot, hw: 2.9, hd: 2.9 });
+      colliders.push({ kind: 'c', ...layout.naharShrine.tree, r: 0.9 });
+    }
+    // and cattle out on the plain: cows, and dark buffaloes, grazing round both villages
+    for (const V of [NH, KH]) for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2 + 0.4, d = 52 + (i % 3) * 9, x = V.x + Math.cos(a) * d, z = V.z + Math.sin(a) * d;
+      if (!isFree(x, z, 2) || laneDist(x, z) < 3 || canalDist(x, z) < CANAL.half + 8) continue;
+      layout.cows.push({ x, z, rot: a + 1.6, color: ['#ece6da', '#b98e64', '#2a2624', '#f2ede4', '#3a302a', '#8a6a4a', '#2a2624'][i], phase: i * 1.7 });
+    }
   }
   // bus stops: a shelter beside the road at each village
   layout.busStops = [];
@@ -1782,6 +1827,7 @@ export const layout = {
       ['गाँव', 'Gaon', roadX(70), 70, 0], ['छोटा गाँव', 'Chhota Gaon', -196, 168, 0.75], ['मारुधर', 'Marudhar', 267, 166, Math.PI / 2],
       ['बांग्लाग्राम', 'Banglagram', 246, -292, Math.PI / 2], ['तेन्नूर', 'Thennoor', 240, 463, 1.37], ['विट्ठलवाड़ी', 'Vitthalwadi', -653, -82, 1.36],
       ['पहाड़ी गाँव', 'Pahadi Gaon', roadX(warpR(525)), warpR(525), 0], ['नूरपुर', 'Noorpur', 938, -9, 1.98], ['मरियापुर', 'Mariapur', -460, 913, -1.4], ['बाँस पहाड़ी', 'Bamboo Hill', 358, -710, 0],
+      ['नहरपुर', 'Naharpur', CV.nahar.x - 70, 298.7, 1.616], ['खेड़ी कलां', 'Kheri Kalan', 2190, 1218, 1.365],
     ];
     for (const [hi, en, x0, z0, dir] of stops) {
       // dir: the road's heading (0 = along +z); try either side of it for a free spot
@@ -1921,7 +1967,7 @@ export const layout = {
   // the counter facing in toward it
   layout.shops = [];
   {
-    const vil = [[RV, 2, 'Marudhar', 34], [BV, 1, 'Banglagram'], [TV, 2, 'Thennoor'], [MH, 1, 'Vitthalwadi'], [NE, 1, 'Bamboo Hill'], [PG, 1, 'Pahadi Gaon'], [NP, 2, 'Noorpur'], [MP, 1, 'Mariapur'], [NV, 1, 'Chhota Gaon'], [EH, 1, 'Paar Gaon'], ...(layout.newVillages ?? []).map((v) => [v, v.outer ? 1 : 2, v.name])];
+    const vil = [[CV.nahar, 3, 'Naharpur', 12], [CV.kheri, 2, 'Kheri Kalan', 12], [RV, 2, 'Marudhar', 34], [BV, 1, 'Banglagram'], [TV, 2, 'Thennoor'], [MH, 1, 'Vitthalwadi'], [NE, 1, 'Bamboo Hill'], [PG, 1, 'Pahadi Gaon'], [NP, 2, 'Noorpur'], [MP, 1, 'Mariapur'], [NV, 1, 'Chhota Gaon'], [EH, 1, 'Paar Gaon'], ...(layout.newVillages ?? []).map((v) => [v, v.outer ? 1 : 2, v.name])];
     for (const [v, n, name, r0 = 10] of vil) {
       if (!v) continue;
       let placed = 0;

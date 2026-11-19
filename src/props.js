@@ -141,7 +141,7 @@ export function roundHut(R) {
   return { g, r, ph };
 }
 
-function temple() {
+export function temple() {
   const g = new THREE.Group();
   mesh(box(7, 0.75, 7), M.stone, 0, -0.125, 0, g);
   mesh(box(6.2, 0.25, 6.2), M.stone, 0, 0.375, 0, g);
