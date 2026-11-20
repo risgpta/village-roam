@@ -369,3 +369,29 @@ P.cluck = function (v = 1) {
   for (let i = 0; i < n; i++) setTimeout(() => this.ctx && this.voice({ dur: 0.09 + Math.random() * 0.04, amp: 0.09 * v, rough: 0.2, breath: 0.04, attack: 0.1, release: 0.6, jitter: 0.04,
     pitch: [[0, 300], [0.3, 380], [1, 260]], f1: [[0, 700], [1, 900]], f2: [[0, 1600], [1, 1500]], f3: [[0, 2800], [1, 2800]] }), i * 140);
 };
+
+// ---------- sirens ----------
+// The ambulance's electronic wail sweeping up and down; the fire tender's slower, deeper mechanical wail with
+// a growl in it. Both a bright, buzzy tone through a horn-shaped band, swept by a slow oscillator.
+P.setSiren = function (kind, on = true) {
+  if (!this.ctx) return;
+  const ctx = this.ctx, t = ctx.currentTime;
+  if (!this._sir) {
+    const g = this._g(0), o = ctx.createOscillator(); o.setPeriodicWave(this._pulseWave(0.45, 24, 1));
+    const lfo = ctx.createOscillator(); lfo.type = 'sine'; const depth = this._g(300);
+    lfo.connect(depth).connect(o.frequency);
+    const sh = this._soft(1.8), bp = this._bp(1100, 0.9), pk = this._bp(2400, 1.5, 'peaking'); pk.gain.value = 5;
+    o.connect(sh).connect(bp).connect(pk).connect(g).connect(this.master);
+    o.start(); lfo.start();
+    this._sir = { g, o, lfo, depth, bp };
+  }
+  const S = this._sir;
+  if (kind && on) {
+    const fire = kind === 'firetruck';
+    S.o.frequency.setTargetAtTime(fire ? 720 : 980, t, 0.05);
+    S.depth.gain.setTargetAtTime(fire ? 330 : 380, t, 0.05);
+    S.lfo.frequency.setTargetAtTime(fire ? 0.2 : 0.42, t, 0.05);
+    S.bp.frequency.setTargetAtTime(fire ? 850 : 1150, t, 0.05);
+    S.g.gain.setTargetAtTime(fire ? 0.06 : 0.05, t, 0.15);
+  } else S.g.gain.setTargetAtTime(0, t, 0.2);
+};

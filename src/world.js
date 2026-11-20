@@ -1585,7 +1585,8 @@ export const layout = {
       const a = R() * Math.PI * 2, d = 32 + R() * 30;
       const x = NE.x + Math.cos(a) * d, z = NE.z + Math.sin(a) * d;
       if (!isFree(x, z, 2.5) || dirtMask(x, z) > 0.2) continue;
-      layout.bamboo.push({ x, z, s: 0.8 + R() * 0.5, rot: R() * 6 });
+      // (a grove of the same leafy broadleaf trees as everywhere else — fewer kinds of tree, all real-looking)
+      layout.trees.push({ x, z, s: 0.75 + R() * 0.3, rot: R() * 6, v: i % 3 });
       occupy(x, z, 2.5);
       colliders.push({ kind: 'c', x, z, r: 0.65 });
     }
@@ -1613,7 +1614,8 @@ export const layout = {
       const a = R() * Math.PI * 2, d = 34 + R() * 30;
       const x = PG.x + Math.cos(a) * d, z = PG.z + Math.sin(a) * d;
       if (!isFree(x, z, 2.5) || dirtMask(x, z) > 0.2) continue;
-      layout.apples.push({ x, z, s: 0.8 + R() * 0.3, rot: R() * 6 });
+      // an orchard: smaller broadleaf trees
+      layout.trees.push({ x, z, s: 0.55 + R() * 0.2, rot: R() * 6, v: i % 3 });
       occupy(x, z, 2.2);
       colliders.push({ kind: 'c', x, z, r: 0.2 });
     }

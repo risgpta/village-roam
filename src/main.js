@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { noise2, clamp } from './noise.js';
 import {
-  TRACKS, CANAL, canalDist, roadX, groundHeight, resolveCollisions, pushOut, colliders, forColliders, NP, MP, heightAt, riverDist, WATER_Y, WATER, PLAY_RADIUS, layout, regionName, WF, RIVER_HALF, MARKET, TEA, tunnelAt, LID_W, TRACK_Y,
+  isFree, fieldType, trackDist, TANK, TRACKS, CANAL, canalDist, roadX, groundHeight, resolveCollisions, pushOut, colliders, forColliders, NP, MP, heightAt, riverDist, WATER_Y, WATER, PLAY_RADIUS, layout, regionName, WF, RIVER_HALF, MARKET, TEA, tunnelAt, LID_W, TRACK_Y,
 } from './world.js';
 import { buildTerrain, buildGrassData } from './terrain.js';
 import { startBakes } from './bakepool.js';
@@ -46,7 +46,8 @@ import { Flocks, GroundBirds, buildMotes } from './life.js';
 import { buildNightSky, buildClouds, buildRain } from './atmosphere.js';
 import { Ambience, THEMES } from './audio.js';
 import { buildCoachInside, FLOOR as COACH_FLOOR, WALL_X as COACH_WALL } from './coachinside.js';
-import './audio2.js'; // lifelike horns, whistle, brakes, helicopter and animal voices
+import './audio2.js';
+import { Ambulance, FireTruck } from './emergency.js'; // lifelike horns, whistle, brakes, helicopter and animal voices
 import { windUniforms } from './wind.js';
 import { createEnvironment, addSurfaceGrain } from './realism.js';
 import { sampleAtmo, WEATHERS, TIMES, clockText } from './daycycle.js';
@@ -377,6 +378,16 @@ let grass, village, terrainObj;
 let started = false;
 let jumpQueued = false;
 // rides: the bicycle parked by the road where the walk starts, and a battered old moped across the road
+// a clear, level spot for a parked emergency vehicle near where it lives
+function emergencySpot(kind) {
+  const H = layout.hospital;
+  const at = kind === 'ambulance' && H ? { x: H.x + Math.sin(H.rot) * 8, z: H.z + Math.cos(H.rot) * 8, rot: H.rot + Math.PI / 2 } : { x: TANK.x + 9, z: TANK.z + 6, rot: 0 };
+  for (let d = 0; d < 46; d += 2) for (let a = 0; a < 6.28; a += 0.45) {
+    const x = at.x + Math.cos(a) * d, z = at.z + Math.sin(a) * d;
+    if (isFree(x, z, kind === 'firetruck' ? 4.4 : 3.2) && Math.abs(x - roadX(z)) > 6 && !fieldType(x, z) && trackDist(x, z) > 9 && riverDist(x, z) > RIVER_HALF + 6) return { x, z, rot: at.rot };
+  }
+  return at;
+}
 const vehicles = [
   { obj: new Bicycle(), name: 'bicycle', park: { x: roadX(25) + 2.3, z: 25, rot: 0.4 }, walk: 5.5, run: 8.5, boost: 12.5, accel: 1.3, reach: 2.2, rad: 0.4, lean: 1,
     on: 'On the bicycle', off: 'Off the bicycle', help: [['E', 'get off'], ['B', 'bell'], ['L', 'lamp'], ['Shift', 'pedal harder']], ask: 'ride the bicycle' },
@@ -396,6 +407,16 @@ const vehicles = [
   { obj: Object.assign(new ERickshaw(), { fare0: 10, fareK: 2 }), name: 'erick', park: { x: roadX(62) - 4.3, z: 62, rot: 0 }, walk: 6.5, run: 9, boost: 13, accel: 0.75, reach: 2.8, rad: 0.62, lean: 0.15, flame: false,
     four: true, wb: 1.8, rev: 3, probes: [-0.95, 0.05, 0.95], exit: [-1.05, 0.5], box: [0, -0.15, 0.62, 1.42],
     on: 'The e-rickshaw — pick up to 4 riders at a 🚏 bus stop', off: 'Out of the e-rickshaw', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['L', 'lights']], ask: 'drive the e-rickshaw' },
+  // the emergency services: the 108 ambulance outside Chhota Gaon's hospital, the 101 fire tender by the
+  // village water tank. B sets the siren going (the traffic ahead pulls over); B again stops it.
+  { obj: new Ambulance(), name: 'ambulance', park: emergencySpot('ambulance'), walk: 11, run: 17, boost: 22, accel: 0.75, reach: 3.6, rad: 1.0, lean: 0.04, flame: false,
+    four: true, wb: 3.3, rev: 3.5, probes: [-2.2, -0.8, 0.8, 2.2], exit: [-1.3, 0.9], box: [0.45, 0, 1.0, 2.6], sound: 'minibus', siren: true,
+    shapeOver: { half: [1.0, 1.15, 2.6], com: [0.45, 1.2, 0], mass: 2600 },
+    on: 'The 108 ambulance — B for the siren, and everyone makes way', off: 'Out of the ambulance', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster'], ['B', 'siren on / off'], ['L', 'lights'], ['E', 'get out']], ask: 'drive the ambulance' },
+  { obj: new FireTruck(), name: 'firetruck', park: emergencySpot('firetruck'), walk: 10, run: 15, boost: 19, accel: 0.6, reach: 4.4, rad: 1.2, lean: 0.03, flame: false,
+    four: true, wb: 4.65, rev: 3, probes: [-3.3, -1.2, 1.2, 3.3], exit: [-1.4, 2.2], box: [0.55, 0, 1.2, 3.75], sound: 'bus', siren: true,
+    shapeOver: { half: [1.2, 1.45, 3.75], com: [0.55, 1.5, 0], mass: 9000 },
+    on: 'The 101 fire tender — B for the siren and bell', off: 'Down from the fire tender', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster'], ['B', 'siren on / off'], ['L', 'lights'], ['E', 'climb down']], ask: 'drive the fire tender' },
   { obj: new RowBoat(), name: 'boat', water: true, park: { x: layout.boat.x, z: layout.boat.z, rot: layout.boat.rot }, walk: 1.8, run: 2.8, boost: 3.6, accel: 0.6, reach: 3.4, rad: 0.9, lean: 0,
     on: 'In the boat — row with W, A, D', off: 'Back on the bank', help: [['E', 'get out at a bank'], ['Shift', 'row harder']], ask: 'row the boat' },
 ];
@@ -497,6 +518,7 @@ const flames = new Puffs({ max: 160, color: '#9fd0ff', dark: '#ff7a1a', opacity:
 scene.add(flames.mesh);
 const dust = new Puffs({ max: 120, color: '#c8a77a', dark: '#a8875a', opacity: 0.45, buoyancy: 0.2, drag: 1.8 });
 scene.add(dust.mesh);
+let sirenT = 0;
 let ridePromptT = 0, ridePitch = 0, rideRoll = 0;
 // headlights: L switches them on and off on anything with wheels. The lamps glow, and a real beam lights the road.
 const lamps = { on: false };
@@ -559,6 +581,7 @@ function toggleRide() {
       player.facing = b.a;
     } else {
       ride = null;
+      if (v.siren && v.obj.siren) { v.obj.siren = false; audio.setSiren(v.name, false); }
       const [ex, ez] = v.exit ?? [-0.6, 0];
       const lx = Math.cos(player.facing), lz = -Math.sin(player.facing), fx = Math.sin(player.facing), fz = Math.cos(player.facing);
       parkVehicle(v, player.x, player.z, player.facing);
@@ -584,7 +607,7 @@ function toggleRide() {
     v.obj.root.rotation.set(0, 0, 0);
     if (v.water) player.y = WY();
     drive.v = 0; drive.steer = 0;
-    hornFor(v);
+    if (v.siren) audio.busHorn(0.5); else hornFor(v); // (a toot on climbing in; the siren waits for B)
     ridePromptT = 4;
     toast(v.on);
     lamps.on = !v.fly && !v.water && ATMO.glow > 0.5; // getting in after dark, the lights come on with the engine
@@ -627,6 +650,13 @@ function reachOf(v) {
 // how steep a slope each kind can climb (rise over run)
 const CLIMB = { cart: 0.32, bus: 0.38, minibus: 0.4, erick: 0.38, auto: 0.45, car: 0.5, jeep: 0.65, bicycle: 0.42, moped: 0.6, scooter: 0.55 };
 function hornFor(v) {
+  if (v.siren) {
+    v.obj.siren = !v.obj.siren;
+    audio.setSiren(v.name, v.obj.siren);
+    if (v.obj.siren) { makeWay(); if (v.name === 'firetruck') audio.bell(0.7); toast(v.name === 'ambulance' ? 'Siren on — make way! 🚑' : 'Siren on — the fire tender is coming through! 🚒'); }
+    else toast('Siren off');
+    return;
+  }
   if (v.name === 'bicycle') audio.cycleBell();
   else if (v.name === 'moped') audio.mopedHorn();
   else if (v.name === 'scooter') audio.scooterHorn();
@@ -785,7 +815,7 @@ function updateRobbed(dt) {
 // a parked scooter shoved by the car falls on its side, the car hits a bus and stops dead, and anything
 // the train catches on the line is thrown clear — further and higher the faster the train is going.
 const crashes = new Crashes();
-const MASS = { bicycle: 60, moped: 130, scooter: 150, auto: 420, erick: 480, car: 900, jeep: 1800, minibus: 3600, bus: 7000, cart: 700 };
+const MASS = { bicycle: 60, moped: 130, scooter: 150, auto: 420, erick: 480, car: 900, jeep: 1800, minibus: 3600, bus: 7000, cart: 700, ambulance: 2600, firetruck: 9000 };
 const UPV = new THREE.Vector3(0, 1, 0);
 function obbDist(x, z, b) {
   const dx = x - b.x, dz = z - b.z, c = Math.cos(b.rot), sn = Math.sin(b.rot);
@@ -2009,7 +2039,9 @@ function updatePlayer(dt) {
   if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = fov; camera.updateProjectionMatrix(); }
   // the moped: engine note and blue-grey two-stroke smoke
   const onMoped = ride && ['moped', 'scooter', 'auto', 'car', 'minibus', 'jeep', 'bus'].includes(ride.name);
-  audio.setRide(ride ? ride.name : null, player.speed, four ? f > 0 : len > 0, boosting);
+  audio.setRide(ride ? ride.sound ?? ride.name : null, player.speed, four ? f > 0 : len > 0, boosting);
+  // with the siren going, the road keeps clearing ahead
+  if (ride?.siren && ride.obj.siren) { sirenT -= dt; if (sirenT < 0) { sirenT = 1.1; makeWay(); } }
   audio.setReverse(!!(four && drive.v < -0.1 && ride.name !== 'bicycle'));
   if (onMoped) {
     mopedAcc += dt * (4 + player.speed * 1.2);

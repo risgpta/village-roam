@@ -151,6 +151,59 @@ function hairMaterial(color) {
   return m;
 }
 
+// The shirt's body: not a tube but a torso — the waist drawn in, the chest fuller at the front, the back flatter
+// with a hint of the shoulder blades, and the shoulders sloping down from the neck.
+function shapeTorso(g, fem = false) {
+  const p = g.attributes.position;
+  const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  for (let i = 0; i < p.count; i++) {
+    let x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const r = Math.hypot(x, z) || 1, cz = z / r, ax = Math.abs(x) / r;
+    // waist in, chest and shoulders out (sideways)
+    const wide = 1 - 0.07 * (1 - sm(0.0, 0.2, y)) + 0.06 * sm(0.28, 0.44, y) * (1 - sm(0.47, 0.55, y));
+    x *= wide;
+    // the chest at the front, the flatter back with the shoulder blades
+    if (cz > 0) z += (fem ? 0.012 : 0.02) * cz * Math.exp(-((y - 0.36) ** 2) / 0.006) * (0.6 + 0.4 * (1 - ax));
+    else z *= 1 - 0.06 * sm(0.2, 0.4, y) * -cz + 0.0;
+    if (cz < 0) z -= 0.008 * Math.exp(-((y - 0.4) ** 2) / 0.004) * Math.exp(-((Math.abs(x) - 0.08) ** 2) / 0.002);
+    // the shoulders slope down from the neck
+    if (y > 0.44) y -= 0.05 * sm(0.04, 0.17, Math.abs(x)) * sm(0.44, 0.52, y);
+    p.setXYZ(i, x, y, z);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+// A strip of cloth laid over a body: pts are [angle round the body (0 = front), height] pairs; radius(y) gives
+// the body's radius there; depth squashes front-to-back, as the body is. Used for the saree's pallu.
+function drape(pts, radius, width, depth = 0.7, lift = 0.014) {
+  const curve = new THREE.CatmullRomCurve3(pts.map(([a, y]) => new THREE.Vector3(a, y, 0)));
+  const n = 40, pos = [], idx = [];
+  const at = (u) => { const q = curve.getPoint(u), r = radius(q.y) + lift; return new THREE.Vector3(Math.sin(q.x) * r, q.y, Math.cos(q.x) * r * depth); };
+  for (let i = 0; i <= n; i++) {
+    const u = i / n, P = at(u), T = at(Math.min(1, u + 0.01)).sub(at(Math.max(0, u - 0.01))).normalize();
+    const N = new THREE.Vector3(P.x, 0, P.z / depth).normalize();
+    const W = new THREE.Vector3().crossVectors(T, N).normalize().multiplyScalar(width / 2);
+    // a few soft folds across the width
+    for (let j = 0; j <= 4; j++) { const v = j / 4 - 0.5, f = 0.006 * Math.sin(j * 2.4 + i * 0.5); pos.push(P.x + W.x * v * 2 + N.x * f, P.y + W.y * v * 2, P.z + W.z * v * 2 + N.z * f); }
+  }
+  for (let i = 0; i < n; i++) for (let j = 0; j < 4; j++) { const a = i * 5 + j, b = a + 5; idx.push(a, b, a + 1, a + 1, b, b + 1); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array((pos.length / 3) * 2), 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+// a sleeve: like a limb, but its top is a shallow cap that tucks into the shoulder rather than a round ball
+// standing up above it (which made every shirt look puff-sleeved)
+function sleeve(r0, r1, len, segs = 14) {
+  const pts = [];
+  for (let i = 0; i <= 4; i++) { const a = -Math.PI / 2 + (i / 4) * (Math.PI / 2); pts.push([Math.cos(a) * r1, -len + Math.sin(a) * r1]); }
+  for (let i = 1; i <= 5; i++) { const a = (i / 5) * (Math.PI / 2); pts.push([Math.cos(a) * r0, Math.sin(a) * r0 * 0.3 - 0.01]); }
+  return lathe(pts, segs);
+}
+
 export function buildHuman(o) {
   const k = o.k ?? 1, hs = o.headScale ?? 1;
   const skinC = o.skin ?? '#8a5a3c';
@@ -224,14 +277,16 @@ export function buildHuman(o) {
       m.rotation.z = 0.55;
       return m;
     };
+    void band;
     if (o.pallu !== false) {
-      band(-1.15, 2.3); band(Math.PI - 0.95, 1.9);
-      part(ellipsoid(0.11, 0.3, 0.018), bottomDS, torso, -0.07, 0.24, -0.135).rotation.z = 0.2;
+      // the pallu: from the right hip, diagonally up across the chest, over the left shoulder, and down the back
+      const rad = (y) => (y < 0.12 ? 0.15 : y < 0.22 ? 0.15 - (y - 0.12) * 0.1 : y < 0.42 ? 0.14 + (y - 0.22) * 0.15 : y < 0.5 ? 0.17 - (y - 0.42) * 0.3 : 0.146 - (y - 0.5) * 0.9);
+      part(drape([[0.75, 0.02], [0.35, 0.18], [-0.15, 0.33], [-0.55, 0.45], [-1.05, 0.52], [-1.9, 0.5], [-2.5, 0.38], [-2.75, 0.15], [-2.8, -0.12]], rad, 0.2), bottomDS, torso);
     }
   } else {
     const kurta = dress === 'kurta' ? 0.46 : dress === 'dhoti' ? 0.3 : dress === 'shorts' ? 0.2 : 0.1;
     // the shirt over the chest and back: broad at the shoulders and chest, gathered at the waist with a few folds
-    part(folds(lathe([[0, -0.06], [0.13, -0.05], [0.155, 0.02], [0.158, 0.15], [0.17, 0.3], [0.182, 0.42], [0.176, 0.48], [0.142, 0.53], [0.075, 0.565], [0, 0.575]], 32), 0.025, 7, 0.32, 0.0).scale(1, 1, 0.68), top, torso);
+    part(folds(shapeTorso(lathe([[0, -0.06], [0.13, -0.05], [0.15, 0.03], [0.152, 0.13], [0.168, 0.28], [0.18, 0.4], [0.178, 0.47], [0.15, 0.52], [0.085, 0.56], [0, 0.575]], 40)), 0.022, 7, 0.32, 0.0).scale(1, 1, 0.7), top, torso);
     part(folds(lathe([[0.21, -kurta], [0.19, -kurta * 0.5], [0.165, -0.03], [0.157, 0.04]], 40), 0.06, 9, 0.04, -kurta).scale(1, 1, 0.72), topDS, torso); // the hem falls in soft folds
     if (o.vest) part(lathe([[0.163, 0.12], [0.172, 0.3], [0.182, 0.42], [0.176, 0.48], [0.12, 0.535]], 20).scale(1, 1, 0.7), mat(o.vest, 0.9), torso);
   }
@@ -324,15 +379,15 @@ export function buildHuman(o) {
 
   const arms = [-1, 1].map((s) => {
     const shoulder = new THREE.Group();
-    shoulder.position.set(s * 0.182, 0.505, 0);
+    shoulder.position.set(s * 0.178, 0.49, 0);
     torso.add(shoulder);
     const longSleeve = !saree && o.sleeves !== 'short';
     // the round of the shoulder, so the arm grows out of the body instead of meeting it at a seam
-    part(ellipsoid(0.06, 0.05, 0.056, 14, 10), top, shoulder, -s * 0.004, -0.004, 0);
+    part(ellipsoid(0.046, 0.05, 0.048, 16, 12), top, shoulder, -s * 0.03, -0.045, 0);
     const upper = (r0, r1) => muscle(r0, r1, 0.29, [[0.15, 0.12, 0.18, 0], [0.5, 0.16, 0.22, 1], [0.55, 0.1, 0.22, -1]], { flat: 0.9 });
-    if (saree) { part(limb(0.056, 0.05, 0.11), top, shoulder); part(upper(0.046, 0.036), skin, shoulder); }
-    else if (!longSleeve) { part(limb(0.059, 0.053, 0.15), top, shoulder); part(upper(0.047, 0.038), skin, shoulder); }
-    else part(limb(0.057, 0.047, 0.3), top, shoulder);
+    if (saree) { part(sleeve(0.05, 0.047, 0.1), top, shoulder); part(upper(0.044, 0.035), skin, shoulder); }
+    else if (!longSleeve) { part(sleeve(0.052, 0.052, 0.14), top, shoulder); part(upper(0.046, 0.037), skin, shoulder); }
+    else part(sleeve(0.052, 0.045, 0.3), top, shoulder);
     const elbow = new THREE.Group();
     elbow.position.y = -0.3;
     shoulder.add(elbow);
@@ -529,7 +584,8 @@ export class Person {
     this.t += dt;
     const t = this.t;
     const P = Object.fromEntries(POSE_KEYS.map((k) => [k, 0]));
-    P.shz0 = -0.06; P.shz1 = 0.06; P.el0 = P.el1 = -0.12;
+    // at rest the arms hang relaxed: a little out from the body, a little forward, the elbows soft
+    P.shz0 = -0.11; P.shz1 = 0.11; P.el0 = P.el1 = -0.22; P.sh0 = P.sh1 = -0.04;
     this.walkB += ((speed > 0.1 ? 1 : 0) - this.walkB) * damp(dt, 6);
     const b = this.walkB;
     this.phase += (speed * dt * (this.female ? 5.8 : 5.0)) / this.k;

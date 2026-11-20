@@ -9,26 +9,15 @@
 import * as THREE from 'three';
 import { layout, CANAL, canalDist, NEW_VILLAGES, TRACK, TRACK3, TRACK5, RING, TRACK_Y, heightAt, groundHeight, riverDist, RIVER_HALF, CROSSING, CROSSING3, jungleMask, fieldType, dirtMask, trackDist, tunnelMask, isFree, colliders, PLAY_RADIUS } from './world.js';
 import { rng, fbm } from './noise.js';
-import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { applyFoliageWind } from './wind.js';
-import { roundHut, rectHouse, haystack, charpai, woodpile, bananaPlant, bambooClump, temple } from './props.js';
+import { treeKit, plantForest } from './vegetation.js';
+import { roundHut, rectHouse, haystack, charpai, woodpile, bananaPlant, temple } from './props.js';
 import { Dog, Peacock, consolidate } from './animals.js';
 import { Elephant } from './wildlife.js';
 import { Person } from './people.js';
 
 const std = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, ...o });
-const lam = (c, o = {}) => new THREE.MeshLambertMaterial({ color: c, ...o });
 
 // ---- tree kinds: each a few merged parts, one material per part
-function blob(r, x, y, z, sy = 1, detail = 1, R) {
-  let g = new THREE.IcosahedronGeometry(r, detail);
-  g.deleteAttribute('normal'); g.deleteAttribute('uv');
-  g = mergeVertices(g); // shared corners, so the lumps are lit smoothly rather than in facets
-  const p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) { const k = 1 + (R() - 0.5) * 0.28; p.setXYZ(i, p.getX(i) * k, p.getY(i) * k * sy, p.getZ(i) * k); }
-  g.computeVertexNormals();
-  return g.translate(x, y, z);
-}
 const merge = (list) => {
   const geos = list.map((g) => (g.index ? g.toNonIndexed() : g));
   for (const g of geos) for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
@@ -42,66 +31,15 @@ const merge = (list) => {
   return out;
 };
 
-function treeKinds() {
+// banana clumps, from the village's own maker, instanced in cells
+function bananaKind() {
   const R = rng(4242);
-  const bark = std('#5a4334'), pale = std('#d6cfc0', { roughness: 0.7 }), palmBark = std('#4c4641');
-  const leafEuc = applyFoliageWind(lam('#7d9a6c'), { height: 14, amp: 0.45, flutter: 0.05, leafy: 1.4 });
-  const leafMango = applyFoliageWind(lam('#2c5527'), { height: 7, amp: 0.25, flutter: 0.03, leafy: 1.2 });
-  const leafGul = applyFoliageWind(lam('#4e7a30'), { height: 6, amp: 0.3, flutter: 0.04, leafy: 1.4 });
-  const bloom = applyFoliageWind(lam('#e3401f', { emissive: '#3a0a02' }), { height: 6, amp: 0.3, flutter: 0.05 });
-  const frond = applyFoliageWind(lam('#557a35', { side: THREE.DoubleSide }), { height: 12, amp: 0.8, flutter: 0.08 });
-  const dry = std('#7a6a4a', { side: THREE.DoubleSide });
-  const kinds = {};
-  // eucalyptus: a tall, straight, pale trunk and a thin, high, grey-green crown
-  {
-    const trunk = [new THREE.CylinderGeometry(0.12, 0.24, 14, 7).translate(0, 7, 0)];
-    for (const [y, a] of [[8, 0.6], [10, 2.4], [11.5, 4.2]]) trunk.push(new THREE.CylinderGeometry(0.04, 0.08, 2.4, 5).rotateZ(0.7).rotateY(a).translate(Math.cos(a) * 0.6, y, -Math.sin(a) * 0.6));
-    const leaf = [];
-    for (let i = 0; i < 7; i++) { const a = R() * 6.28, r = 0.4 + R() * 1.2; leaf.push(blob(0.9 + R() * 0.6, Math.cos(a) * r, 9.5 + R() * 5, Math.sin(a) * r, 1.5, 1, R)); }
-    kinds.euc = [{ geo: merge(trunk), mat: pale }, { geo: merge(leaf), mat: leafEuc }];
-  }
-  // mango: a short, stout trunk and a dense dark dome
-  {
-    const trunk = [new THREE.CylinderGeometry(0.28, 0.42, 3.2, 8).translate(0, 1.6, 0)];
-    for (const a of [0.4, 2.5, 4.4]) trunk.push(new THREE.CylinderGeometry(0.1, 0.18, 2.6, 6).rotateZ(0.65).rotateY(a).translate(Math.cos(a) * 0.7, 3.6, -Math.sin(a) * 0.7));
-    const leaf = [blob(2.6, 0, 5.6, 0, 0.85, 1, R)];
-    for (let i = 0; i < 9; i++) { const a = (i / 9) * 6.28 + R(), r = 2.1 + R() * 0.8; leaf.push(blob(1.6 + R() * 0.6, Math.cos(a) * r, 4.4 + R() * 1.8, Math.sin(a) * r, 0.85, 1, R)); }
-    kinds.mango = [{ geo: merge(trunk), mat: bark }, { geo: merge(leaf), mat: leafMango }];
-  }
-  // gulmohar: a spreading umbrella of feathery green, blazing with scarlet flowers on top
-  {
-    const trunk = [new THREE.CylinderGeometry(0.2, 0.32, 3.4, 7).translate(0, 1.7, 0)];
-    for (const a of [0, 2.1, 4.2]) trunk.push(new THREE.CylinderGeometry(0.07, 0.14, 3.2, 5).rotateZ(1.0).rotateY(a).translate(Math.cos(a) * 1.2, 4.0, -Math.sin(a) * 1.2));
-    const leaf = [], fl = [];
-    for (let i = 0; i < 11; i++) { const a = R() * 6.28, r = R() * 3.6; leaf.push(blob(1.3 + R() * 0.5, Math.cos(a) * r, 4.9 + R() * 0.7, Math.sin(a) * r, 0.5, 1, R)); }
-    for (let i = 0; i < 16; i++) { const a = R() * 6.28, r = R() * 3.8; fl.push(blob(0.55 + R() * 0.35, Math.cos(a) * r, 5.5 + R() * 0.6, Math.sin(a) * r, 0.55, 0, R)); }
-    kinds.gul = [{ geo: merge(trunk), mat: bark }, { geo: merge(leaf), mat: leafGul }, { geo: merge(fl), mat: bloom }];
-  }
-  // palmyra palm: a tall, dark, straight trunk and a ball of stiff fan leaves, a skirt of dead ones below
-  {
-    const trunk = [new THREE.CylinderGeometry(0.2, 0.3, 12.5, 8).translate(0, 6.25, 0), new THREE.CylinderGeometry(0.32, 0.22, 1.2, 8).translate(0, 12.6, 0)];
-    const fan = [], dead = [];
-    for (let i = 0; i < 16; i++) {
-      const a = (i / 16) * 6.28 + R() * 0.3, up = 0.2 + R() * 0.9;
-      const f = new THREE.CircleGeometry(1.25, 10, -1.2, 2.4).rotateZ(Math.PI / 2).rotateX(-up).translate(0, 0, 1.4).rotateY(a).translate(0, 13.1, 0);
-      fan.push(f);
-      fan.push(new THREE.CylinderGeometry(0.025, 0.04, 1.4, 4).rotateX(Math.PI / 2 - up * 0.5).translate(0, 0, 0.7).rotateY(a).translate(0, 13.1, 0));
-    }
-    for (let i = 0; i < 9; i++) { const a = (i / 9) * 6.28; dead.push(new THREE.CircleGeometry(0.9, 8, -1, 2).rotateZ(-Math.PI / 2).rotateX(1.2).translate(0, 0, 0.6).rotateY(a).translate(0, 12.0, 0)); }
-    kinds.palmyra = [{ geo: merge(trunk), mat: palmBark }, { geo: merge(fan), mat: frond }, { geo: merge(dead), mat: dry }];
-  }
-  // banana clumps and bamboo, from the village's own makers
-  const fromGroup = (g) => {
-    g.updateMatrixWorld(true);
-    const by = new Map();
-    g.traverse((o) => { if (o.isMesh) { const k = o.material; if (!by.has(k)) by.set(k, []); by.get(k).push(o.geometry.clone().applyMatrix4(o.matrixWorld)); } });
-    return [...by].map(([mat, list]) => ({ geo: merge(list), mat }));
-  };
-  const banana = new THREE.Group();
-  for (let i = 0; i < 4; i++) { const b = bananaPlant(R); b.position.set((R() - 0.5) * 2.4, 0, (R() - 0.5) * 2.4); b.scale.setScalar(0.8 + R() * 0.5); banana.add(b); }
-  kinds.banana = fromGroup(banana);
-  kinds.bamboo = fromGroup(bambooClump(R));
-  return kinds;
+  const g = new THREE.Group();
+  for (let i = 0; i < 4; i++) { const b = bananaPlant(R); b.position.set((R() - 0.5) * 2.4, 0, (R() - 0.5) * 2.4); b.scale.setScalar(0.8 + R() * 0.5); g.add(b); }
+  g.updateMatrixWorld(true);
+  const by = new Map();
+  g.traverse((o) => { if (o.isMesh) { const k = o.material; if (!by.has(k)) by.set(k, []); by.get(k).push(o.geometry.clone().applyMatrix4(o.matrixWorld)); } });
+  return [...by].map(([mat, list]) => ({ geo: merge(list), mat }));
 }
 
 export function buildTrackScenery(scene, railway, hooks = {}) {
@@ -116,10 +54,10 @@ export function buildTrackScenery(scene, railway, hooks = {}) {
   const clearLand = (x, z, r) => Math.hypot(x, z) < PLAY_RADIUS - 60 && riverDist(x, z) > RIVER_HALF + 6 + r && trackDist(x, z) > 7 + r && !tunnelMask(x, z) && jungleMask(x, z) === 0
     && dirtMask(x, z) < 0.3 && isFree(x, z, r) && !nearYard(x, z, 90) && !nearCrossing(x, z);
 
-  // ---- groves: walk every line, both sides; the kind of tree changes from place to place in patches
-  const kinds = treeKinds();
-  const place = { euc: [], mango: [], gul: [], palmyra: [], banana: [], bamboo: [] };
-  const RAD = { euc: 2, mango: 4.5, gul: 4, palmyra: 2.5, banana: 2.5, bamboo: 2.2 };
+  // ---- groves: walk every line, both sides; the kind of tree changes from place to place in patches. Only the
+  // country's few real kinds: big leafy broadleaf (neem, mango), coconut palms, eucalyptus, banana clumps.
+  const place = { euc: [], broad: [], palm: [], banana: [] };
+  const RAD = { euc: 2, broad: 4.5, palm: 2.5, banana: 2.5 };
   const q = {};
   for (const T of [TRACK, TRACK3, RING, TRACK5]) {
     const P = T.path;
@@ -129,15 +67,15 @@ export function buildTrackScenery(scene, railway, hooks = {}) {
       for (const sd of [-1, 1]) {
         const patch = fbm(q.x * 0.006 + sd * 3.1, q.z * 0.006, 2);
         if (patch < -0.12 || R() > 0.55) continue;
-        const kind = patch > 0.42 ? 'gul' : patch > 0.26 ? 'mango' : patch > 0.12 ? 'euc' : patch > 0.0 ? 'palmyra' : R() < 0.5 ? 'banana' : 'bamboo';
+        const kind = patch > 0.26 ? 'broad' : patch > 0.12 ? 'euc' : patch > 0.0 ? 'palm' : R() < 0.4 ? 'banana' : 'broad';
         // eucalyptus planted in a neat row close to the line; the rest scattered further back
         const off = kind === 'euc' ? 13 + R() * 3 : 12 + R() * 42;
         const x = q.x - q.tz * sd * off + (R() - 0.5) * 3, z = q.z + q.tx * sd * off + (R() - 0.5) * 3;
         const r = RAD[kind];
-        if (fieldType(x, z) && kind !== 'euc' && kind !== 'palmyra') continue; // (eucalyptus and palms line the field edges)
+        if (fieldType(x, z) && kind !== 'euc' && kind !== 'palm') continue; // (eucalyptus and palms line the field edges)
         if (!clearLand(x, z, r)) continue;
         if (place[kind].some((p) => Math.abs(p.x - x) + Math.abs(p.z - z) < r * 2)) continue;
-        place[kind].push({ x, z, y: groundHeight(x, z) - 0.1, s: 0.8 + R() * 0.45, a: R() * 6.28 });
+        place[kind].push({ x, z, y: groundHeight(x, z) - 0.1, s: kind === 'broad' ? 0.95 + R() * 0.45 : 0.85 + R() * 0.3, a: R() * 6.28, v: Math.floor(R() * 3) });
       }
     }
   }
@@ -154,7 +92,7 @@ export function buildTrackScenery(scene, railway, hooks = {}) {
         const x = q.x + q.tz * sd * off, z = q.z - q.tx * sd * off;
         if (NEW_VILLAGES.some((v) => v.canal && Math.hypot(v.x - x, v.z - z) < 70)) continue;
         if (dirtMask(x, z) > 0.3 || !isFree(x, z, 1.5) || canalDist(x, z) < CANAL.half + 7.5) continue;
-        place.euc.push({ x, z, y: groundHeight(x, z) - 0.1, s: 0.85 + R() * 0.35, a: R() * 6.28 });
+        place.euc.push({ x, z, y: groundHeight(x, z) - 0.1, s: 0.9 + R() * 0.25, a: R() * 6.28, v: Math.floor(R() * 3) });
       }
     }
     // low whitewashed concrete parapets along each causeway
@@ -174,20 +112,29 @@ export function buildTrackScenery(scene, railway, hooks = {}) {
     }
   }
   const m4 = new THREE.Matrix4(), qt = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
-  // in cells of 500 m, so groves out of view or lost in the haze aren't drawn
+  // the trees: batched with the rest of the country's forests (drawn in full near by, lighter far off, not at
+  // all in the haze)
   let nTrees = 0;
+  for (const kind of ['broad', 'palm', 'euc']) {
+    const items = place[kind].map((p) => ({ x: p.x, z: p.z, s: p.s, rot: p.a, v: p.v }));
+    nTrees += items.length;
+    for (const m of plantForest(kind, items, 0.15)) group.add(m);
+    for (const p of items) colliders.push({ kind: 'c', x: p.x, z: p.z, r: kind === 'broad' ? 0.45 : 0.3 });
+  }
+  // the banana clumps, in cells of 500 m, so those out of view or lost in the haze aren't drawn
+  const bananaK = bananaKind();
   const CELL = 500, cells = new Map();
-  for (const [kind, list] of Object.entries(place)) {
+  for (const [kind, list] of Object.entries({ banana: place.banana })) {
     nTrees += list.length;
     for (const p of list) {
       const key = Math.floor(p.x / CELL) + ',' + Math.floor(p.z / CELL);
       if (!cells.has(key)) cells.set(key, { kind: {}, x: (Math.floor(p.x / CELL) + 0.5) * CELL, z: (Math.floor(p.z / CELL) + 0.5) * CELL, g: new THREE.Group() });
       (cells.get(key).kind[kind] ??= []).push(p);
-      colliders.push({ kind: 'c', x: p.x, z: p.z, r: kind === 'mango' ? 0.45 : kind === 'bamboo' || kind === 'banana' ? 0.8 : 0.3 });
+      colliders.push({ kind: 'c', x: p.x, z: p.z, r: 0.8 });
     }
   }
   for (const c of cells.values()) {
-    for (const [kind, list] of Object.entries(c.kind)) for (const { geo, mat } of kinds[kind]) {
+    for (const [, list] of Object.entries(c.kind)) for (const { geo, mat } of bananaK) {
       const im = new THREE.InstancedMesh(geo, mat, list.length);
       list.forEach((p, i) => { qt.setFromAxisAngle(up, p.a); sc.setScalar(p.s); ps.set(p.x, p.y, p.z); im.setMatrixAt(i, m4.compose(ps, qt, sc)); });
       im.castShadow = true; im.receiveShadow = true;
@@ -312,7 +259,7 @@ export function buildTrackScenery(scene, railway, hooks = {}) {
     const tg = new THREE.Group();
     tg.position.set(S.tree.x, groundHeight(S.tree.x, S.tree.z) - 0.1, S.tree.z);
     tg.scale.setScalar(1.7);
-    for (const { geo, mat } of kinds.mango) { const m = new THREE.Mesh(geo, mat); m.castShadow = m.receiveShadow = true; tg.add(m); }
+    { const K = treeKit(), t0 = K.T[1].t; for (const [geo, mat] of [[t0.trunk, K.trunkMat], [t0.leaves, K.leafMat]]) { const m = new THREE.Mesh(geo, mat); m.castShadow = m.receiveShadow = true; tg.add(m); } }
     // a red thread tied round the trunk, as at every shrine tree
     const thread = new THREE.Mesh(new THREE.TorusGeometry(0.43, 0.025, 6, 20).rotateX(Math.PI / 2), std('#c4241c'));
     thread.position.y = 1.1; tg.add(thread);

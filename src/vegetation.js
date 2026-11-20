@@ -207,6 +207,24 @@ function palm(R, lod = 1) {
   return { trunk: mergeGeometries(trunk), leaves: mergeGeometries(leaves) };
 }
 
+// eucalyptus (safeda): a tall, straight, pale trunk and a thin, airy crown of grey-green leaves high up
+export function eucalyptus(R, lod = 1) {
+  const trunk = [], lumps = [];
+  const h = 11 + R() * 4, lean = (R() - 0.5) * 0.5;
+  const curve = new THREE.CatmullRomCurve3([new V3(0, 0, 0), new V3(lean * 0.2, h * 0.4, 0), new V3(lean * 0.6, h * 0.75, 0.1), new V3(lean, h, 0)]);
+  trunk.push(paint(new THREE.TubeGeometry(curve, lod ? 10 : 4, 0.2, lod ? 7 : 4, false), '#d9d2c3', R, 0.6));
+  trunk.push(paint(new THREE.CylinderGeometry(0.24, 0.32, 1.2, lod ? 7 : 4).translate(0, 0.6, 0), '#b8ad9a', R, 0.5)); // the rough bark at the foot
+  const nb = 3 + Math.floor(R() * 2);
+  for (let i = 0; i < nb; i++) {
+    const a = (i / nb) * Math.PI * 2 + R(), by = h * (0.6 + R() * 0.25), len = 1.6 + R() * 1.6, tilt = 0.45 + R() * 0.35;
+    trunk.push(paint(new THREE.CylinderGeometry(0.04, 0.09, len, lod ? 5 : 3).translate(0, len / 2, 0).rotateZ(-tilt).rotateY(a).translate(lean * (by / h), by, 0), '#cfc6b4', R, 0.5));
+    const ex = Math.sin(tilt) * len, ey = Math.cos(tilt) * len;
+    lumps.push({ r: 0.8 + R() * 0.5, sy: 1.35, c: new V3(lean * (by / h) + ex * Math.cos(a), by + ey + 0.4, -ex * Math.sin(a)), color: ['#6f8a5c', '#7d9668', '#62805a'][i % 3] });
+  }
+  for (let k = 0; k < 3; k++) lumps.push({ r: 0.9 + R() * 0.4, sy: 1.4, c: new V3(lean + (R() - 0.5) * 1.2, h - 0.6 + k * 0.9, (R() - 0.5) * 1.2), color: ['#728d60', '#68845a', '#7f9a6c'][k] });
+  return { trunk: mergeGeometries(trunk), leaves: shadeCanopy(leafCards(lumps, lod ? { per: 11, size: 0.95, seed: 5 } : { per: 5, size: 1.3, seed: 5 })) };
+}
+
 function bush(R, lod = 1) {
   const leaves = [], lumps = [];
   const n = 2 + Math.floor(R() * 3);
@@ -273,10 +291,11 @@ export function updateVegetation(camPos, fogDensity) {
   }
 }
 
-export function buildVegetation() {
-  const group = new THREE.Group();
-  const R = rng(77);
-
+// The few kinds of tree in the whole country, and their materials, made once and shared: the neem/mango
+// broadleaf, the coconut palm and the eucalyptus (plus bushes). The groves along the railway use them too.
+let KIT = null;
+export function treeKit() {
+  if (KIT) return KIT;
   const trunkMat = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true }), { height: 8, amp: 0.32, flutter: 0 });
   const leafMat = leafMaterial({ height: 8, amp: 0.32, flutter: 0.06, backlight: 0.5 });
   glowMats.push(leafMat);
@@ -284,10 +303,32 @@ export function buildVegetation() {
   const palmTrunkMat = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true }), { height: 9, amp: 0.75, flutter: 0 });
   const palmLeafMat = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, emissive: '#22381a' }), { height: 9, amp: 0.75, flutter: 0.1, backlight: 0.55 });
   glowMats.push(palmLeafMat);
+  const eucTrunkMat = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true }), { height: 14, amp: 0.4, flutter: 0 });
+  const eucLeafMat = leafMaterial({ height: 14, amp: 0.4, flutter: 0.08, backlight: 0.5 });
+  glowMats.push(eucLeafMat); leafMats.push(eucLeafMat);
   const bushMat = leafMaterial({ height: 1.4, amp: 0.1, flutter: 0.04, backlight: 0.4 });
+  const T = [0, 1, 2].map((v) => ({ v, t: broadleaf(rng(770 + v)), tf: broadleaf(rng(770 + v), 0), p: palm(rng(780 + v)), pf: palm(rng(780 + v), 0), b: bush(rng(790 + v)), bf: bush(rng(790 + v), 0), e: eucalyptus(rng(800 + v)), ef: eucalyptus(rng(800 + v), 0) }));
+  KIT = { trunkMat, leafMat, palmTrunkMat, palmLeafMat, eucTrunkMat, eucLeafMat, bushMat, T };
+  return KIT;
+}
+// a forest of one kind of tree from item lists (each item: x, z, s, rot, v = which of the three variants)
+export function plantForest(kind, items, sink = 0.15) {
+  const K = treeKit(), of = (v) => items.filter((it) => it.v === v), out = [];
+  const pick = { broad: ['t', 'tf', K.trunkMat, K.leafMat], palm: ['p', 'pf', K.palmTrunkMat, K.palmLeafMat], euc: ['e', 'ef', K.eucTrunkMat, K.eucLeafMat] }[kind];
+  const [nk, fk, tm, lm] = pick;
+  if (!items.length) return out;
+  out.push(batched(tm, K.T.map((o) => ({ near: o[nk].trunk, far: o[fk].trunk, items: of(o.v), sink }))));
+  const leaves = batched(lm, K.T.map((o) => ({ near: o[nk].leaves, far: o[fk].leaves, items: of(o.v), sink })));
+  if (kind !== 'palm') leafMeshes.push(leaves);
+  out.push(leaves);
+  return out;
+}
 
+export function buildVegetation() {
+  const group = new THREE.Group();
+  const R = rng(77);
+  const { trunkMat, leafMat, palmTrunkMat, palmLeafMat, bushMat, T } = treeKit();
   // the three variants of each kind of tree share one batch per material
-  const T = [0, 1, 2].map((v) => ({ v, t: broadleaf(rng(770 + v)), tf: broadleaf(rng(770 + v), 0), p: palm(rng(780 + v)), pf: palm(rng(780 + v), 0), b: bush(rng(790 + v)), bf: bush(rng(790 + v), 0) }));
   const of = (list, v) => list.filter((it) => it.v === v);
   const lm = batched(leafMat, T.map((o) => ({ near: o.t.leaves, far: o.tf.leaves, items: of(layout.trees, o.v), sink: 0.15 })));
   leafMeshes.push(lm);
