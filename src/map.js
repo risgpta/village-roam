@@ -255,6 +255,20 @@ export class MapUI {
       g.fillStyle = 'rgba(255,255,255,0.85)'; g.beginPath(); g.arc(u, v, 8, 0, 7); g.fill();
       g.font = '11px system-ui, "Apple Color Emoji", sans-serif'; g.fillText(RIDE_ICON[r.name], u, v + 0.5);
     }
+    // the shrine bus, the police patrol: their own badges
+    for (const m of this.live ?? []) {
+      const [u, v] = px(m.x, m.z);
+      if (Math.hypot(u - R, v - R) > R - 8) continue;
+      g.fillStyle = 'rgba(255,240,210,0.95)'; g.beginPath(); g.arc(u, v, 9, 0, 7); g.fill();
+      g.strokeStyle = '#e07a1e'; g.lineWidth = 2; g.stroke();
+      g.font = '11px system-ui, "Apple Color Emoji", sans-serif'; g.fillText(m.icon, u, v + 0.5);
+    }
+    for (const c of this.cards ?? []) {
+      if (!c.got) continue;
+      const [u, v] = px(c.x, c.z);
+      if (Math.hypot(u - R, v - R) > R - 8) continue;
+      g.font = '12px system-ui, "Apple Color Emoji", sans-serif'; g.fillText('📮', u, v);
+    }
     for (const t of this.trains ?? []) {
       if (t.driven) continue; // that's the boy's own train: his arrow is on it
       const [u, v] = px(t.head.x, t.head.z);
@@ -306,6 +320,28 @@ export class MapUI {
       if (!inView(u, v)) continue;
       g.fillStyle = 'rgba(255,255,255,0.9)'; g.beginPath(); g.arc(u, v, 10, 0, 7); g.fill();
       g.font = '13px system-ui, "Apple Color Emoji", sans-serif'; g.fillText(RIDE_ICON[r.name] ?? '•', u, v + 0.5);
+    }
+    // the postcards: found ones as a stamp; the rest as a soft dashed circle round about where they hide
+    for (const c of this.cards ?? []) {
+      if (c.got) { const [u, v] = P(c.x, c.z); if (inView(u, v)) { g.font = '16px system-ui, "Apple Color Emoji", sans-serif'; g.fillText('📮', u, v); } continue; }
+      const [u, v] = P(c.x + c.ox, c.z + c.oz), r = Math.max(10, 95 * k);
+      if (!inView(u, v, r)) continue;
+      g.strokeStyle = 'rgba(255,214,120,0.55)'; g.lineWidth = 1.5; g.setLineDash([4, 4]);
+      g.beginPath(); g.arc(u, v, r, 0, 7); g.stroke(); g.setLineDash([]);
+      g.fillStyle = 'rgba(255,214,120,0.85)'; g.font = '600 11px Inter, sans-serif'; g.fillText('✉ ?', u, v);
+    }
+    // the shrine bus and the police patrol, live, with their names
+    for (const m of this.live ?? []) {
+      const [u, v] = P(m.x, m.z);
+      if (!inView(u, v)) continue;
+      g.fillStyle = 'rgba(255,240,210,0.95)'; g.beginPath(); g.arc(u, v, 11, 0, 7); g.fill();
+      g.strokeStyle = '#e07a1e'; g.lineWidth = 2.5; g.stroke();
+      g.font = '13px system-ui, "Apple Color Emoji", sans-serif'; g.fillText(m.icon, u, v + 0.5);
+      if (m.label) {
+        g.font = '600 11px Inter, sans-serif'; const w = g.measureText(m.label).width + 12;
+        g.fillStyle = 'rgba(20,16,12,0.78)'; g.beginPath(); g.roundRect ? g.roundRect(u + 14, v - 9, w, 18, 6) : g.rect(u + 14, v - 9, w, 18); g.fill();
+        g.fillStyle = '#fff6e0'; g.textAlign = 'left'; g.fillText(m.label, u + 20, v + 0.5); g.textAlign = 'center';
+      }
     }
     // the trains, live
     for (const t of this.trains ?? []) drawTrain(g, t, P, 2.5 * Math.min(2, Math.sqrt(V.zoom)), true);

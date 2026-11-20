@@ -56,48 +56,97 @@ P._wander = function (t, dur, rate, depth, param) {
 };
 
 // ---------- the steam whistle ----------
-// Three chime pipes blown by steam: each is noise ringing a narrow resonance (which gives the breathy,
-// slightly unsteady tone of a real whistle) under a pure core tone. The pitch rises as the valve opens and
-// the pressure builds, sags a little as it closes; the valve itself chiffs and the steam hisses around it.
-// Far off the whistle is duller and softer.
+// A big engine's chime whistle: four pipes of different lengths sounding a deep, slightly mournful chord. Each
+// pipe is a reedy core tone (a fundamental with its overtones, the way an air column rings) under steam noise
+// ringing in the pipe's own narrow resonances, which gives the breathy, never-quite-steady voice of a real
+// whistle. The valve cracks open with a chiff and a wheeze, the pitch swells up as the pressure comes on and
+// flutters with it, and it sags and whimpers away as the valve closes. The sound then rolls back off the hills
+// as an echo; far off it's duller, softer and more of it is echo.
+P._whistleVerb = function () {
+  if (this._wv) return this._wv;
+  const ctx = this.ctx;
+  // a long, soft tail of open country: decaying noise for a convolution reverb
+  const len = Math.floor(ctx.sampleRate * 2.6), ir = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) { const t = i / ctx.sampleRate; d[i] = (Math.random() * 2 - 1) * Math.exp(-t * 2.4) * (t < 0.03 ? t / 0.03 : 1); } }
+  const conv = ctx.createConvolver(); conv.buffer = ir;
+  const verbIn = this._g(1), verbOut = this._g(0.5);
+  verbIn.connect(conv).connect(this._bp(2600, 0.5, 'lowpass')).connect(verbOut).connect(this.master);
+  // and two distinct echoes off the hills, a little duller each time
+  const echoIn = this._g(1);
+  for (const [dt, lvl] of [[0.42, 0.32], [0.81, 0.2]]) {
+    const dl = ctx.createDelay(2); dl.delayTime.value = dt;
+    const fb = this._g(0.28), lp = this._bp(1500, 0.5, 'lowpass'), g = this._g(lvl);
+    echoIn.connect(dl).connect(lp).connect(g).connect(this.master);
+    lp.connect(fb).connect(dl);
+  }
+  this._wv = { verbIn, echoIn };
+  return this._wv;
+};
+P._pipeWave = function () {
+  if (!this._pipeW) {
+    const n = 8, re = new Float32Array(n + 1), im = new Float32Array(n + 1);
+    const amps = [0, 1, 0.42, 0.24, 0.12, 0.07, 0.04, 0.025, 0.015];
+    for (let k = 1; k <= n; k++) im[k] = amps[k];
+    this._pipeW = this.ctx.createPeriodicWave(re, im);
+  }
+  return this._pipeW;
+};
 P.horn = function (v = 1, pattern = null) {
   if (!this.ctx || v <= 0) return;
   const ctx = this.ctx;
   const out = this._g(1);
-  const lp = this._bp(1400 + 7000 * v * v, 0.5, 'lowpass');
-  out.connect(lp).connect(this.master);
+  // near: bright and close; far: the highs gone, more of it coming back off the hills
+  const lp = this._bp(900 + 6500 * v * v, 0.6, 'lowpass');
+  const dry = this._g(0.55 + 0.45 * v);
+  out.connect(lp).connect(dry).connect(this.master);
+  const W = this._whistleVerb();
+  lp.connect(this._g(0.35 + (1 - v) * 0.6)).connect(W.verbIn);
+  lp.connect(this._g(0.25 + (1 - v) * 0.4)).connect(W.echoIn);
   let t = ctx.currentTime + 0.03;
-  const blasts = pattern ?? (Math.random() < 0.5 ? [1.6, 0.55] : [2.2]);
-  const pipes = [[311, 1], [370, 0.8], [466, 0.62]];
+  const blasts = pattern ?? [[2.4], [1.5, 0.6], [0.55, 0.55, 2.0], [2.8]][Math.floor(Math.random() * 4)];
+  // the chord: four pipes, deep and a little minor
+  const pipes = [[233, 1], [277, 0.82], [349, 0.66], [415, 0.42]];
   for (const dur of blasts) {
-    const end = t + dur;
+    const end = t + dur, long = dur > 1;
+    // the pressure: swells as the valve opens, flutters, sags as it closes
+    const press = ctx.createConstantSource(); press.offset.value = 1; press.start(t); press.stop(end + 0.6);
     for (const [f, a] of pipes) {
-      const fr = f * (0.995 + Math.random() * 0.01);
+      const fr = f * (0.996 + Math.random() * 0.008);
       const env = this._g(0);
-      env.gain.setValueAtTime(0, t); env.gain.linearRampToValueAtTime(0.05 * a * v, t + 0.12); env.gain.linearRampToValueAtTime(0.06 * a * v, t + 0.45);
-      env.gain.setValueAtTime(0.058 * a * v, end); env.gain.exponentialRampToValueAtTime(0.0005, end + 0.35);
+      const pk = 0.055 * a * v;
+      env.gain.setValueAtTime(0, t); env.gain.linearRampToValueAtTime(pk * 0.55, t + 0.08); env.gain.linearRampToValueAtTime(pk, t + (long ? 0.55 : 0.25));
+      env.gain.setValueAtTime(pk * 0.97, end); env.gain.linearRampToValueAtTime(pk * 0.6, end + 0.12); env.gain.exponentialRampToValueAtTime(0.0004, end + 0.5);
       env.connect(out);
-      const glide = (param, k = 1) => { param.setValueAtTime(fr * 0.84 * k, t); param.exponentialRampToValueAtTime(fr * 0.97 * k, t + 0.18); param.exponentialRampToValueAtTime(fr * k, t + 0.5); param.setValueAtTime(fr * k, end); param.exponentialRampToValueAtTime(fr * 0.93 * k, end + 0.3); };
-      // the ringing pipe
-      const n = this._noise(t, dur + 0.4), bp = this._bp(fr, 32), ng = this._g(5.5);
+      // the glide: up from well below as the steam comes on, and a droop as it goes off
+      const glide = (param, k = 1) => {
+        param.setValueAtTime(fr * 0.78 * k, t); param.exponentialRampToValueAtTime(fr * 0.95 * k, t + 0.14);
+        param.exponentialRampToValueAtTime(fr * k, t + (long ? 0.6 : 0.3));
+        param.setValueAtTime(fr * k, end); param.exponentialRampToValueAtTime(fr * 0.9 * k, end + 0.45);
+      };
+      // the ringing air column: noise through the pipe's resonances
+      const n = this._noise(t, dur + 0.6), bp = this._bp(fr, 38), ng = this._g(6.5);
       glide(bp.frequency);
       n.connect(bp).connect(ng).connect(env);
-      const bp2 = this._bp(fr * 2, 26), ng2 = this._g(1.2); glide(bp2.frequency, 2);
+      const bp2 = this._bp(fr * 2, 30), ng2 = this._g(1.6); glide(bp2.frequency, 2);
       n.connect(bp2).connect(ng2).connect(env);
-      // the steady core of the tone
-      const o = ctx.createOscillator(); o.type = 'sine'; glide(o.frequency);
-      this._wander(t, dur + 0.4, 6, fr * 0.004, o.frequency);
-      o.connect(this._g(0.55)).connect(env); o.start(t); o.stop(end + 0.4);
+      const bp3 = this._bp(fr * 3, 26), ng3 = this._g(0.6); glide(bp3.frequency, 3);
+      n.connect(bp3).connect(ng3).connect(env);
+      // the reedy core, fluttering with the pressure
+      const o = ctx.createOscillator(); o.setPeriodicWave(this._pipeWave()); glide(o.frequency);
+      const vib = ctx.createOscillator(); vib.frequency.value = 4.8 + Math.random() * 1.2;
+      vib.connect(this._g(fr * 0.0055)).connect(o.frequency); vib.start(t); vib.stop(end + 0.6);
+      this._wander(t, dur + 0.6, 4, fr * 0.006, o.frequency);
+      o.connect(this._g(0.5)).connect(env); o.start(t); o.stop(end + 0.6);
     }
-    // the valve's chiff as it cracks open, and steam roaring out round the bell
-    const ch = this._noise(t, 0.2), chf = this._bp(1100, 0.8), chg = this._g(0);
-    chg.gain.setValueAtTime(0, t); chg.gain.linearRampToValueAtTime(0.09 * v, t + 0.015); chg.gain.exponentialRampToValueAtTime(0.0005, t + 0.18);
+    // the valve's chiff and wheeze as it cracks open, steam roaring round the bell, a sputter as it shuts
+    const ch = this._noise(t, 0.3), chf = this._bp(900, 0.7), chg = this._g(0);
+    chg.gain.setValueAtTime(0, t); chg.gain.linearRampToValueAtTime(0.11 * v, t + 0.02); chg.gain.exponentialRampToValueAtTime(0.0005, t + 0.28);
     ch.connect(chf).connect(chg).connect(out);
-    const hs = this._noise(t, dur + 0.6), hf = this._bp(3200, 0.6, 'highpass'), hg = this._g(0);
-    hg.gain.setValueAtTime(0, t); hg.gain.linearRampToValueAtTime(0.05 * v, t + 0.05); hg.gain.linearRampToValueAtTime(0.018 * v, t + 0.4);
-    hg.gain.setValueAtTime(0.018 * v, end); hg.gain.linearRampToValueAtTime(0.035 * v, end + 0.08); hg.gain.exponentialRampToValueAtTime(0.0005, end + 0.55);
+    const hs = this._noise(t, dur + 0.8), hf = this._bp(2600, 0.5, 'highpass'), hg = this._g(0);
+    hg.gain.setValueAtTime(0, t); hg.gain.linearRampToValueAtTime(0.06 * v, t + 0.06); hg.gain.linearRampToValueAtTime(0.02 * v, t + 0.45);
+    hg.gain.setValueAtTime(0.02 * v, end); hg.gain.linearRampToValueAtTime(0.045 * v, end + 0.1); hg.gain.exponentialRampToValueAtTime(0.0005, end + 0.7);
     hs.connect(hf).connect(hg).connect(out);
-    t = end + 0.42;
+    t = end + 0.38;
   }
 };
 
@@ -387,11 +436,12 @@ P.setSiren = function (kind, on = true) {
   }
   const S = this._sir;
   if (kind && on) {
-    const fire = kind === 'firetruck';
-    S.o.frequency.setTargetAtTime(fire ? 720 : 980, t, 0.05);
-    S.depth.gain.setTargetAtTime(fire ? 330 : 380, t, 0.05);
-    S.lfo.frequency.setTargetAtTime(fire ? 0.2 : 0.42, t, 0.05);
-    S.bp.frequency.setTargetAtTime(fire ? 850 : 1150, t, 0.05);
+    const fire = kind === 'firetruck', pol = kind === 'police';
+    // the fire tender: a slow, deep wail; the ambulance: a quicker, higher one; the police: a fast yelp
+    S.o.frequency.setTargetAtTime(fire ? 720 : pol ? 880 : 980, t, 0.05);
+    S.depth.gain.setTargetAtTime(fire ? 330 : pol ? 290 : 380, t, 0.05);
+    S.lfo.frequency.setTargetAtTime(fire ? 0.2 : pol ? 2.6 : 0.42, t, 0.05);
+    S.bp.frequency.setTargetAtTime(fire ? 850 : pol ? 1000 : 1150, t, 0.05);
     S.g.gain.setTargetAtTime(fire ? 0.06 : 0.05, t, 0.15);
   } else S.g.gain.setTargetAtTime(0, t, 0.2);
 };

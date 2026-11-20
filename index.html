@@ -4,6 +4,22 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Gaon — a village walk</title>
+    <meta name="description" content="A peaceful Indian village you can explore in your browser: ride the trains, drive the village bus, play gully cricket with the kids, find hidden postcards. No download, no sign-up." />
+    <meta name="theme-color" content="#1d1a16" />
+    <link rel="canonical" href="https://risgpta.github.io/village-roam/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Gaon" />
+    <meta property="og:title" content="Gaon — a peaceful Indian village in your browser" />
+    <meta property="og:description" content="Wander a living Indian village: steam trains, canal country, gully cricket, chai at the stall, hidden postcards to find. Free, no download." />
+    <meta property="og:url" content="https://risgpta.github.io/village-roam/" />
+    <meta property="og:image" content="https://risgpta.github.io/village-roam/og.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A steam train crossing fields beside a village at golden hour" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Gaon — a peaceful Indian village in your browser" />
+    <meta name="twitter:description" content="Steam trains, canal country, gully cricket, chai, hidden postcards. Free, no download." />
+    <meta name="twitter:image" content="https://risgpta.github.io/village-roam/og.jpg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;1,500&family=Tiro+Devanagari+Hindi&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
@@ -133,6 +149,46 @@
       body.started:not(.locked) #lockhint { opacity: 0.85; }
       @media (max-width: 600px) { .hi { font-size: 48px; } h1 { font-size: 34px; } .hint { display: none; } }
       /* ---- cleaner HUD ---- */
+      /* the weather switches, the postcard counter */
+      #wxbar { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 2px; padding: 4px; border-radius: 999px; background: rgba(18, 14, 10, 0.45); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.12); pointer-events: auto; }
+      #wxbar button { width: 32px; height: 30px; border: 0; border-radius: 999px; background: transparent; font-size: 16px; cursor: pointer; opacity: 0.6; transition: opacity .2s, background .2s; }
+      #wxbar button:hover { opacity: 1; background: rgba(255,255,255,0.1); }
+      #wxbar button.on { opacity: 1; background: rgba(242,181,68,0.32); }
+      #pc-count { position: absolute; top: 64px; left: 16px; padding: 6px 11px; border-radius: 999px; font-size: 12px; pointer-events: auto; cursor: pointer; }
+      #pc-count kbd { background: rgba(255,255,255,0.9); color: #1d1a16; border: 0; border-radius: 5px; padding: 0 5px; font-size: 10px; font-weight: 700; margin-left: 4px; }
+      #sharebtn { position: absolute; top: 64px; left: 168px; padding: 6px 11px; border-radius: 999px; font: 12px Inter, sans-serif; color: var(--ink); cursor: pointer; pointer-events: auto; }
+      #sharebtn kbd { background: rgba(255,255,255,0.9); color: #1d1a16; border: 0; border-radius: 5px; padding: 0 5px; font-size: 10px; font-weight: 700; margin-left: 4px; }
+      /* the postcard album */
+      #album { position: absolute; inset: 0; display: none; place-items: center; background: rgba(10, 8, 6, 0.55); pointer-events: auto; z-index: 6; }
+      #album.show { display: grid; }
+      .al-card { width: min(980px, 94vw); max-height: 88vh; overflow: auto; border-radius: 18px; padding: 18px 20px 22px; background: #f6ecd8; color: #2a1d0c; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+      .al-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 12px; }
+      .al-title { font: 500 28px 'Cormorant Garamond', serif; }
+      .al-title b { font-family: 'Tiro Devanagari Hindi', serif; color: #a8352a; font-weight: 400; margin-right: 8px; }
+      #pc-sub { font-size: 12.5px; color: #6a5a44; flex: 1; }
+      #al-close { border: 0; background: #2a1d0c; color: #f6ecd8; border-radius: 999px; width: 30px; height: 30px; cursor: pointer; }
+      #pc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+      .pc-card { background: #fffaf0; border-radius: 8px; padding: 7px 7px 9px; box-shadow: 0 2px 8px rgba(60,40,10,0.15); border: 1px dashed rgba(168,53,42,0.35); }
+      .pc-card.got { border: 1px solid rgba(168,53,42,0.5); transform: rotate(-0.6deg); }
+      .pc-card:nth-child(2n).got { transform: rotate(0.7deg); }
+      .pc-img { height: 96px; border-radius: 4px; background: #d8ccb4 center/cover; display: grid; place-items: center; font: 600 36px 'Cormorant Garamond', serif; color: rgba(42,29,12,0.35); }
+      .pc-t { font: 600 13px Inter, sans-serif; margin-top: 7px; }
+      .pc-hi { font: 15px 'Tiro Devanagari Hindi', serif; color: #a8352a; }
+      .pc-hint { font-size: 11.5px; color: #6a5a44; margin-top: 3px; line-height: 1.35; }
+      /* gully cricket */
+      #cricket { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); display: none; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
+      #cricket.show { display: flex; }
+      #ck-score { padding: 8px 16px; border-radius: 14px; font-size: 14px; }
+      #ck-score b { font-size: 18px; color: var(--accent); }
+      #ck-score span { font-size: 11px; color: var(--muted); margin-left: 6px; }
+      #ck-msg { font: 600 22px 'Cormorant Garamond', serif; text-shadow: 0 2px 10px rgba(0,0,0,0.7); opacity: 0; }
+      #ck-msg.pop { animation: ckpop 2.6s ease forwards; }
+      @keyframes ckpop { 0% { opacity: 0; transform: scale(0.8); } 10% { opacity: 1; transform: scale(1.08); } 20% { transform: scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
+      #ck-meter { width: 220px; height: 12px; border-radius: 99px; background: linear-gradient(90deg, #c4241c, #f2b544 30%, #3fae4a 47%, #3fae4a 53%, #f2b544 70%, #c4241c); position: relative; opacity: 0; transition: opacity .2s; }
+      #ck-meter.show { opacity: 1; }
+      #ck-mark { position: absolute; top: -4px; width: 4px; height: 20px; margin-left: -2px; border-radius: 2px; background: #fff; box-shadow: 0 0 6px #000; }
+      #ck-hint { font-size: 11.5px; color: var(--ink); padding: 5px 12px; border-radius: 999px; }
+      #ck-hint kbd { background: rgba(255,255,255,0.9); color: #1d1a16; border: 0; border-radius: 5px; padding: 0 5px; font-size: 10px; font-weight: 700; }
       .glass { background: rgba(18, 14, 10, 0.5); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.12); }
       #place { position: absolute; top: 16px; left: 16px; display: flex; flex-direction: column; gap: 2px; padding: 9px 14px 10px; border-radius: 14px; max-width: 46vw; }
       #place .pl-name { font: 500 14px Inter, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -212,6 +268,11 @@
       <div id="caption"></div>
       <div id="place" class="glass"><span class="pl-name" id="pl-name">Gaon</span><span class="pl-meta" id="pl-meta"></span></div>
       <div id="lockhint">Click to look around</div>
+      <div id="wxbar" title="Weather (J)"></div>
+      <div id="pc-count" class="glass" title="Postcards found (O)"></div>
+      <button id="sharebtn" class="glass" title="Copy a link to this spot (K)">🔗 Share this spot<kbd>K</kbd></button>
+      <div id="cricket"><div id="ck-score" class="glass"></div><div id="ck-meter"><div id="ck-mark"></div></div><div id="ck-msg"></div><div id="ck-hint" class="glass"></div></div>
+      <div id="album"><div class="al-card"><div class="al-head"><span class="al-title"><b>डाक</b>Postcards</span><span id="pc-sub"></span><button id="al-close" title="Close (O)">✕</button></div><div id="pc-grid"></div></div></div>
       <div id="prompt"></div>
       <div id="speedlines"></div>
       <div id="minimap">
@@ -262,7 +323,9 @@
 <h3>Doing things</h3>
 <div class="row"><span><kbd>E</kbd></span><span>ride whatever is beside you, or do the small thing at hand (it says what on screen)</span></div>
 <div class="row"><span><kbd>Q</kbd></span><span>sit down a while; <kbd>W</kbd> to get up</span></div>
-<div class="row"><span><kbd>P</kbd></span><span>save a postcard of the view</span></div>
+<div class="row"><span><kbd>P</kbd></span><span>save a picture of the view</span></div>
+<div class="row"><span><kbd>O</kbd></span><span>your postcard album: 18 glowing postcards are hidden at the best spots in the country — walk or ride up to one to collect it</span></div>
+<div class="row"><span><kbd>K</kbd></span><span>copy a link to this exact spot (the view, the hour, the weather) to share</span></div>
 <h3>Looking</h3>
 <div class="row"><span><kbd>C</kbd></span><span>camera: follow · close-up · wide · cinematic · bird's-eye</span></div>
 <div class="row"><span><kbd>Tab</kbd></span><span>the full map, with every place marked</span></div>
@@ -336,7 +399,10 @@
             </div>
             <div class="hp-pane" data-pane="todo">
 <h3>Small things to do</h3>
-<div class="row"><span>chai stall</span><span>a cup of chai (<kbd>E</kbd>), and sit with it</span></div>
+<div class="row"><span>chai stall</span><span>a cup of chai (<kbd>E</kbd>) on the bench with the regulars; <kbd>W</kbd> to get up</span></div>
+<div class="row"><span>gully cricket</span><span>at the cricket ground, <kbd>E</kbd> to join the kids: bat first (<kbd>Space</kbd> to swing as the ball pitches, <kbd>A</kbd> <kbd>D</kbd> to place it), then bowl and defend your score; <kbd>X</kbd> swaps, <kbd>E</kbd> stops</span></div>
+<div class="row"><span>postcards</span><span>find all 18 (<kbd>O</kbd> for the album and the hints)</span></div>
+<div class="row"><span>the police</span><span>three thanas — by Gaon, Noorpur and Naharpur — each with a police jeep you can drive (<kbd>B</kbd> for siren and lights)</span></div>
 <div class="row"><span>the temple</span><span>ring the bell (<kbd>E</kbd>)</span></div>
 <div class="row"><span>the brown dog</span><span>pat it (<kbd>E</kbd>) — it follows you about</span></div>
 <div class="row"><span>the river bank</span><span>scatter puffed rice for the fish, then <kbd>E</kbd> again to sit and fish; at dusk, float a diya (<kbd>E</kbd>)</span></div>
@@ -349,6 +415,9 @@
 <h3>Things to watch</h3>
 <div class="row"><span>the kites</span><span>the kite fights on the meadow</span></div>
 <div class="row"><span>the cricket</span><span>the match by the school</span></div>
+<div class="row"><span>the goods trains</span><span>three maal gaadis — coal and stone wagons, grain vans, a tank wagon — dropping and picking up loads; porters carry the sacks</span></div>
+<div class="row"><span>village life</span><span>farmers in the fields round every village, dhobis beating clothes at the ghats, postmen cycling their rounds, the police on patrol</span></div>
+<div class="row"><span>the far north line</span><span>the Uttar Rani runs from Dhaniyapur (a bay beside the outer line's station) to Kheri Kalan; a new road and bus run alongside, over a new river bridge</span></div>
 <div class="row"><span>the herds</span><span>shepherds bringing the flocks out to graze and home at dusk</span></div>
 <div class="row"><span>the trains</span><span>from the lineside, or ride one at a window seat — groves, hamlets, peacocks, dogs racing the train, elephants</span></div>
 <div class="row"><span>the canal country</span><span>Naharpur and Kheri Kalan, out east: fields of wheat, mustard, sugarcane and sunflowers, cyclists along the canal bank, a little shrine by the canal (ring its bell, <kbd>E</kbd>)</span></div>
@@ -357,7 +426,7 @@
             <div class="hp-pane" data-pane="world">
 <h3>Time, weather and seasons</h3>
 <div class="row"><span><kbd>T</kbd></span><span>next time of day: early morning · noon · golden afternoon · dusk · full-moon night · moonless night</span></div>
-<div class="row"><span><kbd>J</kbd></span><span>next weather: clear · windy · morning mist · overcast · drizzle · monsoon rain · thunderstorm</span></div>
+<div class="row"><span><kbd>J</kbd> or the bar at the top</span><span>weather: clear · windy · morning mist · overcast · drizzle · monsoon rain · monsoon storm · dry thunderstorm</span></div>
 <div class="row"><span><kbd>Y</kbd></span><span>next season: spring · summer · monsoon · autumn · winter</span></div>
 <div class="row"><span>menus</span><span>the same three, and the sound theme, are in the bottom-right corner</span></div>
 <p class="tip">Nothing changes by itself: the hour, the weather and the season stay as you set them.</p>

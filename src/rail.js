@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { cullBeyond } from './perf.js';
 import { streetLight } from './lights.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { TRACK, TRACK3, TRACK5, TRACK6, OUTER_LOOP, TRACKS, RING, TRACK_Y, riverX, RIVER_HALF, WATER_Y, CROSSING, CROSSING3, heightAt, colliders, roadX, BORE_HALF, ROAD_X } from './world.js';
+import { TRACK, TRACK3, TRACK5, TRACK6, TRACK7, OUTER_LOOP, TRACKS, RING, TRACK_Y, riverX, RIVER_HALF, WATER_Y, CROSSING, CROSSING3, heightAt, colliders, roadX, BORE_HALF, ROAD_X } from './world.js';
 import { toTexture } from './textures.js';
 import { lathe, boulder } from './shapes.js';
 import { Puffs } from './particles.js';
@@ -183,6 +183,106 @@ function buildCoach(mats) {
   return { g, L, wheels };
 }
 
+// ---------------- goods wagons ----------------
+// Indian Railways freight stock: open BOXN wagons (tall ribbed steel sides, a heap of coal or stone showing over
+// the top when loaded), covered BCN vans (sacks of grain inside, sliding doors that open at the goods platform)
+// and a black BTPN tank wagon. Every wagon rides on two bogies like the coaches.
+const WAGON_TEX = new Map();
+function wagonTex(kind) {
+  if (WAGON_TEX.has(kind)) return WAGON_TEX.get(kind);
+  const c = document.createElement('canvas'); c.width = 512; c.height = 128;
+  const g = c.getContext('2d');
+  const base = kind === 'covered' ? '#7a3a26' : '#5e3122';
+  g.fillStyle = base; g.fillRect(0, 0, 512, 128);
+  // the ribs: pressed vertical stiffeners every so often, with their shadows
+  for (let x = 14; x < 512; x += 34) { g.fillStyle = 'rgba(255,255,255,0.07)'; g.fillRect(x, 4, 6, 120); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(x + 6, 4, 3, 120); }
+  g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(0, 0, 512, 5); g.fillRect(0, 122, 512, 6);
+  // rust streaks, and the white stencilling
+  for (let i = 0; i < 40; i++) { g.fillStyle = `rgba(${120 + Math.random() * 40},${50 + Math.random() * 20},20,${0.1 + Math.random() * 0.15})`; g.fillRect(Math.random() * 512, Math.random() * 60, 2 + Math.random() * 3, 30 + Math.random() * 60); }
+  g.fillStyle = '#efe9da'; g.font = 'bold 18px Arial'; g.textAlign = 'left';
+  const code = { coal: 'BOXN', stone: 'BOXN', covered: 'BCN', tank: 'BTPN' }[kind] ?? 'BOXN';
+  g.fillText(`NR  ${code}  ${20000 + Math.floor(Math.random() * 79999)}`, 40, 40);
+  g.font = '13px Arial'; g.fillText('LD 56.3 T   TW 22.5 T   CC 81.0 T', 40, 62);
+  if (kind === 'covered') { g.font = 'bold 16px Arial'; g.fillText('भारतीय रेल', 360, 40); }
+  const t = toTexture(c);
+  WAGON_TEX.set(kind, t);
+  return t;
+}
+function bogies(g, mats, L, wheels, add) {
+  for (const sz of [-1, 1]) {
+    const bogie = new THREE.Group();
+    bogie.position.set(0, 0, sz * (L / 2 - 1.9));
+    g.add(bogie);
+    add(new THREE.BoxGeometry(2.0, 0.18, 0.34), mats.under, 0, 1.28, 0, bogie);
+    for (const sx of [-1, 1]) {
+      add(new THREE.BoxGeometry(0.08, 0.22, 2.6), mats.under, sx * 1.02, 0.93, 0, bogie);
+      for (const wz of [-0.9, 0.9]) add(new THREE.BoxGeometry(0.16, 0.26, 0.3), mats.under, sx * 1.04, 0.88, wz, bogie);
+    }
+    for (const wz of [-0.9, 0.9]) {
+      const axle = new THREE.Group(); axle.position.set(0, 0.88, wz); bogie.add(axle);
+      add(new THREE.CylinderGeometry(0.07, 0.07, 1.8, 8).rotateZ(Math.PI / 2), mats.under, 0, 0, 0, axle);
+      for (const wx of [-GAUGE, GAUGE]) add(wheelGeo(0.46, 8), [mats.tyre, mats.wheel], wx, 0, 0, axle);
+      wheels.push({ o: axle, r: 0.46 });
+    }
+  }
+}
+function buildWagon(mats, kind) {
+  const g = new THREE.Group();
+  const L = 10.2, wheels = [], base = 1.5;
+  const add = (geo, m, x, y, z, parent = g) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; parent.add(o); return o; };
+  // underframe, buffers and couplers at each end
+  add(new THREE.BoxGeometry(2.7, 0.3, L), mats.under, 0, base - 0.05, 0);
+  for (const sz of [-1, 1]) for (const sx of [-1, 1]) {
+    add(new THREE.CylinderGeometry(0.09, 0.09, 0.42, 8).rotateX(Math.PI / 2), mats.under, sx * 0.85, base - 0.05, sz * (L / 2 + 0.18));
+    add(new THREE.CylinderGeometry(0.2, 0.2, 0.05, 14).rotateX(Math.PI / 2), mats.wheel, sx * 0.85, base - 0.05, sz * (L / 2 + 0.4));
+  }
+  bogies(g, mats, L, wheels, add);
+  const side = new THREE.MeshStandardMaterial({ map: wagonTex(kind), roughness: 0.8, metalness: 0.2 });
+  const plain = std(kind === 'covered' ? '#6a3220' : '#4e291c', { roughness: 0.8, metalness: 0.2 });
+  const out = { g, L, wheels, wagon: kind };
+  if (kind === 'coal' || kind === 'stone') {
+    // a tall open box: four ribbed sides round a floor
+    const H = 2.0;
+    for (const sx of [-1, 1]) { const w = add(new THREE.PlaneGeometry(L - 0.1, H), side, sx * 1.5, base + 0.1 + H / 2, 0); w.rotation.y = sx * Math.PI / 2; w.material = side; add(new THREE.BoxGeometry(0.06, H, L - 0.1), plain, sx * 1.47, base + 0.1 + H / 2, 0); }
+    for (const sz of [-1, 1]) add(new THREE.BoxGeometry(3.0, H, 0.08), plain, 0, base + 0.1 + H / 2, sz * (L / 2 - 0.05));
+    add(new THREE.BoxGeometry(2.9, 0.08, L - 0.2), plain, 0, base + 0.15, 0);
+    for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.1, 0.08, L), std('#3a2016'), sx * 1.52, base + 0.1 + H, 0); // the top rail
+    // the load: a long heap of coal (or grey stone ballast) that sinks into the box as it's emptied
+    const heap = new THREE.Mesh(boulder(1, kind === 'coal' ? 11 : 23, { moss: 0, base: kind === 'coal' ? '#1d1b19' : '#8d8a84', detail: 3 }), kind === 'coal' ? mats.coal : (mats.stone ??= std('#9a968e', { roughness: 0.95, vertexColors: true })));
+    heap.scale.set(1.4, 0.75, L / 2 - 0.4);
+    heap.userData.keep = true; heap.castShadow = true;
+    g.add(heap);
+    out.cargo = heap; out.cargoY = (lv) => base + 0.15 + lv * (H - 0.35);
+  } else if (kind === 'covered') {
+    // a closed van: ribbed sides, an arched roof, a big sliding door in the middle of each side
+    const H = 2.45;
+    add(new THREE.BoxGeometry(2.94, H, L - 0.1), plain, 0, base + 0.1 + H / 2, 0);
+    for (const sx of [-1, 1]) { const w = add(new THREE.PlaneGeometry(L - 0.1, H), side, sx * 1.48, base + 0.1 + H / 2, 0); w.rotation.y = sx * Math.PI / 2; }
+    add(new THREE.CylinderGeometry(1.55, 1.55, L, 20, 1, false, -Math.PI / 2, Math.PI).rotateX(-Math.PI / 2).scale(0.96, 0.22, 1), std('#5a5550', { roughness: 0.8 }), 0, base + 0.1 + H, 0);
+    // the dark opening behind each door, with sacks of grain stacked inside
+    const sackM = std('#e6dcc4', { roughness: 0.95 });
+    out.doors = [];
+    for (const sx of [-1, 1]) {
+      const hole = add(new THREE.PlaneGeometry(1.9, 2.0), std('#15110d', { roughness: 1 }), sx * 1.495, base + 1.15, 0); hole.rotation.y = sx * Math.PI / 2; hole.userData.keep = true;
+      for (let i = 0; i < 6; i++) { const sk = add(new THREE.SphereGeometry(1, 10, 6).scale(0.38, 0.2, 0.28), sackM, sx * 1.15, base + 0.35 + (i % 3) * 0.36, -0.5 + Math.floor(i / 3) * 1.0); sk.userData.keep = true; }
+      const door = add(new THREE.BoxGeometry(0.08, 2.15, 2.1), side, sx * 1.53, base + 1.15, 0); door.userData.keep = true;
+      add(new THREE.BoxGeometry(0.06, 0.08, 4.4), std('#2a2a2a', { metalness: 0.5 }), sx * 1.56, base + 2.27, 0); // the door's rail
+      out.doors.push(door);
+    }
+  } else {
+    // the tank wagon: a black barrel on a frame, a dome and a little walkway with a ladder
+    const black = std('#1c1c1e', { roughness: 0.45, metalness: 0.35 });
+    add(new THREE.CylinderGeometry(1.32, 1.32, L - 1.4, 24).rotateX(Math.PI / 2), black, 0, base + 1.5, 0);
+    for (const sz of [-1, 1]) add(new THREE.SphereGeometry(1.32, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(sz * Math.PI / 2).scale(1, 1, 0.35), black, 0, base + 1.5, sz * (L / 2 - 0.7));
+    add(new THREE.CylinderGeometry(0.45, 0.5, 0.45, 16), black, 0, base + 2.95, 0);
+    add(new THREE.BoxGeometry(2.6, 0.06, 1.2), std('#555', { metalness: 0.5 }), 0, base + 2.85, 0);
+    for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.06, 1.4, 0.4), std('#555', { metalness: 0.5 }), sx * 1.3, base + 2.1, 0.5);
+    const band = std('#d8c23a', { roughness: 0.6 });
+    add(new THREE.CylinderGeometry(1.34, 1.34, 0.25, 24).rotateX(Math.PI / 2), band, 0, base + 1.5, -2.2);
+  }
+  return out;
+}
+
 function buildTender(mats) {
   const g = new THREE.Group();
   const L = 7.2;
@@ -357,7 +457,19 @@ export function buildRailway(scene) {
   const H = new Train(scene, TRACK5, { service: OUTER_LOOP, livery: { base: '#9a7414', line: '#2a2010', dark: '#6a4f0c', door: '#7a5c10' }, end: '#9a7414', coaches: 4, startS: LL / 2, boiler: '#201c14', name: 'Sarson Gaadi — the mustard train' });
   // the Naharpur shuttle: to and fro on the branch, between the bay at Nahar Road and the canal country
   const I = new Train(scene, TRACK6, { livery: { base: '#1f6a6a', line: '#f4e6b8', dark: '#134646', door: '#185656' }, end: '#1f6a6a', coaches: 3, first: 18, boiler: '#1a2222', name: 'Nahar Shuttle — the canal branch' });
-  return new Railway([A, B, C, D, E, F, G, H, I]);
+  // the far north line's train, to and fro between Dhaniyapur and Kheri Kalan
+  const J = new Train(scene, TRACK7, { livery: { base: '#5a3a7a', line: '#f2e2c0', dark: '#3c2652', door: '#4a2f66' }, end: '#5a3a7a', coaches: 4, first: 30, boiler: '#1e1a24', name: 'Uttar Rani — Dhaniyapur–Kheri Kalan' });
+  // a long passenger train round the ring: six coaches
+  const RL = RING.path.L;
+  const K = new Train(scene, RING, { livery: { base: '#8a1c22', line: '#f4dca0', dark: '#5e1216', door: '#6e161b' }, end: '#8a1c22', coaches: 6, startS: s0 + RL / 6, boiler: '#18191b', name: 'Gaon Express — six coaches round the ring' });
+  // goods trains: two round the ring, one on the outer loop — open wagons of coal and stone, covered vans of
+  // grain, a tank wagon — dropping loads at some stations and picking them up at others
+  const goodsLook = { livery: { base: '#4e2a1c', line: '#d8c8a0', dark: '#2e180f', door: '#3c2015' }, end: '#3a2016', boiler: '#141416' };
+  const G1 = new Train(scene, RING, { ...goodsLook, wagons: ['coal', 'covered', 'stone', 'tank', 'covered'], startS: s0 + RL / 2, name: 'Maal Gaadi — goods train (coal and grain)' });
+  const G2 = new Train(scene, RING, { ...goodsLook, wagons: ['covered', 'stone', 'covered', 'coal'], startS: s0 + (RL * 5) / 6, name: 'Maal Gaadi — goods train (stone and grain)' });
+  const G3 = new Train(scene, TRACK5, { ...goodsLook, service: OUTER_LOOP, wagons: ['covered', 'coal', 'tank', 'covered', 'stone'], startS: LL / 4, name: 'Maal Gaadi — goods train on the outer line' });
+  for (const g of [G1, G2, G3]) g.color = '#6b4a2a';
+  return new Railway([A, B, C, D, E, F, G, H, I, J, K, G1, G2, G3]);
 }
 
 // a level crossing: a plank-and-concrete deck across the line, striped barrier booms on both sides of the
@@ -846,7 +958,10 @@ class Train {
     this.loco = buildLoco(this.mats);
     this.cars.push(this.loco);
     this.cars.push(buildTender(this.mats));
-    for (let i = 0; i < (o.coaches ?? 7); i++) { const c = buildCoach(this.mats); c.coach = true; this.cars.push(c); }
+    this.goods = !!o.wagons;
+    if (o.wagons) for (const k of o.wagons) { const w = buildWagon(this.mats, k); if (w.cargo) w.level = Math.random() < 0.5 ? 1 : 0.12; this.cars.push(w); }
+    else for (let i = 0; i < (o.coaches ?? 7); i++) { const c = buildCoach(this.mats); c.coach = true; this.cars.push(c); }
+    this.stops = 0;
     // trains on the station lines have an engine at each end, so at the last station they simply reverse
     this.termini = !!track.termini;
     this.locos = [this.loco];
@@ -939,6 +1054,36 @@ class Train {
     }
     return best ? { h: best, d: bd } : null;
   }
+  // a goods train at a platform: at some stations it drops its loads (the full wagons are emptied onto the goods
+  // platform), at others it picks loads up (the empty ones are filled) — the stations take turns, so the wagons
+  // come and go full and empty. The porters on the platform (see goods.js) carry sacks to and from the vans.
+  goodsArrive(h) {
+    this.stops++;
+    const drop = ((h.name.length + this.stops) % 2) === 0;
+    this.goodsJob = { h, drop, t: 0, T: 60, cars: this.cars.filter((c) => c.cargo && (drop ? c.level > 0.5 : c.level < 0.5)).map((c) => ({ c, from: c.level })) };
+  }
+  updateGoods(dt) {
+    const J = this.goodsJob, dwelling = this.mode === 'dwell' && this.at;
+    if (J) {
+      if (!dwelling || this.at !== J.h) { for (const e of J.cars) e.c.level = J.drop ? 0.12 : 1; this.goodsJob = null; }
+      else {
+        J.t += dt;
+        const k = THREE.MathUtils.smoothstep(J.t, 6, J.T - 8);
+        for (const e of J.cars) e.c.level = J.drop ? e.from + (0.12 - e.from) * k : e.from + (1 - e.from) * k;
+      }
+    }
+    const open = dwelling && this.goodsJob && this.goodsJob.t > 2 && this.goodsJob.t < this.goodsJob.T - 5 ? 1 : 0;
+    for (const c of this.cars) {
+      if (c.cargo) { c.cargo.position.y = c.cargoY(c.level ?? 1); c.cargo.scale.y = 0.35 + 0.45 * (c.level ?? 1); }
+      if (c.doors) { c.doorK = (c.doorK ?? 0) + (open - (c.doorK ?? 0)) * Math.min(1, dt * 1.5); for (const d of c.doors) d.position.z = c.doorK * 2.1; }
+    }
+  }
+  // the world positions of the open doors on one side (the vans' sliding doors, the open wagons' middles)
+  goodsDoors(side) {
+    const out = [];
+    for (const c of this.cars) if (c.wagon && c.wagon !== 'tank' && c.g.visible) out.push(c.g.localToWorld(new THREE.Vector3(side * 1.75, 0, 0)));
+    return out;
+  }
   // the boy takes over (only while it's standing at a station) and hands back
   takeControl() { this.mode = 'driven'; this.drive.throttle = 0; this.drive.brake = 0; }
   release() {
@@ -981,7 +1126,8 @@ class Train {
       this.head += this.v * dt;
       if (nh && nh.d < 0.6 && nsp < 1.2) {
         this.v = 0; this.head = this.stopFor(nh.h); this.at = nh.h;
-        this.mode = 'dwell'; this.timer = nh.h.noStation ? 12 : 45; // 45 s at every platform: time to get on, or take over the cab
+        this.mode = 'dwell'; this.timer = nh.h.noStation ? 12 : this.goods ? 60 : 45; // 45 s at every platform: time to get on, or take over the cab
+        if (this.goods) this.goodsArrive(nh.h);
         if (this.onStation) this.onStation('arrive', this, nh.h);
       }
     } else if (this.mode === 'driven') {
@@ -1015,7 +1161,8 @@ class Train {
       this.v = this.v < target ? Math.min(target, this.v + ACCEL * dt) : Math.max(target, this.v - BRAKE * 1.6 * dt);
       const step = this.v * dt;
       if (nh && nh.d - step < 0.6 && this.v < 1.2) {
-        this.head += nh.d; this.v = 0; this.at = nh.h; this.mode = 'dwell'; this.timer = 45;
+        this.head += nh.d; this.v = 0; this.at = nh.h; this.mode = 'dwell'; this.timer = this.goods ? 60 : 45;
+        if (this.goods) this.goodsArrive(nh.h);
         if (this.onStation) this.onStation('arrive', this, nh.h);
       } else this.head += step;
     } else if (this.mode === 'driven') {
@@ -1170,6 +1317,7 @@ class Train {
       }
     }
     }
+    if (this.goods) this.updateGoods(dt);
     this.smoke.update(dt);
     this.headInfo = { dir: this.dir, head: this.head };
   }

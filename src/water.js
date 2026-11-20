@@ -258,18 +258,28 @@ export function buildWaterfall() {
   // has eaten the rock away. Behind and below the falls the rock is dark and wet, with moss where the spray
   // never stops; further out it is dry, pale sandstone.
   {
-    const yb = yP - 3, yt = W.lipY + 0.5, NV = 84, NY = 72;
+    // the escarpment runs well out to either side of the falls: each column of the face goes from the ground
+    // in front of it up to the shelf's rim behind it, wherever those are
+    const VW = 84, NV = 168, NY = 96;
+    const colB = [], colT = [];
+    for (let i = 0; i <= NV; i++) {
+      const v = -VW + (2 * VW * i) / NV, av = Math.abs(v);
+      colB.push(av < 30 ? yP - 3 : Math.min(yP - 3 + (av - 30) * 0.4, heightAt(wx(4), W.z + v) - 2.5));
+      colT.push(av < 9 ? W.lipY + 0.5 : Math.max(colB[i] + 2, heightAt(wx(-7), W.z + v) + 0.4));
+    }
     const pos = [], col = [], idx = [];
     const c = new THREE.Color(), dry = new THREE.Color('#9a8b74'), dry2 = new THREE.Color('#7d6f5d'), wet = new THREE.Color('#4a453e'), moss = new THREE.Color('#4a5a2c'), stain = new THREE.Color('#5d5448');
     const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
     for (let j = 0; j <= NY; j++) for (let i = 0; i <= NV; i++) {
-      const v = -36 + (72 * i) / NV, av = Math.abs(v);
+      const v = -VW + (2 * VW * i) / NV, av = Math.abs(v);
+      const yb = colB[i], yt = colT[i];
       const notch = 1 - sm(4.5, 8.5, av); // the stretch the water falls down
       let y = yb + ((yt - yb) * j) / NY;
       if (j === NY) y = yt - notch * 1.7; // in the notch the rim sits under the water at the brink
       const hn = (y - yb) / (yt - yb);
-      // the face, just in front of the terrain's own slope, curving forward at the ends to wrap round the pool
-      let u = -1.0 - 3.4 * hn + 0.9 + 4.5 * Math.pow(av / 36, 2.2);
+      // the face, just in front of the terrain's own slope, curving forward round the pool, then running on
+      // straight along the escarpment
+      let u = -1.0 - 3.4 * hn + 0.9 + 4.5 * Math.pow(Math.min(av, 36) / 36, 2.2) - 4.0 * sm(36, 58, av);
       // strata: beds of rock a couple of metres thick, each with a jutting ledge at its top, wavering a little
       const bed = (y + noise2(v * 0.08, 3.1) * 0.9) / 2.3, f = bed - Math.floor(bed);
       const ledge = sm(0.72, 0.9, f) * (1 - sm(0.93, 1.0, f));
@@ -280,7 +290,7 @@ export function buildWaterfall() {
       pos.push(wx(u), y, W.z + v);
       // colour: dry rock out at the sides, bedding bands, dark wet rock and moss around the falls and low down
       c.copy(dry).lerp(dry2, sm(0.3, 0.7, rough) * 0.7 + (f < 0.5 ? 0.15 : 0));
-      const wetK = Math.max(1 - sm(6, 16, av), (1 - sm(0, 0.35, hn)) * (1 - sm(14, 30, av)));
+      const wetK = Math.max(1 - sm(7, 20, av), (1 - sm(0, 0.35, hn)) * (1 - sm(16, 34, av)));
       c.lerp(wet, wetK * 0.85);
       c.lerp(moss, wetK * (1 - sm(0.05, 0.5, hn)) * sm(0.45, 0.7, rough) * 0.8);
       c.lerp(stain, ledge * 0.3 + (1 - crack) * 0.3);
@@ -304,7 +314,7 @@ export function buildWaterfall() {
     const a = (i / 26) * Math.PI * 2;
     if (Math.abs(Math.atan2(Math.sin(a), Math.cos(a))) < 0.5) continue; // the outlet, downstream (+u)
     const r = 0.5 + ((i * 7) % 5) * 0.22, u = 5 + Math.cos(a) * 8.6, v = Math.sin(a) * 8.6;
-    rock(u, v, heightAt(wx(u), W.z + v) + r * 0.2, r, 1, i % 3 === 0, 1);
+    rock(u, v, Math.min(heightAt(wx(u), W.z + v), yP + 0.9) + r * 0.2, r, 1, i % 3 === 0, 1);
   }
   for (let u = 14; u < W.Lr - 4; u += 7) for (const sd of [-1, 1]) {
     const v = fallsMeander(u) + sd * (3.4 + Math.sin(u) * 0.6), r = 0.5 + Math.abs(Math.sin(u * 1.3 + sd)) * 0.9;
@@ -328,7 +338,7 @@ export function buildWaterfall() {
     lipWater = last;
   }
   const H = lipWater - yP, TF = Math.sqrt((2 * H) / G), impactU = lipU + V0 * TF;
-  const halfW = (tn) => 2.5 + 1.5 * Math.pow(tn, 1.3); // the curtain spreads as it falls
+  const halfW = (tn) => 3.4 + 2.8 * Math.pow(tn, 1.3); // the curtain spreads as it falls
   const impact = new THREE.Vector2(wx(impactU), W.z);
   const sheetMat = waterMat(/* glsl */ `
     float a = vUv.x * 2.0 - 1.0, tau = vUv.y, tn = tau / uTF;
@@ -395,14 +405,14 @@ export function buildWaterfall() {
         float side = aSeed.y < 0.5 ? -1.0 : 1.0;
         float a = side * (0.55 + 0.45 * pow(aSeed.z, 0.6));
         float tn = t / ${TF.toFixed(3)};
-        float w = 2.5 + 1.5 * pow(tn, 1.3);
+        float w = 3.4 + 2.8 * pow(tn, 1.3);
         p = vec3(${wx(lipU).toFixed(3)} - ${V0.toFixed(3)} * t * (0.85 + 0.3 * aSeed.w), ${lipWater.toFixed(3)} - 0.5 * ${G} * t * t, ${W.z.toFixed(3)} + a * w + side * aSeed.w * 0.9 * t);
         life = smoothstep(0.0, 0.08, tn) * (1.0 - smoothstep(0.9, 1.0, tn));` : `
-        float P = 1.9;
+        float P = 2.4;
         float t = mod(uTime + aSeed.x * P, P);
-        float ang = aSeed.y * 6.2832, vh = 0.8 + 3.2 * aSeed.z, vy = 2.0 + 6.5 * aSeed.w * aSeed.w;
+        float ang = aSeed.y * 6.2832, vh = 1.0 + 4.2 * aSeed.z, vy = 2.5 + 9.0 * aSeed.w * aSeed.w;
         vec2 o = vec2(cos(ang), sin(ang));
-        vec2 base = vec2(${impact.x.toFixed(3)}, ${impact.y.toFixed(3)}) + vec2(o.x * 1.2, o.y * 3.2) * aSeed.z;
+        vec2 base = vec2(${impact.x.toFixed(3)}, ${impact.y.toFixed(3)}) + vec2(o.x * 1.6, o.y * 5.0) * aSeed.z;
         float y = ${(yP + 0.05).toFixed(3)} + vy * t - 0.5 * ${G} * t * t;
         p = vec3(base.x + o.x * vh * t, y, base.y + o.y * vh * t);
         life = step(${(yP - 0.02).toFixed(3)}, y) * (1.0 - smoothstep(0.6, 1.0, t / P));`}
@@ -427,7 +437,7 @@ export function buildWaterfall() {
       }`,
   });
   const drops = [];
-  for (const [mode, n] of [['fall', 900], ['splash', 1400]]) {
+  for (const [mode, n] of [['fall', 1500], ['splash', 2200]]) {
     const g = new THREE.BufferGeometry(), sd = new Float32Array(n * 4);
     for (let i = 0; i < sd.length; i++) sd[i] = Math.random();
     g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(n * 3), 3));
@@ -513,7 +523,7 @@ export function buildWaterfall() {
     const level = (u) => { const y = Math.min(last, heightAt(wx(u), W.z) + 0.45); last = y; return y; };
     const shelfMat = streamMat.clone();
     shelfMat.uniforms.uSpeed.value = 2.4;
-    const g = ribbon(-78, lipU, 50, () => 0, (u) => 1.5 + Math.max(0, -u - 60) * 0.05 + Math.max(0, u + 14) * 0.07, level);
+    const g = ribbon(-78, lipU, 50, () => 0, (u) => 1.5 + Math.max(0, -u - 60) * 0.05 + Math.max(0, u + 20) * 0.12, level);
     const m = new THREE.Mesh(g, shelfMat); m.renderOrder = 2; group.add(m);
     streamMats.push(shelfMat);
   }
@@ -576,7 +586,28 @@ export function buildWaterfall() {
   setRiverLevel(WATER_Y);
 
   // mist billowing up off the pool and drifting down the gorge, and spray from the splashes
-  const mist = new Puffs({ max: 420, color: '#f2f6f6', opacity: 0.32, buoyancy: 0.75, drag: 0.9 });
+  // a rainbow standing in the spray on a bright day, arching across the gorge in front of the falls
+  const bowMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false,
+    uniforms: { uK: { value: 0 } },
+    vertexShader: 'varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: /* glsl */ `
+      uniform float uK; varying vec2 vP;
+      void main() {
+        float r = length(vP) / 15.0; // 0.86 .. 1.0 across the band
+        float t = clamp((r - 0.86) / 0.14, 0.0, 1.0);
+        vec3 c = clamp(vec3(abs(t * 6.0 - 3.0) - 1.0, 2.0 - abs(t * 6.0 - 2.0), 2.0 - abs(t * 6.0 - 4.0)), 0.0, 1.0);
+        float edge = smoothstep(0.0, 0.18, t) * smoothstep(1.0, 0.82, t);
+        float foot = smoothstep(-1.0, 4.0, vP.y) * (1.0 - smoothstep(6.0, 13.0, vP.y)); // only low down, in the spray
+        gl_FragColor = vec4(c * edge * foot * uK * 0.075, 1.0);
+      }`,
+  });
+  const bow = new THREE.Mesh(new THREE.RingGeometry(12.9, 15, 64, 1, 0.15, Math.PI - 0.3), bowMat);
+  bow.position.set(wx(9), yP - 2, W.z);
+  bow.rotation.y = Math.PI / 2; // facing down the gorge, toward the trail and the viewpoint
+  bow.renderOrder = 5; bow.frustumCulled = false;
+  group.add(bow);
+  const mist = new Puffs({ max: 700, color: '#f2f6f6', opacity: 0.32, buoyancy: 0.75, drag: 0.9 });
   group.add(mist.mesh);
   let acc = 0, accM = 0;
   const mats = [poolMat, streamMat, confMat, spillMat, ...sheetMats];
@@ -593,6 +624,8 @@ export function buildWaterfall() {
         m.uniforms.uSun.value.set(sun);
       }
       for (const d of drops) d.material.uniforms.uNight.value = night ? 0.8 : 0;
+      bowMat.uniforms.uK.value = night || rain ? 0 : 1;
+      bow.visible = !night && !rain;
       mist.material.uniforms.uColor.value.set(night ? '#56607a' : '#f2f6f6');
       mist.material.uniforms.uDark.value.copy(mist.material.uniforms.uColor.value);
     },
@@ -601,12 +634,12 @@ export function buildWaterfall() {
       for (const d of drops) { d.material.uniforms.uTime.value = t; d.visible = near; }
       if (near) {
         // the cloud of spray where the falls hit, rising and rolling out over the pool
-        acc += dt * 55;
+        acc += dt * 90;
         while (acc > 1) {
           acc -= 1;
           const a = Math.random() * Math.PI * 2, sp = 1 + Math.random() * 3.2;
-          mist.emit(impact.x + (Math.random() - 0.5) * 3, yP + 0.3, impact.y + (Math.random() - 0.5) * 6,
-            Math.cos(a) * sp - 0.9, 0.8 + Math.random() * 2.2, Math.sin(a) * sp, 3.2 + Math.random() * 2.2, 1.4, 5 + Math.random() * 2.5, 0.85);
+          mist.emit(impact.x + (Math.random() - 0.5) * 4, yP + 0.3, impact.y + (Math.random() - 0.5) * 9,
+            Math.cos(a) * sp * 1.3 - 1.1, 1.0 + Math.random() * 3.2, Math.sin(a) * sp * 1.3, 3.6 + Math.random() * 2.8, 1.6, 6 + Math.random() * 3, 0.85);
         }
         // a little spray at the river mouth too
         accM += dt * 6;

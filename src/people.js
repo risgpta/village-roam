@@ -1,10 +1,10 @@
 // Villagers going about their chores, and two village dogs. All procedural rigs and animation.
 import * as THREE from 'three';
 import {
-  layout, roadX, pathZ, groundHeight, heightAt, resolveCollisions, localToWorld, SQUARE, FOOT, EH, GHAT, TEA, MARKET, CRICKET, NV, BRIDGES, RV, BV, TV, MH, NE, PG, riverX, RIVER_HALF, WATER_Y, WATER, SHRINE_ROAD, HILLTOP
+  layout, roadX, pathZ, groundHeight, heightAt, resolveCollisions, localToWorld, SQUARE, FOOT, EH, GHAT, TEA, MARKET, CRICKET, NV, BRIDGES, RV, BV, TV, MH, NE, PG, riverX, RIVER_HALF, WATER_Y, WATER, SHRINE_ROAD, HILLTOP, squareCrossings
 } from './world.js';
 import { Moped } from './bicycle.js';
-import { Scooter, VillageBus, Jeep, TrafficCar, RowBoat, poseRower } from './vehicles.js';
+import { Scooter, VillageBus, Jeep, TrafficCar, RowBoat, poseRower, PoliceJeep } from './vehicles.js';
 import { Bicycle, poseRider } from './bicycle.js';
 import { makeCow } from './animals.js';
 import { lathe, limb, limbZ, ellipsoid, muscle, folds } from './shapes.js';
@@ -1202,6 +1202,7 @@ export function buildPeople(scene, village, hooks = {}) {
     dogs,
     setWeather(w) { for (const v of villagers) v.setWeather(w); kids.setWeather(w); travellers.setWeather(w); play.setWeather(w); },
     travellers,
+    cricket: play.cricket,
     update(dt, boy) {
       for (const v of villagers) {
         if (v.local) {
@@ -1486,6 +1487,8 @@ function buildTravellers(scene, hooks) {
     routes.busN = [...routes.east, [RV.x - 6, RV.z - 16], [RV.x + 10, RV.z - 14], ...layout.newRoads.nahar];
     if (routes.khet) routes.jeepK = [...routes.north, ...routes.khet, ...layout.newRoads.kheri];
   }
+  // the far north road, Dhaniyapur to Kheri Kalan
+  if (layout.newRoads?.dk) routes.dk = layout.newRoads.dk;
   // the shrine shuttle: from the village bus stop down the main road to the hilltop shrine, then all the way
   // up the hill road to the summit; it waits a while at each end and comes back
   routes.shrine = [...along(66, HILLTOP.z + 14, 10), ...SHRINE_ROAD.pts.map((q) => [q.x, q.z])];
@@ -1494,6 +1497,8 @@ function buildTravellers(scene, hooks) {
   routes.busB = routes.west;
   routes.jeepA = [...along(60, 250), [roadX(250) + 2, 250], [35, 328], [B3.aw.x, B3.aw.z], [B3.w.x, B3.w.z], [B3.e.x, B3.e.z], [B3.ae.x, B3.ae.z], [151, 390], [221, 456], [TV.x - 16, TV.z], [TV.x + 12, TV.z], [TV.x + 28, TV.z + 8], [345, 345], [RV.x - 6, RV.z + 16]];
   routes.jeepB = [...along(0, -150), [roadX(-150) + 2, -150], [20, -175], [B2.aw.x, B2.aw.z], [B2.w.x, B2.w.z], [B2.e.x, B2.e.z], [B2.ae.x, B2.ae.z], [130, -228], [221, -286], ...routes.ne];
+  // every route crosses the railway square on, the way the roads were laid (see squareCrossings in world.js)
+  for (const k of Object.keys(routes)) squareCrossings(routes[k]);
   const motorRiders = [
     { route: 'east', kind: Moped, o: { dress: 'pants', top: '#c8323a', bottom: '#3a3a42', skin: '#7a4c33', sleeves: 'short', mustache: true }, v: 8, s0: 30 },
     { route: 'south', kind: Scooter, o: { dress: 'saree', k: 0.92, top: '#1e6fa8', bottom: '#f2b705', veil: false, skin: '#80523a' }, v: 7, s0: 90 },
@@ -1534,6 +1539,17 @@ function buildTravellers(scene, hooks) {
       { route: 'kheri', kind: Bicycle, o: { dress: 'dhoti', top: '#f4f1e8', bottom: '#f4f1e8', skin: '#6e4530', headwear: 'cap', turban: '#f2efe6' }, v: 3.8 },
       { route: 'kheri', kind: Bicycle, o: { dress: 'saree', k: 0.92, top: '#f2b705', bottom: '#c4241c', veil: false, skin: '#80523a' }, v: 3.6 },
     ] : []),
+    // the far north road: a motorbike, a scooter, two cyclists
+    ...(routes.dk ? [
+      { route: 'dk', kind: Moped, o: { dress: 'kurta', top: '#e9dcc3', bottom: '#f4f1e8', skin: '#7a4c33', mustache: true, headwear: 'turban', turban: '#e07a1e' }, v: 8.5 },
+      { route: 'dk', kind: Scooter, o: { dress: 'saree', k: 0.92, top: '#2e8b57', bottom: '#f2b705', veil: false, skin: '#86573b' }, v: 7.5 },
+      { route: 'dk', kind: Bicycle, o: { dress: 'dhoti', top: '#f4f1e8', bottom: '#f4f1e8', skin: '#6e4530', headwear: 'cap', turban: '#f2efe6', mustache: true }, v: 3.8 },
+      { route: 'dk', kind: Bicycle, o: { dress: 'shorts', k: 0.72, headScale: 1.2, top: '#c4241c', bottom: '#2a3a6a', skin: '#8a5a3c', sleeves: 'short' }, v: 4.4 },
+    ] : []),
+    // the postmen on their rounds: khaki, a cap, a satchel, a red India Post bag on the carrier
+    { route: 'west', kind: Bicycle, post: true, o: { dress: 'pants', top: '#b8a06a', bottom: '#8a7448', headwear: 'cap', turban: '#b8a06a', mustache: true, skin: '#7a4c33', sleeves: 'short' }, v: 3.6 },
+    { route: 'east', kind: Bicycle, post: true, o: { dress: 'pants', top: '#b8a06a', bottom: '#8a7448', headwear: 'cap', turban: '#b8a06a', skin: '#6e4530', sleeves: 'short' }, v: 3.6 },
+    ...(routes.canal ? [{ route: 'canal', kind: Bicycle, post: true, o: { dress: 'pants', top: '#b8a06a', bottom: '#8a7448', headwear: 'cap', turban: '#b8a06a', mustache: true, skin: '#83553a', sleeves: 'short' }, v: 3.8 }] : []),
     { route: 'ne', kind: Moped, o: { dress: 'pants', top: '#e0612b', bottom: '#3a3a42', skin: '#7a4c33', sleeves: 'short' }, v: 8 },
     { route: 'ne', kind: Bicycle, o: { dress: 'saree', k: 0.92, top: '#1e6fa8', bottom: '#f2b705', veil: false, skin: '#86573b' }, v: 3.4 },
     { route: 'west', kind: Scooter, o: { dress: 'pants', top: '#f2efe6', bottom: '#4a4a52', skin: '#83553a', sleeves: 'short', mustache: true }, v: 7.5 },
@@ -1547,6 +1563,13 @@ function buildTravellers(scene, hooks) {
     holder.add(bike.root);
     const person = new Person(r.o); person.noHit = true;
     holder.add(person.root);
+    if (r.post) {
+      // the mail bag strapped on behind, and a satchel on the hip
+      const bagT = new THREE.CanvasTexture((() => { const c = document.createElement('canvas'); c.width = 128; c.height = 64; const g = c.getContext('2d'); g.fillStyle = '#c4241c'; g.fillRect(0, 0, 128, 64); g.fillStyle = '#f2d23a'; g.font = 'bold 18px Arial'; g.textAlign = 'center'; g.fillText('INDIA POST', 64, 28); g.font = '16px Arial'; g.fillText('डाक', 64, 50); return c; })());
+      bagT.colorSpace = THREE.SRGBColorSpace;
+      part(new THREE.BoxGeometry(0.36, 0.28, 0.42), new THREE.MeshStandardMaterial({ map: bagT, roughness: 0.8 }), bike.root, 0, 0.98, -0.5);
+      part(new THREE.BoxGeometry(0.22, 0.24, 0.08), mat('#6a4a2a'), person.torso, 0.18, 0.12, 0.02);
+    }
     const loop = polyLoop(routes[r.route], 1.2);
     list.push({ kind: 'bike', motor: r.kind !== Bicycle, holder, bike, person, loop, s: ((motorRiders.indexOf(r) * 0.618 + 0.11) % 1) * loop.total, v: r.v, speed: r.v, heading: 0, p: { x: 0, z: 0 }, bellCool: 0 });
   }
@@ -1575,13 +1598,31 @@ function buildTravellers(scene, hooks) {
       : { dress: ['dhoti', 'pants', 'dhoti'][i % 3], top: SHIRTS[i % SHIRTS.length], bottom: ['#f4f1e8', '#4a4a52', '#efece4'][i % 3], headwear: ['turban', 'cap', undefined][i % 3], turban: ['#e07a1e', '#f2efe6', '#c0392b', '#ffffff'][i % 4], mustache: i % 3 !== 2, skin: ['#7d4f33', '#6e4530', '#83553a', '#5f3a26'][i % 4], sleeves: i % 2 ? 'short' : undefined };
     walkers.push({ route, o, carry: [null, 'potHead', 'bundle', null, 'hay', null][i % 6], stick: !female && i % 5 === 1, s0: (i * 97) % 600 });
   });
+  // folk coming and going at every small village: along its lanes, through the square, and out (to the
+  // station, or the next lane); after dark only one of them is still about, with a lantern
+  for (const [vi, V] of (layout.villageWalks ?? []).entries()) {
+    const key = 'v_' + vi;
+    routes[key] = V.pts;
+    const n = 3 + (vi % 2);
+    for (let i = 0; i < n; i++) {
+      const female = (i + vi) % 2 === 0;
+      const [top, bottom] = SAREES[(i + vi) % SAREES.length];
+      const o = female ? { dress: 'saree', k: 0.9 + (i % 3) * 0.02, top, bottom, veil: i % 2 === 0, skin: ['#80523a', '#86573b', '#7a4c33', '#6a4230'][(i + vi) % 4] }
+        : i === 3 ? { dress: 'shorts', k: 0.68, headScale: 1.24, top: SHIRTS[vi % SHIRTS.length], bottom: '#2a3a6a', skin: '#8a5a3c', sleeves: 'short' }
+        : { dress: ['dhoti', 'pants', 'kurta'][(i + vi) % 3], top: SHIRTS[(i * 3 + vi) % SHIRTS.length], bottom: ['#f4f1e8', '#4a4a52', '#efece4'][i % 3], headwear: ['turban', 'cap', undefined][(i + vi) % 3], turban: ['#e07a1e', '#f2efe6', '#c0392b', '#ffffff'][(i + vi) % 4], mustache: true, skin: ['#7d4f33', '#6e4530', '#83553a', '#5f3a26'][(i + vi) % 4], sleeves: i % 2 ? 'short' : undefined };
+      walkers.push({ route: key, o, carry: [null, 'potHead', 'bundle', null][(i + vi) % 4], s0: 0, frac: (i + 0.3) / n, kid: o.dress === 'shorts', nightStay: i === 0 });
+    }
+  }
   for (const w of walkers) {
     const person = new Person(w.o);
     scene.add(person.root);
     if (w.carry) person.prop(w.carry, true);
     if (w.stick) person.prop('stick', true);
     const loop = polyLoop(routes[w.route], 2.0);
-    list.push({ kind: 'walker', holder: person.root, person, carry: w.carry, loop, s: ((walkers.indexOf(w) * 0.618 + 0.37) % 1) * loop.total, v: w.kid ? 1.6 : 1.1 + Math.random() * 0.2, speed: 1, heading: 0, p: { x: 0, z: 0 } });
+    // after dark the lanes empty: on the long roads only one walker in four is still out, at each village only one
+    const wi = walkers.indexOf(w);
+    const nightHide = w.nightStay !== undefined ? !w.nightStay : wi % 4 !== 0;
+    list.push({ kind: 'walker', holder: person.root, person, carry: w.carry, loop, s: (w.frac !== undefined ? w.frac : (wi * 0.618 + 0.37) % 1) * loop.total, v: w.kid ? 1.6 : 1.1 + Math.random() * 0.2, speed: 1, heading: 0, p: { x: 0, z: 0 }, nightHide });
   }
   // buses and jeeps: a driver at the wheel and passengers aboard, pausing at each end of the run
   const traffic = [
@@ -1601,8 +1642,12 @@ function buildTravellers(scene, hooks) {
     ...(routes.nahar ? [{ Kind: TrafficCar, opt: { color: '#f2efe6' }, route: 'nahar', v: 10, frac: 0.2 }] : []),
     { Kind: TrafficCar, opt: { color: '#2a5aa8' }, route: 'ne', v: 9.5, frac: 0.4 },
     { Kind: Jeep, opt: { color: '#c9a95e' }, route: 'west', v: 8.5, frac: 0.7 },
+    // the far north road: a bus between the two villages, a jeep
+    ...(routes.dk ? [{ Kind: VillageBus, opt: { color: '#5a3a7a', band: '#f2e2c0', dest: ['धनियापुर – खेड़ी कलां', 'DHANIYAPUR-KHERI'] }, route: 'dk', v: 7.5, frac: 0.25 }, { Kind: Jeep, opt: { color: '#e8e2d0' }, route: 'dk', v: 8.5, frac: 0.7 }] : []),
+    // the police on patrol: round the main village and out over the bridge to Marudhar and Banglagram
+    { Kind: PoliceJeep, opt: {}, route: 'busA', v: 8, frac: 0.55, police: true, allNight: true, icon: '🚓', label: 'Police patrol' },
     // the shrine shuttle runs from morning to night
-    { Kind: VillageBus, opt: { color: '#e07a1e', band: '#fff2d0', dest: ['शिखर मंदिर – गाँव', 'SHIKHAR MANDIR'], name: ['मंदिर सेवा', 'MANDIR SEVA'] }, route: 'shrine', v: 6, frac: 0, stopWait: 50, allNight: true },
+    { Kind: VillageBus, opt: { color: '#e07a1e', band: '#fff2d0', dest: ['शिखर मंदिर – गाँव', 'SHIKHAR MANDIR'], name: ['मंदिर सेवा', 'MANDIR SEVA'] }, route: 'shrine', v: 6, frac: 0, stopWait: 50, allNight: true, icon: '🛕', label: 'Mandir Seva — the shrine bus' },
   ];
   for (const tr of traffic) {
     const holder = new THREE.Group();
@@ -1610,19 +1655,22 @@ function buildTravellers(scene, hooks) {
     const veh = new tr.Kind(tr.opt);
     consolidate(veh.root); // fixed parts merged by material: far fewer draws
     holder.add(veh.root);
-    const driver = new Person({ dress: 'pants', top: tr.Kind === VillageBus ? '#8a9aa8' : '#e9dcc3', bottom: '#4a4a52', mustache: true, skin: '#6e4530', sleeves: 'short', headwear: tr.Kind === Jeep ? 'cap' : undefined, turban: '#f2efe6' }); driver.noHit = true;
+    const driver = tr.police ? new Person({ dress: 'pants', top: '#bfa26a', bottom: '#a88c58', headwear: 'cap', turban: '#3a3a5a', mustache: true, skin: '#6e4530', sleeves: 'short' })
+      : new Person({ dress: 'pants', top: tr.Kind === VillageBus ? '#8a9aa8' : '#e9dcc3', bottom: '#4a4a52', mustache: true, skin: '#6e4530', sleeves: 'short', headwear: tr.Kind === Jeep ? 'cap' : undefined, turban: '#f2efe6' });
+    driver.noHit = true;
     driver.seatH = 0;
     driver.root.position.copy(veh.driverSeat);
     holder.add(driver.root);
     const riders = veh.seats.map((p, i) => {
-      const q = new Person(i % 2 ? { dress: 'saree', k: 0.92, top: SAREES[i % 6][0], bottom: SAREES[i % 6][1], veil: true, skin: '#80523a' } : { dress: 'dhoti', top: SHIRTS[i % 7], bottom: '#f4f1e8', headwear: i % 4 ? 'turban' : undefined, turban: '#e07a1e', mustache: true, skin: '#7a4c33' }); q.noHit = true;
+      if (tr.police && i > 0) return null;
+      const q = tr.police ? new Person({ dress: 'pants', top: '#bfa26a', bottom: '#a88c58', headwear: 'cap', turban: '#3a3a5a', skin: '#7a4c33', sleeves: 'short' }) : new Person(i % 2 ? { dress: 'saree', k: 0.92, top: SAREES[i % 6][0], bottom: SAREES[i % 6][1], veil: true, skin: '#80523a' } : { dress: 'dhoti', top: SHIRTS[i % 7], bottom: '#f4f1e8', headwear: i % 4 ? 'turban' : undefined, turban: '#e07a1e', mustache: true, skin: '#7a4c33' }); q.noHit = true;
       q.seatH = 0;
       q.root.position.copy(p);
       holder.add(q.root);
       return q;
-    });
+    }).filter(Boolean);
     const loop = polyLoop(routes[tr.route], tr.Kind === VillageBus ? 1.8 : 1.5);
-    list.push({ kind: tr.Kind === VillageBus ? 'bus' : 'jeep', holder, veh, person: driver, riders, loop, s: tr.frac !== undefined ? tr.frac * loop.total : tr.s0, v: tr.v, speed: tr.v, heading: 0, p: { x: 0, z: 0 }, wait: 0, pitch: 0, bellCool: 0, stopWait: tr.stopWait, nightOff: !tr.allNight && traffic.indexOf(tr) % 2 === 1 });
+    list.push({ kind: tr.Kind === VillageBus ? 'bus' : 'jeep', icon: tr.icon, label: tr.label, holder, veh, person: driver, riders, loop, s: tr.frac !== undefined ? tr.frac * loop.total : tr.s0, v: tr.v, speed: tr.v, heading: 0, p: { x: 0, z: 0 }, wait: 0, pitch: 0, bellCool: 0, stopWait: tr.stopWait, nightOff: !tr.allNight && traffic.indexOf(tr) % 2 === 1 });
   }
   // more bullock carts out on the country roads, plodding at walking pace
   if (routes.outer) addCart(polyLoop(routes.outer, 1.6), 300, '#b98e64', { turban: '#c4241c', skin: '#7a4c33' });
@@ -1643,7 +1691,7 @@ function buildTravellers(scene, hooks) {
     let i = 0;
     for (const t of list) {
       const motor = (t.kind === 'bike' && t.motor) || t.kind === 'bus' || t.kind === 'jeep';
-      if (!motor) continue;
+      if (!motor || t.icon) continue; // (the shrine bus and the police patrol are out from the start: they're on the map)
       t.hold = 40 + i * 14 + Math.random() * 10;
       t.holder.visible = false;
       i++;
@@ -1654,10 +1702,10 @@ function buildTravellers(scene, hooks) {
     setWeather(w) {
       weather = w;
       // after dark only one bus and one jeep keep running; the others wait in the village till morning
-      for (const t of list) if (t.nightOff && !t.taken) t.holder.visible = !w.night && !(t.hold > 0);
+      for (const t of list) if ((t.nightOff || t.nightHide) && !t.taken) t.holder.visible = !w.night && !(t.hold > 0);
     },
     colliders() {
-      return list.filter((t) => t.holder.visible && !t.taken && !(t.nightOff && weather.night) && !t.crash && !(t.kind === 'walker' && t.person.fallT > 0)).map((t) => ({ kind: 'b', x: t.p.x, z: t.p.z, rot: t.heading, hw: t.veh ? t.veh.half + 0.05 : t.kind === 'cart' ? 0.9 : 0.25, hd: t.veh ? t.veh.len / 2 : t.kind === 'cart' ? 2.6 : 0.8, person: t.kind === 'walker' }));
+      return list.filter((t) => t.holder.visible && !t.taken && !((t.nightOff || t.nightHide) && weather.night) && !t.crash && !(t.kind === 'walker' && t.person.fallT > 0)).map((t) => ({ kind: 'b', x: t.p.x, z: t.p.z, rot: t.heading, hw: t.veh ? t.veh.half + 0.05 : t.kind === 'cart' ? 0.9 : 0.25, hd: t.veh ? t.veh.len / 2 : t.kind === 'cart' ? 2.6 : 0.8, person: t.kind === 'walker' }));
     },
     update(dt, boy) {
       const sizeOf = (t) => (t.veh ? t.veh.len / 2 : t.kind === 'cart' ? 2.6 : t.kind === 'walker' ? 0.3 : 0.9);
@@ -1677,7 +1725,7 @@ function buildTravellers(scene, hooks) {
           }
           continue;
         }
-        if (t.nightOff && weather.night) { t.holder.visible = false; continue; }
+        if ((t.nightOff || t.nightHide) && weather.night) { t.holder.visible = false; continue; }
         t.loop.at(t.s + (t.kind === 'cart' ? 3.5 : big ? t.veh.len / 2 + 3 : t.motor ? 4 : 1.6), ahead);
         // (looking ahead along its own line: if it has pulled over or out, that's where it's going)
         if (t.lat) { ahead.x += Math.cos(t.heading) * t.lat; ahead.z -= Math.sin(t.heading) * t.lat; }
@@ -1704,7 +1752,7 @@ function buildTravellers(scene, hooks) {
           const squeezing = t.squeezeT > 0;
           for (const o of list) {
             // (anything not out on the road yet has no position: it mustn't block anyone)
-            if (o === t || o.crash || o.taken || o.hold > 0 || (o.nightOff && weather.night)) continue;
+            if (o === t || o.crash || o.taken || o.hold > 0 || ((o.nightOff || o.nightHide) && weather.night)) continue;
             const dx = o.p.x - t.p.x, dz = o.p.z - t.p.z;
             const along = dx * fx + dz * fz, side = Math.abs(dx * fz - dz * fx);
             const same = Math.sin(o.heading) * fx + Math.cos(o.heading) * fz > 0.3;
@@ -1848,9 +1896,23 @@ function buildPlay(scene, village, hooks) {
   for (const k of Object.keys(st)) { st[k].x = st[k].home.x; st[k].z = st[k].home.z; }
   const face = (a, x, z) => Math.atan2(x - a.x, z - a.z);
   let phase = 'wait', T = 0, from = null, to = null, flight = 1, peak = 1, chaser = null, swingT = -1;
-  const crease = lw(0, -9.6), batPt = lw(0.15, 8.2);
+  const crease = lw(0, -9.6), batPt = lw(0.15, 8.2), stumps = lw(0, 9.0);
   const ballAt = (x, y, z) => ball.position.set(x, y, z);
+  // ---- the boy joins in ----
+  // A little match: he bats first (the kid batsman goes out to field) — Space to swing as the ball comes, A / D
+  // to place the shot — three wickets or three overs; then he bowls (Space when the marker is in the middle of
+  // the bar for a good ball) and the kids chase his score. H.boy says where he stands and what he's doing;
+  // main.js puts him there and poses him.
+  const H = { mode: null, innings: 1, runs: 0, balls: 0, wkts: 0, kRuns: 0, kBalls: 0, kWkts: 0, last: '', lastT: 0, pressK: -1, aim: 0, meter: 0, quality: 0.5, go: false,
+    boy: { x: 0, z: 0, face: 0, speed: 0, anim: 'stance', swing: -1, bowl: -1 } };
+  const boyBat = new THREE.Group();
+  part(new THREE.BoxGeometry(0.1, 0.55, 0.025).translate(0, -0.42, 0.02), mat('#d9c08a'), boyBat);
+  part(new THREE.CylinderGeometry(0.018, 0.018, 0.22, 6).translate(0, -0.06, 0.02), mat('#3a2a1a'), boyBat);
+  H.bat = boyBat;
+  const fieldSpot = { bat: lw(-6, 4), bowl: lw(7, -5) };
+  const say = (text, kind) => { H.last = text; H.lastT = 2.6; hooks.onCricket?.(kind, text); };
   R.bat.poseHook = (P) => {
+    if (H.mode === 'bat') return; // (he's out in the field while the boy bats)
     // stance: bat down by the right foot; swing: a big pull across the body
     const s = swingT >= 0 ? Math.min(1, swingT / 0.35) : 0;
     P.sh1 = -0.5 - Math.sin(s * Math.PI) * 1.4; P.shz1 = -0.35 + s * 0.6; P.el1 = -0.4;
@@ -1859,9 +1921,57 @@ function buildPlay(scene, village, hooks) {
   };
   R.bat.poseRate = 16;
   R.bowl.poseHook = (P) => {
+    if (H.mode === 'bowl') return;
     if (phase === 'bowl') { const a = Math.min(1, T / 0.35); P.sh1 = -0.5 - a * 3.6; P.el1 = -0.1; P.sh0 = -1.4 + a * 1.2; P.torsoX = 0.1 + a * 0.4; }
   };
   R.bowl.poseRate = 18;
+  // what happens to a ball: runs off the bat, or out, or nothing
+  const resolve = (x, z) => {
+    let runs = 0, out = null;
+    if (H.mode === 'bat') {
+      const k = H.pressK;
+      if (k >= 0.62 && k <= 1.04) {
+        const q = Math.max(0, 1 - Math.abs(k - 0.86) / 0.2);
+        runs = q > 0.8 ? 6 : q > 0.58 ? 4 : q > 0.36 ? 2 : 1;
+        if ((runs === 6 && Math.random() < 0.1) || (q < 0.25 && Math.random() < 0.35)) out = 'caught';
+      } else if (Math.random() < 0.42) out = 'bowled';
+    } else if (H.mode === 'bowl') {
+      const q = H.quality, r = Math.random();
+      if (q > 0.75) { if (r < 0.42) out = 'bowled'; else if (r < 0.78) runs = 0; else runs = 1; }
+      else if (q > 0.4) { if (r < 0.14) out = Math.random() < 0.5 ? 'bowled' : 'caught'; else if (r < 0.42) runs = 0; else if (r < 0.78) runs = Math.random() < 0.5 ? 1 : 2; else runs = 4; }
+      else { if (r < 0.05) out = 'caught'; else if (r < 0.22) runs = 0; else if (r < 0.62) runs = 4; else runs = 6; }
+    } else return Math.random() < 0.65 ? { runs: 1 + Math.floor(Math.random() * 4), out: null } : { runs: 0, out: null };
+    return { runs, out };
+  };
+  const score = (runs, out) => {
+    if (H.mode === 'bat') {
+      H.balls++; H.runs += runs; if (out) H.wkts++;
+      say(out ? (out === 'bowled' ? 'Bowled! The stumps go flying' : 'Caught! Out!') : runs === 6 ? 'SIX! Over the houses!' : runs === 4 ? 'FOUR!' : runs ? `${runs} run${runs > 1 ? 's' : ''}` : 'Missed — dot ball', out ? 'out' : runs >= 4 ? 'boundary' : runs ? 'runs' : 'dot');
+      if (H.wkts >= 3 || H.balls >= 18) setTimeout(() => { if (H.mode !== 'bat') return; say(`Innings over — you made ${H.runs}. Now bowl! The kids need ${H.runs + 1}`, 'innings'); setMode('bowl'); }, 1600);
+    } else if (H.mode === 'bowl') {
+      H.kBalls++; H.kRuns += runs; if (out) H.kWkts++;
+      say(out ? (out === 'bowled' ? 'Bowled him! Stumps everywhere' : 'Caught! You got him!') : runs === 6 ? 'Six! He smashed that one' : runs === 4 ? 'Four to the kids' : runs ? `${runs} run${runs > 1 ? 's' : ''} to the kids` : 'Beaten! Dot ball', out ? 'wicket' : runs >= 4 ? 'boundary' : runs ? 'runs' : 'dot');
+      const done = H.kRuns > H.runs ? 'lost' : H.kWkts >= 3 || H.kBalls >= 18 ? (H.kRuns === H.runs ? 'tie' : 'won') : null;
+      if (done) setTimeout(() => {
+        if (H.mode !== 'bowl') return;
+        say(done === 'won' ? `You won by ${H.runs - H.kRuns} runs! 🏆` : done === 'tie' ? 'A tie! Everyone cheers' : 'The kids won this time — another match?', 'result');
+        setTimeout(() => { if (H.mode) { H.runs = H.balls = H.wkts = H.kRuns = H.kBalls = H.kWkts = 0; setMode('bat'); say('New match — you bat first', 'innings'); } }, 3500);
+      }, 1600);
+    }
+  };
+  const setMode = (m) => {
+    H.mode = m; phase = 'wait'; T = 0; swingT = -1; H.go = false; H.pressK = -1;
+    if (m === 'bat') { const p = lw(...spots.bat); H.boy.x = p.x; H.boy.z = p.z; H.boy.face = face(p, crease.x, crease.z); H.boy.anim = 'stance'; R.bat.prop?.('none', false); bat.visible = false; boyBat.visible = true; }
+    if (m === 'bowl') { const p = lw(...spots.bowl); H.boy.x = p.x; H.boy.z = p.z; H.boy.face = face(p, batPt.x, batPt.z); H.boy.anim = 'idle'; bat.visible = true; boyBat.visible = false; }
+    if (!m) { bat.visible = true; boyBat.visible = false; }
+  };
+  H.start = () => { H.runs = H.balls = H.wkts = H.kRuns = H.kBalls = H.kWkts = 0; setMode('bat'); say('Gully cricket! You bat first — Space to swing', 'start'); };
+  H.stop = () => { setMode(null); };
+  H.swap = () => { setMode(H.mode === 'bat' ? 'bowl' : 'bat'); say(H.mode === 'bat' ? 'You take the bat' : 'You take the ball', 'innings'); };
+  H.action = () => {
+    if (H.mode === 'bat' && phase === 'flight' && swingT < 0) { H.pressK = Math.min(1, T / 0.75); swingT = 0; H.boy.swing = 0; }
+    else if (H.mode === 'bowl' && phase === 'wait' && !H.go) { H.go = true; H.quality = 1 - Math.abs(H.meter); }
+  };
   // the kite flyer, string up to the kite
   const kiteKid = kid({ dress: 'shorts', top: '#f4f4f0', bottom: '#5b5246', skin: '#86573b', sleeves: 'short' });
   const kitePos = { x: 15, z: -42 };
@@ -1881,6 +1991,7 @@ function buildPlay(scene, village, hooks) {
     return false;
   };
   return {
+    cricket: H,
     setWeather(w) { mode = w.night ? 'night' : w.rain ? 'rain' : 'day'; },
     update(dt, boy) {
       const show = mode !== 'night';
@@ -1891,6 +2002,11 @@ function buildPlay(scene, village, hooks) {
       if (nearC) {
         T += dt;
         if (swingT >= 0) swingT += dt;
+        if (H.mode && mode !== 'day') { setMode(null); hooks.onCricket?.('stop', mode === 'rain' ? 'Rain stops play!' : 'Too dark to see the ball'); }
+        if (H.lastT > 0) H.lastT -= dt;
+        if (H.boy.swing >= 0) { H.boy.swing += dt; if (H.boy.swing > 0.6) H.boy.swing = -1; }
+        if (H.boy.bowl >= 0) { H.boy.bowl += dt; if (H.boy.bowl > 0.5) H.boy.bowl = -1; }
+        H.meter = Math.sin(performance.now() * 0.0042);
         if (mode === 'rain') {
           // monsoon! everyone jumps about in the rain
           for (const s of Object.values(st)) { s.speed = 0; s.action = 'play'; }
@@ -1898,17 +2014,31 @@ function buildPlay(scene, village, hooks) {
         } else {
           for (const s of Object.values(st)) s.action = 'idle';
           st.keep.action = 'keeper';
+          // the kid whose place the boy has taken goes out to field
+          const out = H.mode === 'bat' ? st.bat : H.mode === 'bowl' ? st.bowl : null;
+          if (out) move(out, fieldSpot[H.mode].x, fieldSpot[H.mode].z, 2.2, dt);
+          else { if (phase === 'wait' || phase === 'runup') move(st.bat, st.bat.home.x, st.bat.home.z, 2.2, dt); }
+          const humanBowl = H.mode === 'bowl', B = humanBowl ? H.boy : st.bowl;
+          const moveB = (x, z, v) => {
+            if (!humanBowl) return move(st.bowl, x, z, v, dt);
+            const d = Math.hypot(x - H.boy.x, z - H.boy.z);
+            if (d < 0.25) { H.boy.speed = 0; return true; }
+            H.boy.x += ((x - H.boy.x) / d) * Math.min(d, v * dt); H.boy.z += ((z - H.boy.z) / d) * Math.min(d, v * dt); H.boy.face = Math.atan2(x - H.boy.x, z - H.boy.z); H.boy.speed = v;
+            return false;
+          };
           if (phase === 'wait') {
-            move(st.bowl, st.bowl.home.x, st.bowl.home.z, 2.2, dt);
-            ballAt(st.bowl.x, groundHeight(st.bowl.x, st.bowl.z) + 0.9, st.bowl.z);
-            if (T > 2.5 && st.bowl.speed === 0) { phase = 'runup'; T = 0; }
+            const home = humanBowl ? lw(...spots.bowl) : st.bowl.home;
+            const back = moveB(home.x, home.z, 2.2);
+            if (humanBowl && back) H.boy.face = face(H.boy, batPt.x, batPt.z);
+            ballAt(B.x, groundHeight(B.x, B.z) + 0.9, B.z);
+            if (humanBowl ? H.go && back : T > 2.5 && st.bowl.speed === 0) { phase = 'runup'; T = 0; }
           } else if (phase === 'runup') {
-            const done = move(st.bowl, crease.x, crease.z, 4.2, dt);
-            ballAt(st.bowl.x, groundHeight(st.bowl.x, st.bowl.z) + 0.95, st.bowl.z);
-            if (done) { phase = 'bowl'; T = 0; }
+            const done = moveB(crease.x, crease.z, 4.2);
+            ballAt(B.x, groundHeight(B.x, B.z) + 0.95, B.z);
+            if (done) { phase = 'bowl'; T = 0; if (humanBowl) H.boy.bowl = 0; }
           } else if (phase === 'bowl') {
-            st.bowl.face = face(st.bowl, batPt.x, batPt.z);
-            if (T > 0.35) { phase = 'flight'; T = 0; from = { x: crease.x, y: groundHeight(crease.x, crease.z) + 2.0, z: crease.z }; }
+            if (humanBowl) H.boy.face = face(H.boy, batPt.x, batPt.z); else st.bowl.face = face(st.bowl, batPt.x, batPt.z);
+            if (T > 0.35) { phase = 'flight'; T = 0; from = { x: crease.x, y: groundHeight(crease.x, crease.z) + 2.0, z: crease.z }; H.pressK = -1; }
           } else if (phase === 'flight') {
             const k = Math.min(1, T / 0.75);
             const bounce = 0.62;
@@ -1916,19 +2046,36 @@ function buildPlay(scene, village, hooks) {
             const gy = groundHeight(x, z);
             const y = k < bounce ? gy + from.y - gy - (from.y - gy) * (k / bounce) ** 2 : gy + Math.sin(((k - bounce) / (1 - bounce)) * Math.PI * 0.55) * 0.75;
             ballAt(x, y, z);
-            if (k > 0.85 && swingT < 0) swingT = 0;
+            if (H.mode !== 'bat' && k > 0.85 && swingT < 0) swingT = 0;
             if (k >= 1) {
-              if (Math.random() < 0.65) {
+              const r = resolve(x, z);
+              if (r.runs > 0 && !r.out) {
                 // hit! off it goes, and the nearest fielder chases
                 hooks.onBat?.(Math.hypot(boy.x - x, boy.z - z));
-                const a = (Math.random() - 0.5) * 2.4, d = 7 + Math.random() * 9;
+                const a = (H.mode === 'bat' ? H.aim * 0.9 + (H.pressK - 0.86) * 5 : 0) + (Math.random() - 0.5) * (H.mode === 'bat' ? 0.6 : 2.4);
+                const d = r.runs >= 6 ? 34 + Math.random() * 8 : r.runs >= 4 ? 26 + Math.random() * 6 : r.runs === 2 ? 14 + Math.random() * 4 : 7 + Math.random() * 4;
                 const L = lw(Math.sin(a) * d, 8 - Math.cos(a) * d);
-                from = { x, y, z }; to = { x: L.x, y: groundHeight(L.x, L.z) + 0.05, z: L.z }; flight = 1.3 + Math.random(); peak = 2 + Math.random() * 5;
+                from = { x, y, z }; to = { x: L.x, y: groundHeight(L.x, L.z) + 0.05, z: L.z };
+                flight = r.runs >= 6 ? 2.6 : r.runs >= 4 ? 1.6 : 1.3 + Math.random() * 0.5; peak = r.runs >= 6 ? 11 : r.runs >= 4 ? 1.2 : 2 + Math.random() * 3;
+                const fielders = [st.f1, st.f2, out].filter(Boolean);
+                chaser = fielders.sort((p, q) => Math.hypot(p.x - L.x, p.z - L.z) - Math.hypot(q.x - L.x, q.z - L.z))[0];
+                phase = 'hit';
+              } else if (r.out === 'caught') {
+                const L = lw((Math.random() - 0.5) * 12, -2 - Math.random() * 6);
+                hooks.onBat?.(Math.hypot(boy.x - x, boy.z - z));
+                from = { x, y, z }; to = { x: L.x, y: groundHeight(L.x, L.z) + 1.4, z: L.z }; flight = 1.6; peak = 7;
                 chaser = [st.f1, st.f2].sort((p, q) => Math.hypot(p.x - L.x, p.z - L.z) - Math.hypot(q.x - L.x, q.z - L.z))[0];
                 phase = 'hit';
-              } else { from = null; phase = 'keep'; }
+              } else if (r.out === 'bowled') { from = { x, y, z }; phase = 'stumps'; hooks.onStumps?.(Math.hypot(boy.x - x, boy.z - z)); }
+              else { from = null; phase = 'keep'; }
+              if (H.mode) score(r.runs, r.out);
               T = 0;
             }
+          } else if (phase === 'stumps') {
+            // through the batsman and into the stumps, then the keeper picks it up
+            const k = Math.min(1, T / 0.25);
+            ballAt(from.x + (stumps.x - from.x) * k, groundHeight(stumps.x, stumps.z) + 0.3, from.z + (stumps.z - from.z) * k);
+            if (T > 0.9) { phase = 'keep'; T = 0; }
           } else if (phase === 'hit') {
             const k = Math.min(1, T / flight);
             ballAt(from.x + (to.x - from.x) * k, from.y + (to.y - from.y) * k + Math.sin(k * Math.PI) * peak, from.z + (to.z - from.z) * k);
@@ -1937,15 +2084,17 @@ function buildPlay(scene, village, hooks) {
           } else if (phase === 'keep' || phase === 'throw') {
             const k = Math.min(1, T / 1.0);
             const src = phase === 'keep' ? { x: st.keep.x, y: groundHeight(st.keep.x, st.keep.z) + 0.6, z: st.keep.z } : from;
-            const dst = { x: st.bowl.x, y: groundHeight(st.bowl.x, st.bowl.z) + 1.0, z: st.bowl.z };
+            const dst = { x: B.x, y: groundHeight(B.x, B.z) + 1.0, z: B.z };
             ballAt(src.x + (dst.x - src.x) * k, src.y + (dst.y - src.y) * k + Math.sin(k * Math.PI) * 2.5, src.z + (dst.z - src.z) * k);
-            if (k >= 1) { phase = 'wait'; T = 0; swingT = -1; }
+            if (k >= 1) { phase = 'wait'; T = 0; swingT = -1; H.go = false; }
           }
           if (phase !== 'hit' && phase !== 'throw') { move(st.f1, st.f1.home.x, st.f1.home.z, 2.0, dt); move(st.f2, st.f2.home.x, st.f2.home.z, 2.0, dt); }
           else if (chaser !== st.f1) move(st.f1, st.f1.home.x, st.f1.home.z, 2.0, dt);
           else move(st.f2, st.f2.home.x, st.f2.home.z, 2.0, dt);
           if (swingT > 0.6) swingT = -1;
-          for (const k of ['bat', 'keep', 'f1', 'f2']) if (st[k].speed === 0) st[k].face = face(st[k], ball.position.x, ball.position.z);
+          if (H.mode === 'bat') H.boy.face = face(H.boy, crease.x, crease.z);
+          for (const k of ['bat', 'keep', 'f1', 'f2', 'bowl']) if (st[k].speed === 0 && (k !== 'bowl' || H.mode === 'bowl')) st[k].face = face(st[k], ball.position.x, ball.position.z);
+          H.phase = phase;
         }
         for (const s of Object.values(st)) {
           s.p.root.position.set(s.x, groundHeight(s.x, s.z), s.z);

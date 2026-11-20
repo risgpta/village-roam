@@ -1023,6 +1023,48 @@ export class Jeep {
   }
 }
 
+// ---------------- the village police jeep ----------------
+// A white Gypsy-style jeep of the state police: a blue band and POLICE along the sides and across the bonnet,
+// a red-and-blue light bar on the hood, a loudspeaker horn. With the siren on, the bar flashes in turn.
+function policeTex(w, h, text, bg = '#f4f4f0') {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d');
+  g.fillStyle = bg; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#1d3f8f'; g.fillRect(0, h * 0.55, w, h * 0.22);
+  g.fillStyle = '#c4161c'; g.fillRect(0, h * 0.77, w, h * 0.06);
+  g.fillStyle = '#1d3f8f'; g.font = `bold ${Math.round(h * 0.36)}px Arial`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(text, w / 2, h * 0.3);
+  g.fillStyle = '#ffffff'; g.font = `bold ${Math.round(h * 0.14)}px Arial`; g.fillText('पुलिस · 112', w / 2, h * 0.66);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  return t;
+}
+export class PoliceJeep extends Jeep {
+  constructor() {
+    super({ color: '#f2f2ee' });
+    this.kind = 'police';
+    const g = this.root.children[0];
+    const add = (geo, m, x, y, z) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; g.add(o); return o; };
+    const side = new THREE.MeshStandardMaterial({ map: policeTex(512, 128, 'POLICE'), roughness: 0.45 });
+    for (const sx of [-1, 1]) { const p = add(new THREE.PlaneGeometry(2.3, 0.56), side, sx * 0.805, 0.98, -0.45); p.rotation.y = sx * Math.PI / 2; }
+    const bon = add(new THREE.PlaneGeometry(1.0, 0.25), new THREE.MeshStandardMaterial({ map: policeTex(512, 128, 'POLICE', '#f2f2ee'), roughness: 0.45 }), 0, 1.3, 1.4); bon.rotation.x = -Math.PI / 2;
+    // the light bar on the hood, red one side and blue the other
+    this.redL = new THREE.MeshStandardMaterial({ color: '#ff2020', emissive: '#ff1010', emissiveIntensity: 0.2, roughness: 0.3 });
+    this.blueL = new THREE.MeshStandardMaterial({ color: '#2040ff', emissive: '#1030ff', emissiveIntensity: 0.2, roughness: 0.3 });
+    add(new THREE.BoxGeometry(1.1, 0.08, 0.26), std('#2a2a2a'), 0, 2.32, 0.2);
+    for (const [sx, m] of [[-1, this.redL], [1, this.blueL]]) for (const k of [0.16, 0.38]) add(new THREE.BoxGeometry(0.18, 0.1, 0.22), m, sx * k, 2.4, 0.2);
+    add(new THREE.CylinderGeometry(0.06, 0.12, 0.2, 10).rotateX(Math.PI / 2), std('#d4d8dc', { metalness: 0.8, roughness: 0.25 }), 0.5, 2.4, 0.42); // the loudspeaker
+    this.siren = false; this.t = 0;
+  }
+  update(dt, speed, steer = 0, riding = false, night = 0) {
+    super.update(dt, speed, steer, riding, night);
+    this.t += dt;
+    if (this.siren) {
+      const c = (this.t * 2.2) % 1, a = c < 0.12 || (c > 0.2 && c < 0.32) ? 1 : 0, b = (c > 0.5 && c < 0.62) || (c > 0.7 && c < 0.82) ? 1 : 0;
+      this.redL.emissiveIntensity = 0.2 + a * (night ? 9 : 5); this.blueL.emissiveIntensity = 0.2 + b * (night ? 9 : 5);
+    } else { this.redL.emissiveIntensity = 0.2; this.blueL.emissiveIntensity = 0.2; }
+  }
+}
+
 // ---------------- a bus or jeep taken over from the road ----------------
 // The traffic vehicle (and anyone still riding in it) is moved inside a new root whose origin is the driver's
 // seat, which is where the boy sits on every vehicle he drives.
@@ -1041,6 +1083,8 @@ export class TakenVehicle {
     this.exhaust = V(-d.x + veh.half * 0.6, 0.35, -d.z - veh.len / 2 - 0.05);
     this.brake = false;
   }
+  get siren() { return !!this.veh.siren; }
+  set siren(v) { if ('siren' in this.veh) this.veh.siren = v; }
   foot(side, out) { return out.set(side * 0.16, this.L.saddle.y - 0.5, 0.5); }
   update(dt, speed, steer = 0, riding = false, night = 0) {
     this.veh.update(dt, speed, steer, riding, night);

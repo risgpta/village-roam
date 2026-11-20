@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { noise2, clamp } from './noise.js';
 import {
-  isFree, fieldType, trackDist, TANK, TRACKS, CANAL, canalDist, roadX, groundHeight, resolveCollisions, pushOut, colliders, forColliders, NP, MP, heightAt, riverDist, WATER_Y, WATER, PLAY_RADIUS, layout, regionName, WF, RIVER_HALF, MARKET, TEA, tunnelAt, LID_W, TRACK_Y,
+  isFree, fieldType, trackDist, TANK, TRACKS, CANAL, canalDist, roadX, groundHeight, resolveCollisions, pushOut, colliders, forColliders, NP, MP, heightAt, riverDist, WATER_Y, WATER, PLAY_RADIUS, layout, regionName, WF, RIVER_HALF, MARKET, TEA, tunnelAt, LID_W, TRACK_Y, CRICKET, localToWorld,
 } from './world.js';
 import { buildTerrain, buildGrassData } from './terrain.js';
 import { startBakes } from './bakepool.js';
@@ -22,7 +22,10 @@ import { buildAnimals } from './animals.js';
 import { LanternLights } from './gear.js';
 import { Boy } from './boy.js';
 import { Bicycle, Moped } from './bicycle.js';
-import { AutoRickshaw, RowBoat, Scooter, SmallCar, MiniBus, ERickshaw, TakenVehicle } from './vehicles.js';
+import { AutoRickshaw, RowBoat, Scooter, SmallCar, MiniBus, ERickshaw, TakenVehicle, PoliceJeep } from './vehicles.js';
+import { buildGoodsYards } from './goods.js';
+import { buildWorkers } from './workers.js';
+import { buildPostcards } from './postcards.js';
 import { buildMela } from './mela.js';
 import { Plane, Flight, buildAirstrip } from './plane.js';
 import { Helicopter, HeliFlight, buildHelipad } from './heli.js';
@@ -157,6 +160,7 @@ function setTimeOfDay(t, say = true) {
 function setWeatherChoice(c, say = true) {
   clock.wxChoice = clock.wxWant = c;
   $('wx').value = c;
+  for (const b of document.querySelectorAll('#wxbar button')) b.classList.toggle('on', b.dataset.wx === c);
   if (say) toast(WEATHERS[c].name);
 }
 function tickClock(dt) {
@@ -260,6 +264,7 @@ function applyMoment(p, night, dusky) {
   // weather & time-of-day touches: umbrellas in the rain, lanterns after dark, animals bedding down
   gearMode = rainy ? 'umbrella' : night ? 'lantern' : 'none';
   if (people) people.setWeather({ rain: rainy, night });
+  workers?.setNight(night);
   site?.setWeather({ rain: rainy, night }); kites?.setWeather({ rain: rainy, night }); mela?.setWeather({ rain: rainy, night });
   boy.setGear(gearMode);
   if (animals) animals.setNight(night);
@@ -513,6 +518,7 @@ let boostFx = 0;
 const drive = { v: 0, steer: 0, brake: false };
 let passengers = null;
 let site = null, kites = null, mela = null;
+let goodsYards = null, workers = null, postcards = null, cricket = null;
 const nitro = { fuel: 1, on: false, locked: false };
 const flames = new Puffs({ max: 160, color: '#9fd0ff', dark: '#ff7a1a', opacity: 0.9, additive: true, buoyancy: 0.3, drag: 3 });
 scene.add(flames.mesh);
@@ -648,12 +654,12 @@ function reachOf(v) {
   return { fr: 0.9, bk: -0.9, w: 0.25 };
 }
 // how steep a slope each kind can climb (rise over run)
-const CLIMB = { cart: 0.32, bus: 0.38, minibus: 0.4, erick: 0.38, auto: 0.45, car: 0.5, jeep: 0.65, bicycle: 0.42, moped: 0.6, scooter: 0.55 };
+const CLIMB = { police: 0.65, cart: 0.32, bus: 0.38, minibus: 0.4, erick: 0.38, auto: 0.45, car: 0.5, jeep: 0.65, bicycle: 0.42, moped: 0.6, scooter: 0.55 };
 function hornFor(v) {
   if (v.siren) {
     v.obj.siren = !v.obj.siren;
     audio.setSiren(v.name, v.obj.siren);
-    if (v.obj.siren) { makeWay(); if (v.name === 'firetruck') audio.bell(0.7); toast(v.name === 'ambulance' ? 'Siren on — make way! 🚑' : 'Siren on — the fire tender is coming through! 🚒'); }
+    if (v.obj.siren) { makeWay(); if (v.name === 'firetruck') audio.bell(0.7); toast(v.name === 'ambulance' ? 'Siren on — make way! 🚑' : v.name === 'police' ? 'Siren on — police coming through! 🚓' : 'Siren on — the fire tender is coming through! 🚒'); }
     else toast('Siren off');
     return;
   }
@@ -693,6 +699,12 @@ TAKE_TPL.car = { walk: 12, run: 18, boost: 28, accel: 0.9, reach: 3.0, rad: 0.82
   four: true, wb: 2.05, rev: 4.5, probes: [-0.9, 0.15, 1.2], exit: [-1.2, 0], box: [0.33, 0.15, 0.8, 1.68],
   shapeOver: { half: [0.78, 0.7, 1.65], com: [0.33, 0.7, 0.15] },
   off: 'Out of the car', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['N', 'nitro'], ['L', 'lights']], ask: 'drive the car' };
+// the police jeep at each thana, ready to drive (B: siren and lights, and the traffic makes way)
+for (const B of layout.police ?? []) {
+  vehicles.push({ ...TAKE_TPL.jeep, name: 'police', obj: new TakenVehicle(new PoliceJeep()), park: { x: B.jeep.x, z: B.jeep.z, rot: B.jeep.rot }, siren: true, sound: 'jeep',
+    on: `The ${B.name} police jeep — B for the siren and lights`, off: 'Out of the police jeep', ask: 'drive the police jeep',
+    help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster'], ['B', 'siren on / off'], ['V', 'inside view'], ['L', 'lights'], ['E', 'get out']] });
+}
 const TAKE_NAME = { bicycle: 'bicycle', moped: 'motorbike', scooter: 'scooter', bus: 'bus', jeep: 'jeep', cart: 'bullock cart', car: 'car' };
 const TAKE_SHOUT = {
   bicycle: [['अरे! मेरी साइकिल!', 'Arey! Meri cycle!'], ['ओ भाई, साइकिल वापस लाना!', 'O bhai, cycle vaapas laana!']],
@@ -815,7 +827,7 @@ function updateRobbed(dt) {
 // a parked scooter shoved by the car falls on its side, the car hits a bus and stops dead, and anything
 // the train catches on the line is thrown clear — further and higher the faster the train is going.
 const crashes = new Crashes();
-const MASS = { bicycle: 60, moped: 130, scooter: 150, auto: 420, erick: 480, car: 900, jeep: 1800, minibus: 3600, bus: 7000, cart: 700, ambulance: 2600, firetruck: 9000 };
+const MASS = { police: 1800, bicycle: 60, moped: 130, scooter: 150, auto: 420, erick: 480, car: 900, jeep: 1800, minibus: 3600, bus: 7000, cart: 700, ambulance: 2600, firetruck: 9000 };
 const UPV = new THREE.Vector3(0, 1, 0);
 function obbDist(x, z, b) {
   const dx = x - b.x, dz = z - b.z, c = Math.cos(b.rot), sn = Math.sin(b.rot);
@@ -1142,6 +1154,7 @@ function sitDown(msg) {
   toast(msg ?? 'Sitting a while');
 }
 function standUp() {
+  if (sit.perch) { const P = sit.perch; player.x = P.x + Math.sin(P.face) * 0.9; player.z = P.z + Math.cos(P.face) * 0.9; player.y = groundHeight(player.x, player.z); sit.perch = null; }
   sit.on = false; sit.chai = 0; cup.visible = false;
   if (fishing.on) { fishing.on = false; fishRod.visible = false; if (fishing.n) toast(`Rod over the shoulder — ${fishing.n} fish today 🎣`); }
   document.body.classList.remove('sitting');
@@ -1154,11 +1167,22 @@ function updateSit(dt) {
   sit.chai = Math.max(0, sit.chai - dt);
   cup.visible = sit.chai > 0;
   if (fishing.on) fishTick(dt);
-  player.y = groundHeight(player.x, player.z, player.y); player.speed = 0;
-  boy.root.position.set(player.x, player.y, player.z);
-  boy.root.rotation.set(0, player.facing, 0);
-  boy.setGear('none');
-  boy.sit(dt, sit.chai > 0);
+  player.speed = 0;
+  if (sit.perch) {
+    // perched on the bench: feet hanging, the cup coming up to the lips now and then
+    const P = sit.perch;
+    boy.root.position.set(P.x, P.y, P.z);
+    boy.root.rotation.set(0, P.face, 0);
+    player.x = P.x; player.z = P.z; player.y = P.y - 0.38; player.facing = P.face;
+    boy.setGear('none');
+    boy.sit(dt, sit.chai > 0, true);
+  } else {
+    player.y = groundHeight(player.x, player.z, player.y);
+    boy.root.position.set(player.x, player.y, player.z);
+    boy.root.rotation.set(0, player.facing, 0);
+    boy.setGear('none');
+    boy.sit(dt, sit.chai > 0);
+  }
   if (!dragging && performance.now() - autoYaw > 3500) yaw += dt * 0.03; // the view drifts slowly round him
   for (const v of vehicles) if (!v.water) v.obj.update(dt, 0, 0, false, 0);
   flames.update(dt); dust.update(dt); mopedSmoke.update(dt); swim.splash.update(dt);
@@ -1208,7 +1232,12 @@ function haveChai() {
   if (wallet() >= 10) { purse.spent += 10; toast('A hot cup of chai ☕ · ₹10'); }
   else toast('“Pay me later, beta” — a hot cup of chai ☕');
   audio.tink(0.5);
+  // up onto the customers' bench, between the two regulars, facing the stall
+  const seat = localToWorld(TEA, 0, 2.55);
   sitDown('');
+  if (!sit.on) return;
+  sit.perch = { x: seat.x, z: seat.z, y: groundHeight(seat.x, seat.z) + 0.38, face: TEA.rot + Math.PI };
+  player.facing = sit.perch.face;
   sit.chai = 40;
 }
 // ---- fishing from the bank: sit with a rod; now and then the float bobs under and something comes up
@@ -1301,6 +1330,7 @@ function nearAct() {
   }
   // fishing: from the canal's bank
   { const n = CANAL.path.near(px, pz); if (n && n.d > CANAL.half + 0.6 && n.d < CANAL.half + 3.4) { const q = CANAL.path.at(n.s); return { ask: 'sit and fish in the canal', run: () => startFishing(q.x, q.z, CANAL.level) }; } }
+  if (cricket && Math.hypot(px - CRICKET.x, pz - CRICKET.z) < 16 && !ATMO.night && !ATMO.rainy) return { ask: 'play gully cricket with the kids', run: startCricket };
   if (Math.hypot(px - TEA.x, pz - TEA.z) < 6.5) return { ask: wallet() >= 10 ? 'have a cup of chai · ₹10' : 'have a cup of chai', run: haveChai };
   const T = layout.temple;
   if (T && Math.hypot(px - T.x, pz - T.z) < 8) return { ask: 'ring the temple bell', run: () => { audio.bell(1); boy.greetT = 2.4; toast('The bell rings out over the village 🔔'); } };
@@ -1314,6 +1344,96 @@ function nearAct() {
       : { ask: 'scatter puffed rice for the fish (E again: fish)', run: () => { nearAct.fishNext = true; feedFish(); } };
   }
   return null;
+}
+
+// ---------------- gully cricket with the kids ----------------
+// E at the cricket ground: the boy takes the bat (the kid batsman goes out to field). Space swings as the ball
+// comes (time it just after it pitches), A / D place the shot; then he bowls — Space when the marker is in the
+// middle of the bar — and the kids chase his score. X swaps over, E leaves the game.
+let cricketOn = false;
+function startCricket() {
+  if (!cricket || cricketOn) return;
+  cricketOn = true; player.speed = 0;
+  cricket.start();
+  boy.setGear('none');
+  $('cricket').classList.add('show');
+  yaw = cricket.boy.face + Math.PI + 0.35; pitch = 0.22; targetDist = 6;
+}
+function stopCricket(say = false) {
+  if (!cricketOn) return;
+  cricketOn = false;
+  cricket.stop();
+  $('cricket').classList.remove('show');
+  if (say) toast(cricket.runs || cricket.kRuns ? `Stumps! You scored ${cricket.runs}; the kids ${cricket.kRuns}` : 'Back from the cricket ground');
+  boy.body.rotation.set(0, 0, 0);
+}
+function updateCricket(dt) {
+  const H = cricket, B = H.boy;
+  H.aim = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+  player.x = B.x; player.z = B.z; player.y = groundHeight(B.x, B.z); player.facing = B.face; player.speed = B.speed;
+  boy.root.position.set(B.x, player.y, B.z);
+  boy.root.rotation.set(0, B.face, 0);
+  boy.update(dt, B.speed, false, 0);
+  cricket.bat.visible = H.mode === 'bat';
+  // the batting stance and the swing; the bowling arm coming over
+  if (H.mode === 'bat') {
+    const s = B.swing >= 0 ? Math.min(1, B.swing / 0.3) : 0, k = Math.sin(s * Math.PI);
+    const [L, Rr] = boy.arms;
+    Rr.shoulder.rotation.set(-0.55 - k * 1.5, 0, -0.35 + s * 0.7); Rr.elbow.rotation.x = -0.45;
+    L.shoulder.rotation.set(-0.75 - k * 1.3, 0, 0.5); L.elbow.rotation.x = -0.6;
+    boy.torso.rotation.y = -0.45 + s * 1.4; boy.torso.rotation.x = 0.25;
+    for (const l of boy.legs) l.knee.rotation.x = 0.25;
+  } else if (H.mode === 'bowl' && B.bowl >= 0) {
+    const a = Math.min(1, B.bowl / 0.35);
+    boy.arms[1].shoulder.rotation.set(-0.5 - a * 3.6, 0, 0.1); boy.arms[1].elbow.rotation.x = -0.1;
+    boy.arms[0].shoulder.rotation.set(-1.4 + a * 1.2, 0, -0.2);
+    boy.torso.rotation.x = 0.1 + a * 0.4;
+  }
+  // the scoreboard
+  const sc = H.mode === 'bat' ? `You: <b>${H.runs}/${H.wkts}</b> <span>${Math.floor(H.balls / 6)}.${H.balls % 6} ov</span>` : `You made <b>${H.runs}</b> · Kids: <b>${H.kRuns}/${H.kWkts}</b> <span>${Math.floor(H.kBalls / 6)}.${H.kBalls % 6} ov · need ${Math.max(0, H.runs + 1 - H.kRuns)}</span>`;
+  if ($('ck-score').dataset.v !== sc) { $('ck-score').innerHTML = sc; $('ck-score').dataset.v = sc; }
+  const hint = H.mode === 'bat' ? '<kbd>Space</kbd> swing as it pitches · <kbd>A</kbd><kbd>D</kbd> place the shot · <kbd>X</kbd> bowl instead · <kbd>E</kbd> stop' : '<kbd>Space</kbd> bowl when the marker is in the middle · <kbd>X</kbd> bat instead · <kbd>E</kbd> stop';
+  if ($('ck-hint').dataset.v !== hint) { $('ck-hint').innerHTML = hint; $('ck-hint').dataset.v = hint; }
+  $('ck-meter').classList.toggle('show', H.mode === 'bowl' && H.phase === 'wait' && !H.go);
+  $('ck-mark').style.left = `${50 + H.meter * 46}%`;
+  $('ridehud').classList.remove('show');
+  $('prompt').classList.remove('show');
+}
+
+// ---------------- sharing a spot ----------------
+// K copies a link to exactly this view — where the boy stands, which way the camera looks, the hour, the weather
+// and the season — so a friend opening it starts right here. (Nothing is stored anywhere: it's all in the link.)
+function shareSpot() {
+  const q = new URLSearchParams();
+  q.set('at', `${Math.round(player.x)},${Math.round(player.z)},${player.facing.toFixed(2)}`);
+  q.set('cam', `${yaw.toFixed(2)},${pitch.toFixed(2)}`);
+  q.set('h', clock.hour.toFixed(2));
+  if (clock.dark) q.set('dark', '1');
+  if (clock.wxChoice !== 'clear') q.set('wx', clock.wxChoice);
+  q.set('s', season);
+  const url = `${location.origin}${location.pathname}?${q}`;
+  const done = () => toast('🔗 Link to this spot copied — share it!');
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(done, () => window.prompt('Copy this link:', url));
+  else window.prompt('Copy this link:', url);
+  history.replaceState(null, '', `?${q}`);
+}
+// a shared link: start where it says, at its hour, in its weather and season
+function applySharedLink() {
+  const q = new URLSearchParams(location.search);
+  const at = q.get('at')?.split(',').map(Number);
+  if (at && at.length >= 2 && at.every(Number.isFinite) && Math.hypot(at[0], at[1]) < PLAY_RADIUS) {
+    player.x = at[0]; player.z = at[1]; player.facing = at[2] ?? 0;
+    resolveCollisions(player, 0.4, groundHeight(player.x, player.z));
+    player.y = groundHeight(player.x, player.z);
+  }
+  const cam = q.get('cam')?.split(',').map(Number);
+  if (cam && cam.every(Number.isFinite)) { yaw = cam[0]; pitch = clamp(cam[1], -0.4, 1.2); }
+  const h = Number(q.get('h'));
+  if (q.has('h') && Number.isFinite(h)) { clock.hour = ((h % 24) + 24) % 24; clock.dark = q.get('dark') === '1'; clock.envT = 0; }
+  const wx = q.get('wx');
+  if (wx && WEATHERS[wx]) { setWeatherChoice(wx, false); clock.wx = wx; clock.wxW = 1; }
+  const se = q.get('s');
+  if (se && SEASONS[se] && se !== season) { season = se; applySeason(); }
 }
 
 // ---------------- riding the train as a passenger ----------------
@@ -1454,6 +1574,7 @@ async function build() {
     if (d < 500) audio.horn(clamp(1 - d / 480, 0.15, 1));
     if (type === 'arrive' && d < 60 && !drv && !ride) queueToast('Train standing at the platform — walk up to the engine cab and press E to drive it!');
   };
+  goodsYards = buildGoodsYards(scene, train);
   // the crossing bell: a quick ding-ding while the barriers are down
   train.onCrossingBell = (X, closed) => { X.bellT = closed ? 0 : -1; };
   train.onEmerge = () => {
@@ -1482,8 +1603,19 @@ async function build() {
       return Math.abs(dx * c - dz * sn) < 6 && Math.abs(dx * sn + dz * c) < b.hd + 30;
     }),
     obstacles: () => vehicles.filter((v) => v !== ride && !v.water && !v.crash).map((v) => { const sh = parkedShape(v); return { x: sh.x, z: sh.z, r: (v.box ? Math.max(v.box[2], v.box[3]) : v.rad) + 0.3 }; }),
+    onCricket: (kind, text) => { if (!cricketOn) return; $('ck-msg').textContent = text; $('ck-msg').classList.remove('pop'); void $('ck-msg').offsetWidth; $('ck-msg').classList.add('pop'); if (kind === 'boundary' || kind === 'wicket' || kind === 'result') audio.tink(0.7); if (kind === 'stop') stopCricket(); },
+    onStumps: (d) => { audio.tock(clamp(1 - d / 40, 0, 1)); setTimeout(() => audio.tock(clamp(1 - d / 40, 0, 1) * 0.7), 90); },
     onBat: (d) => { audio.tock(clamp(1 - d / 60, 0, 1)); if (d < 35 && Math.random() < 0.5) { const [hi, ro] = pick([['चौका!', 'Chauka!'], ['शाबाश!', 'Shaabaash!'], ['भागो!', 'Bhaago!']]); setTimeout(() => audio.say(hi, { roman: ro, pitch: 1.9, rate: 1.2, volume: 1 - d / 40 }), 250); } },
   });
+  workers = buildWorkers(scene, { onThwack: (d) => audio.tock(clamp(1 - d / 60, 0, 1) * 0.5) });
+  postcards = buildPostcards(scene, {
+    onCollect: (s, got, n) => {
+      toast(got === n ? `📮 The last postcard — ${s.title}! You've seen the whole country 🎉` : `📮 Postcard ${got} of ${n} — ${s.title}`);
+      audio.tink(0.6); setTimeout(() => audio.tink(0.8), 180); setTimeout(() => audio.tink(1), 360);
+    },
+  });
+  cricket = people.cricket;
+  if (cricket) { boy.arms[1].hand.add(cricket.bat); cricket.bat.visible = false; }
   // every vehicle's fixed parts merged material by material (moving parts and gauges are left alone)
   for (const v of vehicles) if (!v.fly && !v.water) consolidate(v.obj.root); // (the plane, helicopter and boat move their own parts)
   for (const v of vehicles) parkVehicle(v, v.park.x, v.park.z, v.park.rot);
@@ -1552,6 +1684,7 @@ async function build() {
   scene.add(grass);
   map = new MapUI(bakes.map); // the map fills in by itself once its bake is done
   applySeason(true);
+  applySharedLink();
   {
     // grain on every plain surface — walls, wood, tin, and the weave of people's clothes (skin is left smooth)
     if (REAL) addSurfaceGrain(scene);
@@ -1598,6 +1731,15 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.code === 'KeyM') toggleMute();
   if (e.code === 'KeyU' && !e.repeat) toggleFullscreen();
+  if (e.code === 'KeyO' && !e.repeat && postcards) { postcards.toggle(); return; }
+  if (e.code === 'Escape' && postcards?.open) { postcards.toggle(false); return; }
+  if (e.code === 'KeyK' && !e.repeat && !(ride && ride.fly)) shareSpot();
+  if (cricketOn) {
+    if (e.code === 'Space' && !e.repeat) cricket.action();
+    if (e.code === 'KeyX' && !e.repeat) cricket.swap();
+    if ((e.code === 'KeyE' || e.code === 'KeyQ' || e.code === 'Escape') && !e.repeat) stopCricket(true);
+    return;
+  }
   if (e.code === 'KeyE' && !e.repeat) {
     if (sit.on) standUp();
     else if (pax) leaveTrain();
@@ -1677,6 +1819,20 @@ for (const ev of ['fullscreenchange', 'webkitfullscreenchange']) document.addEve
 });
 for (const t of TIMES) $('atmo').add(new Option(t.name, t.key));
 for (const [k, w] of Object.entries(WEATHERS)) $('wx').add(new Option(w.name, k));
+$('pc-count').addEventListener('click', (e) => { e.stopPropagation(); postcards?.toggle(); });
+$('al-close').addEventListener('click', (e) => { e.stopPropagation(); postcards?.toggle(false); });
+$('album').addEventListener('click', (e) => { if (e.target === $('album')) postcards?.toggle(false); });
+$('sharebtn').addEventListener('click', (e) => { e.stopPropagation(); if (started) shareSpot(); $('sharebtn').blur(); });
+// the weather switches: one button per weather, always to hand along the top of the screen
+{
+  const ICON = { clear: '☀️', windy: '🌬️', mist: '🌫️', overcast: '☁️', drizzle: '🌦️', rain: '🌧️', monsoon: '⛈️', storm: '🌩️' };
+  for (const [k, w] of Object.entries(WEATHERS)) {
+    const b = document.createElement('button');
+    b.dataset.wx = k; b.title = w.name; b.textContent = ICON[k] ?? '•';
+    b.addEventListener('click', (e) => { e.stopPropagation(); setWeatherChoice(k); b.blur(); });
+    $('wxbar').append(b);
+  }
+}
 $('wx').addEventListener('change', (e) => { setWeatherChoice(e.target.value); e.target.blur(); });
 for (const [k, v] of Object.entries(SEASONS)) $('season').add(new Option(v.name.split(' — ')[0], k));
 $('season').addEventListener('change', (e) => { season = e.target.value; applySeason(); e.target.blur(); });
@@ -1760,6 +1916,7 @@ function updatePlayer(dt) {
   if (drv) { updateTrainDrive(dt); return; }
   if (pax) { updatePassenger(dt); return; }
   if (sit.on) { updateSit(dt); return; }
+  if (cricketOn) { updateCricket(dt); return; }
   if (ride && ride.fly) { if (ride.heli) updateHeli(dt); else updateFlight(dt); return; }
   $('tunnel').classList.remove('show');
   if (planeSound) { planeSound = false; audio.setPlane(false); audio.setHeli(false, 0); }
@@ -2846,6 +3003,12 @@ function trainBrakes(dt) {
   }
   audio.setTrainBrake(lvl, sp);
 }
+// moving things worth following on the map: the shrine bus, the police patrol (and any other with an icon)
+function liveMarks() {
+  const out = [];
+  for (const t of people?.travellers.list ?? []) if (t.icon && !t.taken && !(t.hold > 0) && !t.crash) out.push({ x: t.p.x, z: t.p.z, icon: t.icon, label: t.label });
+  return out;
+}
 function mapTrains() {
   const out = [];
   for (const tr of train.trains) {
@@ -2925,6 +3088,7 @@ function frame(now) {
     if (X.bellT <= 0) { X.bellT = 0.45; const d = Math.hypot(player.x - X.cx, player.z - X.cz); if (d < 90) audio.tink(clamp(1 - d / 90, 0.1, 1) * 0.8); }
   }
   stations?.update(dt, player, !!ATMO.night);
+  goodsYards?.update(dt, player);
   mark('stations');
   updatePlayer(dt);
   mark('player');
@@ -2958,6 +3122,7 @@ function frame(now) {
   updateStorm(dt);
   if (started) villageVoices(dt);
   mark('wild/farm/etc');
+  if (started) { map.live = liveMarks(); map.cards = postcards?.marks(); }
   if (started) map.update(player, yaw, vehicles.map((v) => ({ name: v.name, x: v === ride ? player.x : v.park.x, z: v === ride ? player.z : v.park.z, ridden: v === ride })), mapTrains());
   mark('map');
   flocks.update(time, dt, player);
@@ -2965,6 +3130,8 @@ function frame(now) {
   herds?.update(dt, player);
   buffs?.update(dt, player, time);
   hamlets?.update(dt, player);
+  workers?.update(dt, player, time);
+  if (started) postcards?.update(dt, player, time, !!ride);
   shops?.update(dt, player);
   shrineLife?.update(dt, player);
   trackside?.update(dt, player, !!ATMO.night);
@@ -3057,6 +3224,7 @@ function frame(now) {
   mark('render');
   dyn.cpu += (performance.now() - cpu0 - dyn.cpu) * 0.05;
   if (wantShot) { wantShot = false; postcard(); }
+  if (postcards?.wantGrab) postcards.grab(renderer.domElement);
 }
 // P: a postcard of what the boy is looking at, with the place and the hour written along the bottom
 let wantShot = false;
@@ -3162,6 +3330,9 @@ window.__gaon = {
   knock,
   get inside() { return inside; }, set inside(v) { inside = v; },
   get scanHide() { return [terrainObj, grass, river, waterfall && waterfall.group].filter(Boolean); },
+  get postcards() { return postcards; }, get cricket() { return cricket; }, get workers() { return workers; }, get goodsYards() { return goodsYards; },
+  startCricket, stopCricket, shareSpot, haveChai, liveMarks, map: () => map,
+  begin() { started = true; audio.start(); applySound(); document.body.classList.add('started'); },
 };
 
 build();

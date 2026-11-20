@@ -59,7 +59,7 @@ RBRIDGE.rot = Math.atan(riverSlope(RBRIDGE.z));
 export const desertMask = (x, z) => 1 - smoothstep(55, 95, Math.hypot(x - RV.x, z - RV.z));
 // two more bridges, and two more villages across the river: Banglagram (Bengal) and Thennoor (Tamil Nadu)
 const mkBridge = (z) => ({ z, x: riverX(z), rot: Math.atan(riverSlope(z)) });
-export const BRIDGES = [RBRIDGE, mkBridge(-215), mkBridge(298)];
+export const BRIDGES = [RBRIDGE, mkBridge(-215), mkBridge(298), mkBridge(1600)]; // (the last: the far north road, Dhaniyapur to Kheri Kalan)
 export const BV = warp(235, -238); // Bengal
 export const TV = warp(205, 345); // Tamil
 BV.pond = { x: BV.x + 2, z: BV.z + 22, r: 9 };
@@ -93,7 +93,7 @@ TEA.x = roadX(TEA.z) + 5.8;
 // u = distance downstream (toward the river, -x), v = across (+z).
 export const WF = (() => {
   const z = -950, rx = riverX(z);
-  const F = { x: rx + 110, z, H: 42, yPool: 2.4 };
+  const F = { x: rx + 110, z, H: 68, yPool: 2.4 };
   F.lipX = F.x + 4.5;
   F.lipY = F.yPool + F.H;
   F.Lr = F.x - (rx + RIVER_HALF + 1); // the run of the stream from the pool to the river
@@ -102,11 +102,12 @@ export const WF = (() => {
 export const fallsMeander = (u) => Math.sin(u * 0.06) * 4 * smoothstep(8, 30, u);
 export const fallsFloor = (u, av = 0) => WF.yPool + 0.5 + (WATER_Y + 0.6 - WF.yPool - 0.5) * Math.max(0, Math.min(1, u / WF.Lr)) + Math.max(0, av - 6) * 0.16;
 function fallsHeight(x, z, h) {
-  if (x < WF.x - WF.Lr - 5 || x > WF.x + 105 || z < WF.z - 80 || z > WF.z + 80) return h;
+  if (x < WF.x - WF.Lr - 5 || x > WF.x + 195 || z < WF.z - 110 || z > WF.z + 110) return h;
   const u = WF.x - x, v = z - WF.z, av = Math.abs(v);
-  // the rock shelf above the falls, with a sheer edge
-  const hp = WF.lipY + noise2(x * 0.05, z * 0.05) * 0.8 + Math.max(0, -u - 20) * 0.08;
-  const wP = (1 - smoothstep(28, 58, av)) * smoothstep(-1.2, -4.5, u) * (1 - smoothstep(-70, -100, u));
+  // the rock shelf above the falls, with a sheer edge: a high escarpment that runs off to either side and
+  // rises on behind into a wooded shoulder of hill, so the drop reads as part of the land, not a lone tower
+  const hp = WF.lipY + noise2(x * 0.05, z * 0.05) * 1.2 + Math.max(0, -u - 20) * 0.1 - Math.max(0, av - 30) * 0.22;
+  const wP = (1 - smoothstep(30, 105, av)) * smoothstep(-1.2, -4.5, u) * (1 - smoothstep(-95, -190, u));
   h = lerp(h, Math.max(h, hp), wP);
   // the gorge: a floor falling gently toward the river, its walls rising to the hills on either side
   const fl = fallsFloor(u, av) + noise2(x * 0.08, z * 0.08) * 0.35;
@@ -123,9 +124,9 @@ function fallsHeight(x, z, h) {
 }
 // bare rock: the cliff face either side of the falls and the steep walls of the gorge just below them
 export function fallsRock(x, z) {
-  if (x < WF.x - 40 || x > WF.x + 12 || z < WF.z - 50 || z > WF.z + 50) return 0;
+  if (x < WF.x - 40 || x > WF.x + 14 || z < WF.z - 95 || z > WF.z + 95) return 0;
   const u = WF.x - x, av = Math.abs(z - WF.z);
-  const face = smoothstep(-8, -5.5, u) * (1 - smoothstep(0.5, 3, u)) * (1 - smoothstep(26, 40, av));
+  const face = smoothstep(-10, -5.5, u) * (1 - smoothstep(0.5, 3, u)) * (1 - smoothstep(70, 92, av));
   const walls = smoothstep(9, 15, av) * (1 - smoothstep(30, 44, av)) * smoothstep(-6, -2, u) * (1 - smoothstep(14, 32, u));
   return Math.max(face, walls * 0.85) * (0.75 + 0.25 * noise2(x * 0.3, z * 0.3));
 }
@@ -354,6 +355,19 @@ const BRANCH_PTS = (() => {
   for (let r = rQ + 2; r <= rE; r += 2) o.push(pol(thE, r));
   return o;
 })();
+// The Dhaniyapur–Kheri Kalan line: from a bay platform beside the outer line's Dhaniyapur station (outside it,
+// away from the village), on round the far north of the country by itself — over the little river and then the
+// big one on girder bridges — and past the end of the canal to a terminus by Kheri Kalan. A train runs to and fro.
+const DK_PTS = (() => {
+  const pol = (th, r) => ({ x: Math.cos(th) * r, z: Math.sin(th) * r });
+  const rA = (th) => OUTER_R(th) + 13, cw = (th) => ({ x: Math.sin(th), z: -Math.cos(th) }); // (heading clockwise)
+  const o = [];
+  const th0 = 2.075, thA = 0.95, thB = 0.63, rK = 2645, thE = 0.5;
+  for (let th = th0; th > thA; th -= 2 / rA(th)) o.push(pol(th, rA(th)));
+  o.push(...bez(pol(thA, rA(thA)), cw(thA), pol(thB, rK), cw(thB), 2));
+  for (let th = thB - 2 / rK; th > thE; th -= 2 / rK) o.push(pol(th, rK));
+  return o;
+})();
 // where roads cross the canal: earth causeways over culverts, with low concrete parapets
 CANAL.crossings = [-0.16, 0.12, 0.5].map((th) => { const r = CANAL.Rc(th); return CANAL.path.sOf(Math.cos(th) * r, Math.sin(th) * r); });
 // the valleys the station lines and the ring run along: a coarse distance field, stamped once
@@ -366,7 +380,7 @@ const FLATD = (() => {
       const dd = Math.hypot(i * C - H - p.x, j * C - H - p.z); if (dd < d[j * n + i]) d[j * n + i] = dd;
     }
   };
-  for (const P of [MAIN_PTS, LINE3_PTS, RING_PTS, OUTER_PTS, BRANCH_PTS]) for (let k = 0; k < P.length; k += 2) stamp(P[k]);
+  for (const P of [MAIN_PTS, LINE3_PTS, RING_PTS, OUTER_PTS, BRANCH_PTS, DK_PTS]) for (let k = 0; k < P.length; k += 2) stamp(P[k]);
   return (x, z) => {
     const fx = (x + H) / C, fz = (z + H) / C, i = Math.floor(fx), j = Math.floor(fz);
     if (i < 0 || j < 0 || i >= n - 1 || j >= n - 1) return 999;
@@ -601,7 +615,8 @@ export const TRACK3 = Object.assign(makeTrack(P_LINE3, true), { z: trackZ3, slop
 export const RING = Object.assign(makeTrack(P_RING, false), { loop: true, name: 'ring' });
 export const TRACK5 = Object.assign(makeTrack(P_OUTER, true), { name: 'outer' });
 export const TRACK6 = Object.assign(makeTrack(makePath(BRANCH_PTS), true), { termini: true, name: 'nahar' });
-export const TRACKS = [TRACK, TRACK2, TRACK3, RING, TRACK5, TRACK6];
+export const TRACK7 = Object.assign(makeTrack(makePath(DK_PTS), true), { termini: true, name: 'dk' });
+export const TRACKS = [TRACK, TRACK2, TRACK3, RING, TRACK5, TRACK6, TRACK7];
 // The route a driven train can take: its own line, and at each end on round the ring through the junction
 // (a whole loop each way), so the boy can run through onto the ring line and on to its stations. The line's
 // own stretch sits at s = off .. off + its length.
@@ -644,6 +659,12 @@ RING.halts = [
     { s: P.L - 68, name: 'Naharpur', hi: 'नहरपुर', side: 1, L: 110, village: NH },
   ];
 }
+// the far north line: its bay at Dhaniyapur (platform on the outside, across the outer line from the village's
+// own station), and the terminus at Kheri Kalan (platform on the village side)
+TRACK7.halts = [
+  { s: 66, name: 'Dhaniyapur', hi: 'धनियापुर', side: 1, L: 110 },
+  { s: TRACK7.path.L - 66, name: 'Kheri Kalan', hi: 'खेड़ी कलां', side: -1, L: 110, village: NEWV.find((v) => v.name === 'Kheri Kalan') },
+];
 // the outer line's stations, one at each of its villages (platforms on the inside, toward the village)
 TRACK5.halts = NEWV.filter((v) => v.outer).map((v) => { const p = outerPt(v.th); return { s: P_OUTER.sOf(p.x, p.z), name: v.name, hi: v.hi, side: 1, L: 110, village: v }; });
 // The outer trains run a loop: out along the outer line, back into the ring, and round it (the same way as
@@ -1031,6 +1052,49 @@ gx = riverX(gz) - RIVER_HALF - 3;
 gz = pathZ(gx);
 export const GHAT = { x: gx, z: gz, rot: Math.atan(riverSlope(gz)) };
 
+// Roads meet the railway square on, the way real level crossings are laid out: wherever a road would cross an
+// open stretch of line at a slant, it swings round to cross at right angles (a short straight run either side),
+// so no road ever runs along the rails or gets a skewed crossing with its gates half across the track. The
+// points are changed in place, so the traffic driving a route follows exactly the road that was laid.
+function firstCrossing(a, b) {
+  const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (L < 1) return null;
+  const dx = (b[0] - a[0]) / L, dz = (b[1] - a[1]) / L;
+  for (let d = 0.5; d <= L; d += 0.5) {
+    const x = a[0] + dx * d, z = a[1] + dz * d;
+    for (const T of TRACKS) {
+      const n = T.path.near(x, z);
+      if (!n || n.d > 0.5 || !T.openS(n.s) || T.bridgeS(n.s)) continue;
+      const q = T.path.at(n.s);
+      return { x: q.x, z: q.z, tx: q.tx, tz: q.tz, sin: Math.abs(dx * q.tz - dz * q.tx) };
+    }
+  }
+  return null;
+}
+export function squareCrossings(pts, k = 16) {
+  if (pts.squared) return pts;
+  const out = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    let a = out[out.length - 1];
+    const b = pts[i];
+    for (let guard = 0; guard < 4; guard++) {
+      const c = firstCrossing(a, b);
+      if (!c || c.sin > 0.82) break;
+      const nx = -c.tz, nz = c.tx;
+      const da = (a[0] - c.x) * nx + (a[1] - c.z) * nz, db = (b[0] - c.x) * nx + (b[1] - c.z) * nz;
+      const sa = Math.sign(da) || -Math.sign(db) || 1;
+      const ka = Math.max(5, Math.min(k, Math.abs(da))), kb = Math.max(5, Math.min(k, Math.abs(db)));
+      const p1 = [c.x + nx * sa * ka, c.z + nz * sa * ka], p2 = [c.x - nx * sa * kb, c.z - nz * sa * kb];
+      out.push(p1, p2);
+      a = p2;
+    }
+    out.push(b);
+  }
+  pts.splice(0, pts.length, ...out);
+  pts.squared = true;
+  return pts;
+}
+
 export const layout = {
   houses: [], trees: [], palms: [], bushes: [], rocks: [], haystacks: [], cows: [],
   pots: [], charpais: [], tulsis: [], woodpiles: [], banyan: null, temple: null, well: null, cart: null,
@@ -1054,7 +1118,7 @@ export const layout = {
   addLane(roadX(FOOT.z) + 2, FOOT.z, fW.x, fW.z); // to the footbridge
   addLane(fE.x, fE.z, EH.x - 6, EH.z - 4); // footbridge to the east hamlet
   // country roads beyond the villages
-  const road = (pts, w = 2.6) => { for (let i = 0; i < pts.length - 1; i++) addLane(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], w); };
+  const road = (pts, w = 2.6) => { squareCrossings(pts); for (let i = 0; i < pts.length - 1; i++) addLane(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], w); };
   // west: from the main road past the sugarcane and round to Chhota Gaon
   road([[roadX(-62) - 2, -62], [-60, -64], [-130, -80], [-222, -79], [-238, 10], [-232, 95], [-206, 160], [NV.x - 14, NV.z - 2]]);
   // east: out of the village, over the new road bridge and on to Marudhar
@@ -1085,7 +1149,7 @@ export const layout = {
   road([[BV.x + 14, BV.z + 6], [326, -181], [RV.x - 6, RV.z - 16]], 2.0);
   road([[RV.x - 6, RV.z + 16], [345, 345], [TV.x + 28, TV.z + 8], [TV.x + 12, TV.z]], 2.0);
   // south-west: a track from the crossing toward the tiger hills (with a warning on the map)
-  road([[CROSSING.x - 6, CROSSING.z - 10], [-90, -142], [-203, -298], [-317, -404]], 2.2);
+  road([[roadX(CROSSING.z - 30) - 2, CROSSING.z - 30], [-90, -162], [-203, -298], [-317, -404]], 2.2);
   // east past Marudhar over the hills to Noorpur
   road([[RV.x + 14, RV.z + 10], [560, 179], [690, 132], [821, 45], [NP.x - 18, NP.z]]);
   // north-west from the main road to Mariapur
@@ -1155,6 +1219,8 @@ export const layout = {
     WF.y = WF.yPool;
     // keep trees out of the pool, off the cliff edge and out of the stream; a trail down from the Banglagram road
     occupy(WF.x - 5, WF.z, 10);
+    // and nothing grows on the face of the escarpment either side of the falls, or right along its rim
+    for (let v = -96; v <= 96; v += 5) { occupy(WF.x + 1, WF.z + v, 7); occupy(WF.x + 8, WF.z + v, 4); }
     for (let u = -75; u <= -5; u += 6) occupy(WF.x - u, WF.z, 4);
     for (let u = 12; u <= WF.Lr; u += 6) occupy(WF.x - u, WF.z + fallsMeander(u), 4.5);
     // a rough trail from the road down to the viewpoint beside the pool
@@ -1311,6 +1377,45 @@ export const layout = {
     return h;
   };
   const okSpot = (x, z) => !fieldType(x, z) && trackDist(x, z) > 16 && laneDist(x, z) > 6 && riverDist(x, z) > RIVER_HALF + 12;
+  // A small village laid out the way real ones grow: a little open square (the chaupal) in the middle, and
+  // lanes running out of it — the main one along the way the road comes in, a cross lane at right angles — with
+  // the houses in rows on both sides of each lane, their doors to it. The lanes are real roads: the country
+  // roads come in at their ends (see trail below), and people walk them to and fro.
+  // ang: the main lane's heading (0 = +z). Returns the lane ends and the homes.
+  const villageLanes = (C, ang, o = {}) => {
+    const { main = 46, cross = 34, type = () => 'rect', sq = 12, block = [], gap = 12.5, back = 8.6, onHouse } = o;
+    const dx = Math.sin(ang), dz = Math.cos(ang);
+    const bad = (x, z) => fieldType(x, z) || trackDist(x, z) < 12 || riverDist(x, z) < RIVER_HALF + 6 || canalDist(x, z) < CANAL.half + 8 || tribDist(x, z) < TRIB.half + 6 || block.some((b) => Math.hypot(x - b.x, z - b.z) < b.r);
+    const ends = [], homes = [], arms = [];
+    for (const [ax, az, len0] of [[dx, dz, main], [-dx, -dz, main], [dz, -dx, cross], [-dz, dx, cross]]) {
+      if (len0 <= 0) continue;
+      let len = sq;
+      while (len < len0 && !bad(C.x + ax * (len + 3), C.z + az * (len + 3))) len += 3;
+      if (len < sq + 9) continue;
+      const b = [C.x + ax * len, C.z + az * len];
+      road([[C.x + ax * (sq - 2), C.z + az * (sq - 2)], b], 2.0);
+      ends.push(b);
+      arms.push([ax, az, len]);
+    }
+    for (const [ax, az, len] of arms) for (let u = sq + 6; u <= len - 1; u += gap) for (const sd of [-1, 1]) {
+      const uu = u + (R() - 0.5) * 1.6, bk = back + R() * 1.2;
+      const x = C.x + ax * uu + az * sd * bk, z = C.z + az * uu - ax * sd * bk;
+      if (bad(x, z) || trackDist(x, z) < 15 || !isFree(x, z, 5)) continue;
+      const lx = C.x + ax * uu, lz = C.z + az * uu;
+      const h = addHouse(x, z, Math.atan2(lx - x, lz - z) + (R() - 0.5) * 0.08, type());
+      onHouse?.(h);
+      homes.push(h);
+    }
+    return { ends, homes, arms };
+  };
+  layout.villageWalks = [];
+  // a walk for the folk going to and fro: from the end of one lane through the square to the end of another
+  const walkFor = (name, C, ends, extra = null) => {
+    if (ends.length < 2) return;
+    const pts = [ends[0], [C.x, C.z], ends[1]];
+    if (extra) pts.push(extra);
+    layout.villageWalks.push({ name, pts, x: C.x, z: C.z });
+  };
   for (const side of [-1, 1]) {
     for (let z = -100; z <= 160; z += 14 + R() * 5) {
       const type = R() < 0.62 ? 'rect' : 'round';
@@ -1439,13 +1544,7 @@ export const layout = {
   // East hamlet: a ring of homes around a little courtyard
   dirtCircles.push({ x: EH.x, z: EH.z, r: 13, s: 0.9 });
   occupy(EH.x, EH.z, 9);
-  for (let i = 0; i < 9; i++) {
-    const a = (i / 9) * Math.PI * 2 + 0.3;
-    const d = 16 + R() * 3;
-    const x = EH.x + Math.cos(a) * d, z = EH.z + Math.sin(a) * d;
-    if (!okSpot(x, z) || !isFree(x, z, 5.5)) continue;
-    addHouse(x, z, Math.atan2(EH.x - x, EH.z - z), R() < 0.55 ? 'round' : 'rect');
-  }
+  { const V = villageLanes(EH, Math.atan2(142 - EH.x, 120 - EH.z), { main: 36, cross: 26, type: () => (R() < 0.55 ? 'round' : 'rect') }); walkFor('Paar gaon', EH, V.ends); }
 
   // Marudhar: two rings of flat-roofed sandstone and Jodhpur-blue houses round the stepwell square
   {
@@ -1457,14 +1556,7 @@ export const layout = {
     RV.chhatri = { x: RV.x + 9, z: RV.z - 7 };
     colliders.push({ kind: 'c', ...RV.chhatri, r: 1.9 });
     occupy(RV.chhatri.x, RV.chhatri.z, 3);
-    for (const [ring, n, r0] of [[0, 9, 18], [1, 13, 31]]) for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + ring * 0.2;
-      const x = RV.x + Math.cos(a) * (r0 + R() * 2), z = RV.z + Math.sin(a) * (r0 + R() * 2);
-      if (Math.abs(z - RV.z) < 4 && x < RV.x) continue; // the road in
-      if (!isFree(x, z, 5)) continue;
-      const h = addHouse(x, z, Math.atan2(RV.x - x, RV.z - z), 'raj');
-      h.blue = R() < 0.45; h.storeys = R() < 0.35 ? 2 : 1;
-    }
+    { const V = villageLanes(RV, Math.PI / 2, { main: 50, cross: 42, type: () => 'raj', block: [{ ...RV.chhatri, r: 4 }], onHouse: (h) => { h.blue = R() < 0.45; h.storeys = R() < 0.35 ? 2 : 1; } }); walkFor('Marudhar', RV, V.ends); }
     // prickly-pear clumps and khejri trees on the sand around it
     layout.cacti = [];
     for (let i = 0; i < 70; i++) {
@@ -1489,14 +1581,7 @@ export const layout = {
     occupy(BV.temple.x, BV.temple.z, 6);
     colliders.push({ kind: 'b', ...BV.temple, hw: 2.6, hd: 2.6 });
     dirtCircles.push({ x: BV.temple.x, z: BV.temple.z, r: 6, s: 0.9 });
-    for (let i = 0; i < 14; i++) {
-      const a = (i / 14) * Math.PI * 2 + 0.2;
-      const r0 = 20 + (i % 2) * 9 + R() * 2;
-      const x = BV.x + Math.cos(a) * r0, z = BV.z + Math.sin(a) * r0;
-      if (Math.abs(z - BV.z) < 4 && x < BV.x) continue;
-      if (!isFree(x, z, 5)) continue;
-      addHouse(x, z, Math.atan2(BV.x - x, BV.z - z), 'bengal');
-    }
+    { const V = villageLanes(BV, Math.PI / 2, { main: 44, cross: 36, type: () => 'bengal', block: [{ ...BV.pond, r: 13 }, { ...BV.temple, r: 6 }] }); walkFor('Banglagram', BV, V.ends); }
     layout.bananas = [];
     for (let i = 0; i < 60; i++) {
       const a = R() * Math.PI * 2, d = 10 + R() * 50;
@@ -1557,14 +1642,7 @@ export const layout = {
     MH.wada = { x: MH.x + 6, z: MH.z + 22, rot: Math.PI };
     occupy(MH.wada.x, MH.wada.z, 9);
     for (const [lx, lz, hw, hd] of [[0, -4.4, 6, 0.4], [-5.6, 0, 0.4, 4.4], [5.6, 0, 0.4, 4.4], [3.5, 4.4, 2.5, 0.4], [-3.5, 4.4, 2.5, 0.4]]) colliders.push({ kind: 'b', ...rotPt(MH.wada, lx, lz), rot: MH.wada.rot, hw, hd });
-    for (let i = 0; i < 12; i++) {
-      const a = (i / 12) * Math.PI * 2 + 0.3;
-      const r0 = 20 + (i % 2) * 8 + R() * 2;
-      const x = MH.x + Math.cos(a) * r0, z = MH.z + Math.sin(a) * r0;
-      if (Math.abs(z - MH.z) < 4 && x > MH.x) continue;
-      if (!isFree(x, z, 5)) continue;
-      addHouse(x, z, Math.atan2(MH.x - x, MH.z - z), 'maha');
-    }
+    { const V = villageLanes(MH, Math.PI / 2, { main: 44, cross: 36, type: () => 'maha', block: [{ ...MH.temple, r: 9 }, { ...MH.wada, r: 10 }, { ...MH.deepmala, r: 3 }] }); walkFor('Vitthalwadi', MH, V.ends); }
   }
   // North-East: bamboo stilt houses on the slope, bamboo groves, and a terraced tea garden
   {
@@ -1572,14 +1650,7 @@ export const layout = {
     dirtCircles.push({ x: NE.x, z: NE.z, r: 11, s: 0.9 });
     occupy(NE.x, NE.z, 8);
     occupy((NE.tea.x0 + NE.tea.x1) / 2, (NE.tea.z0 + NE.tea.z1) / 2, 40);
-    for (let i = 0; i < 11; i++) {
-      const a = (i / 11) * Math.PI * 2 + 0.5;
-      const r0 = 17 + (i % 2) * 8 + R() * 2;
-      const x = NE.x + Math.cos(a) * r0, z = NE.z + Math.sin(a) * r0;
-      if (Math.abs(x - NE.x) < 4 && z > NE.z) continue;
-      if (!isFree(x, z, 4.5)) continue;
-      addHouse(x, z, Math.atan2(NE.x - x, NE.z - z), 'ne');
-    }
+    { const V = villageLanes(NE, 0, { main: 40, cross: 32, type: () => 'ne', block: [{ x: (NE.tea.x0 + NE.tea.x1) / 2, z: (NE.tea.z0 + NE.tea.z1) / 2, r: 42 }] }); walkFor('Bamboo Hill', NE, V.ends); }
     layout.bamboo = [];
     for (let i = 0; i < 24; i++) {
       const a = R() * Math.PI * 2, d = 32 + R() * 30;
@@ -1601,14 +1672,7 @@ export const layout = {
     occupy(PG.temple.x, PG.temple.z, 7);
     colliders.push({ kind: 'b', ...PG.temple, rot: 0, hw: 2.6, hd: 2.6 });
     dirtCircles.push({ x: PG.temple.x, z: PG.temple.z, r: 6, s: 0.9 });
-    for (let i = 0; i < 13; i++) {
-      const a = (i / 13) * Math.PI * 2 + 0.1;
-      const r0 = 17 + (i % 2) * 9 + R() * 2;
-      const x = PG.x + Math.cos(a) * r0, z = PG.z + Math.sin(a) * r0;
-      if (Math.abs(z - PG.z) < 4 && x > PG.x) continue;
-      if (!isFree(x, z, 5)) continue;
-      addHouse(x, z, Math.atan2(PG.x - x, PG.z - z), 'pahadi');
-    }
+    { const V = villageLanes(PG, Math.PI / 2, { main: 42, cross: 34, type: () => 'pahadi', block: [{ ...PG.temple, r: 7 }] }); walkFor('Pahadi Gaon', PG, V.ends); }
     layout.apples = [];
     for (let i = 0; i < 40; i++) {
       const a = R() * Math.PI * 2, d = 34 + R() * 30;
@@ -1644,22 +1708,7 @@ export const layout = {
     colliders.push({ kind: 'b', x: K.x + K.hw / 2 + 1, z: K.z + K.hd, rot: 0, hw: K.hw / 2 - 1, hd: 0.2 });
     K.graves = [];
     for (let i = 0; i < 6; i++) for (let j = 0; j < 4; j++) if (R() < 0.85) K.graves.push({ x: K.x - 8.5 + i * 3.3 + (R() - 0.5) * 0.4, z: K.z - 5.5 + j * 3.4, rot: (R() - 0.5) * 0.1, s: 0.8 + R() * 0.35, v: Math.floor(R() * 3) });
-    for (let i = 0; i < 14; i++) {
-      const a = (i / 14) * Math.PI * 2 + 0.2;
-      const r0 = 21 + (i % 2) * 8 + R() * 2;
-      const x = NP.x + Math.cos(a) * r0, z = NP.z + Math.sin(a) * r0;
-      if (Math.abs(z - NP.z) < 5 && x < NP.x) continue;
-      if (!isFree(x, z, 5)) continue;
-      addHouse(x, z, Math.atan2(NP.x - x, NP.z - z), 'noor');
-    }
-    for (let i = 0; i < 16; i++) {
-      const a = (i / 16) * Math.PI * 2 + 0.05;
-      const r0 = 37 + R() * 5;
-      const x = NP.x + Math.cos(a) * r0, z = NP.z + Math.sin(a) * r0;
-      if (Math.abs(z - NP.z) < 6 && x < NP.x) continue;
-      if (!isFree(x, z, 5)) continue;
-      addHouse(x, z, Math.atan2(NP.x - x, NP.z - z), 'noor');
-    }
+    { const V = villageLanes(NP, Math.PI / 2, { main: 56, cross: 44, gap: 11.5, type: () => 'noor', block: [{ ...NP.masjid, r: 14 }, { ...NP.kab, r: 17 }] }); walkFor('Noorpur', NP, V.ends); }
   }
   // Mariapur: pastel tiled-roof cottages, a whitewashed church with a bell tower, a cross in the square, a cemetery
   {
@@ -1682,22 +1731,7 @@ export const layout = {
     colliders.push({ kind: 'b', x: C.x, z: C.z - C.hd, rot: 0, hw: C.hw, hd: 0.2 });
     C.graves = [];
     for (let i = 0; i < 4; i++) for (let j = 0; j < 6; j++) if (R() < 0.85) C.graves.push({ x: C.x - 7 + i * 3.6 + (R() - 0.5) * 0.3, z: C.z - 6 + j * 2.5, rot: Math.PI / 2 + (R() - 0.5) * 0.08, s: 0.85 + R() * 0.3, v: Math.floor(R() * 3) });
-    for (let i = 0; i < 14; i++) {
-      const a = (i / 14) * Math.PI * 2 + 0.1;
-      const r0 = 20 + (i % 2) * 8 + R() * 2;
-      const x = MP.x + Math.cos(a) * r0, z = MP.z + Math.sin(a) * r0;
-      if (Math.abs(z - MP.z) < 5 && x > MP.x) continue;
-      if (!isFree(x, z, 5)) continue;
-      addHouse(x, z, Math.atan2(MP.x - x, MP.z - z), 'goan');
-    }
-    for (let i = 0; i < 16; i++) {
-      const a = (i / 16) * Math.PI * 2 + 0.05;
-      const r0 = 37 + R() * 5;
-      const x = MP.x + Math.cos(a) * r0, z = MP.z + Math.sin(a) * r0;
-      if (Math.abs(z - MP.z) < 6 && x > MP.x) continue;
-      if (!isFree(x, z, 5)) continue;
-      addHouse(x, z, Math.atan2(MP.x - x, MP.z - z), 'goan');
-    }
+    { const V = villageLanes(MP, Math.PI / 2, { main: 56, cross: 44, gap: 11.5, type: () => 'goan', block: [{ ...MP.church, r: 14 }, { ...MP.cem, r: 15 }] }); walkFor('Mariapur', MP, V.ends); }
   }
   // stations: keep each platform and station yard clear; Sonpur gets a little hamlet and a lane to Vitthalwadi
   for (const T of TRACKS) for (const h of T.halts) {
@@ -1726,32 +1760,39 @@ export const layout = {
     dirtCircles.push({ x: HC.x, z: HC.z, r: 11, s: 0.9 });
     occupy(HC.x, HC.z, 8);
     road([[Y.x, Y.z + 8], [HC.x + 8, HC.z - 6]], 2.0);
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2 + 0.4, d = 17 + R() * 3;
-      const x = HC.x + Math.cos(a) * d, z = HC.z + Math.sin(a) * d;
-      if (!isFree(x, z, 5.5)) continue;
-      addHouse(x, z, Math.atan2(HC.x - x, HC.z - z), R() < 0.5 ? 'round' : 'rect');
-    }
+    { const V = villageLanes(HC, Math.atan2(HC.x + 8 - Y.x, HC.z - 6 - Y.z - 8), { main: 34, cross: 24, type: () => (R() < 0.5 ? 'round' : 'rect') }); walkFor('Sonpur', HC, V.ends, [Y.x, Y.z + 8]); }
   }
   // the two new villages: Khetpura, a Punjabi farming village of brick and flat-roofed houses with haystacks
   // and cattle; Rannvas, a Kutchi village of round thatched huts and a few sandstone houses. Each has a lane
   // to its station on the ring and a country road in to the nearest village.
+  // where a road comes into a village laid out in lanes: the end of the lane nearest the way it comes from; and a
+  // route through a list of points and villages (each village: in at one lane end, through the square, out at
+  // the lane end nearest the next place)
+  const gate = (v, p) => (v.ends?.length ? v.ends.reduce((b, e) => (Math.hypot(e[0] - p[0], e[1] - p[1]) < Math.hypot(b[0] - p[0], b[1] - p[1]) ? e : b)) : [v.x, v.z]);
+  const trail = (items) => {
+    const out = [], isV = (o) => !Array.isArray(o);
+    items.forEach((it, i) => {
+      if (!isV(it)) { out.push(it); return; }
+      const prev = out[out.length - 1], nx = items[i + 1], np = nx ? (isV(nx) ? [nx.x, nx.z] : nx) : null;
+      if (prev) out.push(gate(it, prev));
+      out.push([it.x, it.z]);
+      if (np) out.push(gate(it, np));
+    });
+    return out.filter((p, i) => i === 0 || Math.hypot(p[0] - out[i - 1][0], p[1] - out[i - 1][1]) > 0.5);
+  };
   layout.newVillages = [];
   for (const v of NEWV) {
     dirtCircles.push({ x: v.x, z: v.z, r: 13, s: 0.95 });
     occupy(v.x, v.z, 10);
     const kutch = v.style === 'kutch';
-    const homes = [];
-    for (const [ring, n, r0] of [[0, 9, 19], [1, 12, 31]]) for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + ring * 0.25 + 0.3;
-      const x = v.x + Math.cos(a) * (r0 + R() * 3), z = v.z + Math.sin(a) * (r0 + R() * 3);
-      if (!isFree(x, z, 5) || fieldType(x, z)) continue;
-      const TYPES = { kutch: () => (R() < 0.75 ? 'round' : 'raj'), bengal: () => (R() < 0.8 ? 'bengal' : 'rect'), pahadi: () => 'pahadi', bihar: () => (R() < 0.6 ? 'rect' : 'maha') };
-      const type = (TYPES[v.style] ?? (() => (R() < 0.55 ? 'rect' : 'raj')))();
-      const h = addHouse(x, z, Math.atan2(v.x - x, v.z - z), type);
-      if (type === 'raj') { h.blue = !kutch && R() < 0.25; h.storeys = R() < 0.3 ? 2 : 1; }
-      homes.push(h);
-    }
+    // the main lane: along the outer road for the villages on it (it runs round the arc right through them),
+    // otherwise out toward the station
+    const h = TRACKS.flatMap((T) => T.halts).find((o) => o.village === v);
+    const ang = v.outer ? Math.atan2(-Math.sin(v.th), Math.cos(v.th)) : h?.yard ? Math.atan2(h.yard.x - v.x, h.yard.z - v.z) : Math.atan2(-v.x, -v.z);
+    const TYPES = { kutch: () => (R() < 0.75 ? 'round' : 'raj'), bengal: () => (R() < 0.8 ? 'bengal' : 'rect'), pahadi: () => 'pahadi', bihar: () => (R() < 0.6 ? 'rect' : 'maha') };
+    const V = villageLanes(v, ang, { main: 50, cross: 40, type: TYPES[v.style] ?? (() => (R() < 0.55 ? 'rect' : 'raj')), onHouse: (hh) => { if (hh.type === 'raj') { hh.blue = !kutch && R() < 0.25; hh.storeys = R() < 0.3 ? 2 : 1; } } });
+    const homes = V.homes;
+    v.ends = V.ends;
     // haystacks and cattle round Khetpura's edge; Rannvas keeps goats and a camel (see hamlet.js)
     for (let i = 0; i < (kutch ? 2 : 6); i++) {
       const a = R() * Math.PI * 2, d = 40 + R() * 14, x = v.x + Math.cos(a) * d, z = v.z + Math.sin(a) * d;
@@ -1759,38 +1800,47 @@ export const layout = {
       layout.haystacks.push({ x, z, s: 0.9 + R() * 0.3 }); occupy(x, z, 2.5);
     }
     if (!kutch) for (let i = 0; i < 4; i++) { const a = R() * Math.PI * 2, d = 46 + R() * 12; layout.cows.push({ x: v.x + Math.cos(a) * d, z: v.z + Math.sin(a) * d, rot: R() * 6.28, color: R() < 0.6 ? '#ece6da' : '#b98e64', phase: R() * 10 }); }
-    // the lane out to the station
-    const h = TRACKS.flatMap((T) => T.halts).find((o) => o.village === v);
-    if (h && h.yard) road([[v.x, v.z], [(v.x + h.yard.x) / 2, (v.z + h.yard.z) / 2], [h.yard.x, h.yard.z]], 2.4);
+    // the lane out to the station, from the end of the village lane nearest it
+    if (h && h.yard) { const g = gate(v, [h.yard.x, h.yard.z]); road([g, [(g[0] + h.yard.x) / 2, (g[1] + h.yard.z) / 2], [h.yard.x, h.yard.z]], 2.4); }
+    walkFor(v.name, v, V.ends, h?.yard ? [h.yard.x, h.yard.z] : null);
     layout.newVillages.push({ ...v, homes });
   }
   // country roads in from the nearest villages
   {
     const K = NEWV[0], RN = NEWV[1];
-    const kRoad = [[TV.x + 16, TV.z + 10], [(TV.x + K.x) / 2 + 40, (TV.z + K.z) / 2 + 30], [K.x - 16, K.z - 14]];
-    const rRoad = [[MH.x - 10, MH.z - 16], [MH.x - 120, (MH.z + RN.z) / 2], [RN.x + 12, RN.z + 18]];
+    const kRoad = trail([[TV.x + 16, TV.z + 10], [(TV.x + K.x) / 2 + 40, (TV.z + K.z) / 2 + 30], K]);
+    const rRoad = trail([[MH.x - 10, MH.z - 16], [MH.x - 120, (MH.z + RN.z) / 2], RN]);
     road(kRoad, 2.4); road(rRoad, 2.4);
     // out to the new country: from Mariapur down to Dhaniyapur, along past Nadipar to Pathargaon, and in to
     // the ring's Mariapur Road station
     const OV = NEWV.filter((v) => v.outer), mr = RING.halts.find((h) => h.name === 'Mariapur Road');
-    const oRoad = [[MP.x - 10, MP.z + 18], [(MP.x + OV[0].x) / 2 - 40, (MP.z + OV[0].z) / 2 + 10], [OV[0].x + 14, OV[0].z - 18], [OV[0].x, OV[0].z]];
-    for (let th = OV[0].th + 0.05; th < OV[2].th - 0.02; th += 0.05) { const r = OUTER_R(th) - 112 + 6 * Math.sin(th * 23); oRoad.push([Math.cos(th) * r, Math.sin(th) * r]); }
-    oRoad.push([OV[2].x, OV[2].z]);
-    if (mr?.yard) oRoad.push([(OV[2].x + mr.yard.x) / 2, (OV[2].z + mr.yard.z) / 2 - 25], [mr.yard.x, mr.yard.z]);
+    // (round the arc, the road runs in along each village's main lane and out of the far end)
+    const oItems = [[MP.x - 10, MP.z + 18], [(MP.x + OV[0].x) / 2 - 40, (MP.z + OV[0].z) / 2 + 10], OV[0]];
+    for (let th = OV[0].th + 0.05; th < OV[2].th - 0.02; th += 0.05) {
+      if (Math.abs(th - OV[1].th) < 0.035) { if (!oItems.includes(OV[1])) oItems.push(OV[1]); continue; }
+      if (Math.abs(th - OV[0].th) < 0.035 || Math.abs(th - OV[2].th) < 0.035) continue;
+      const r = OUTER_R(th) - 112 + 6 * Math.sin(th * 23); oItems.push([Math.cos(th) * r, Math.sin(th) * r]);
+    }
+    if (!oItems.includes(OV[1])) oItems.splice(oItems.findIndex((p) => Array.isArray(p) && Math.atan2(p[1], p[0]) > OV[1].th), 0, OV[1]);
+    oItems.push(OV[2]);
+    if (mr?.yard) oItems.push([(OV[2].x + mr.yard.x) / 2, (OV[2].z + mr.yard.z) / 2 - 25], [mr.yard.x, mr.yard.z]);
+    const oRoad = trail(oItems);
     road(oRoad, 2.4);
     // and a lane from Nadipar out across the line to a bathing ghat on the little river
     { const N = OV[1], sN = TRIB.path.sOf(N.x, N.z), q = TRIB.path.at(sN), d = Math.hypot(q.x - N.x, q.z - N.z) || 1;
       const ghat = { x: q.x + ((N.x - q.x) / d) * (TRIB.half + 3), z: q.z + ((N.z - q.z) / d) * (TRIB.half + 3) };
-      road([[N.x, N.z], [(N.x + ghat.x) / 2, (N.z + ghat.z) / 2], [ghat.x, ghat.z]], 2.0);
+      const g = gate(N, [ghat.x, ghat.z]);
+      road([g, [(g[0] + ghat.x) / 2, (g[1] + ghat.z) / 2], [ghat.x, ghat.z]], 2.0);
       layout.tribGhat = { ...ghat, rot: Math.atan2(q.x - N.x, q.z - N.z) }; }
     // the canal country: a road out from Noorpur to Naharpur, then the track along the canal's inner bank,
     // over the causeway to Kheri Kalan
     const NH = CV.nahar, KH = CV.kheri, bank = (th, off) => { const r = CANAL.Rc(th) + off; return [Math.cos(th) * r, Math.sin(th) * r]; };
-    const cRoad = [[NP.x + 16, NP.z + 6], [(NP.x + NH.x) / 2, (NP.z + NH.z) / 2 + 40], [NH.x - 30, NH.z - 10], [NH.x, NH.z]];
+    const NHv = NEWV.find((v) => v.name === 'Naharpur'), KHv = NEWV.find((v) => v.name === 'Kheri Kalan');
     const bankOff = -(CANAL.half + 3.7);
-    cRoad.push(bank(0.12, -40), bank(0.12, bankOff));
-    for (let th = 0.15; th < 0.5; th += 0.03) cRoad.push(bank(th, bankOff));
-    cRoad.push(bank(0.5, bankOff), bank(0.5, CANAL.half + 8), [KH.x, KH.z]);
+    const cItems = [[NP.x + 16, NP.z + 6], [1190, 130], [1390, 300], [1720, 318], [2050, 312], [NH.x - 40, NH.z + 6], NHv, bank(0.12, -40), bank(0.12, bankOff)];
+    for (let th = 0.15; th < 0.5; th += 0.03) cItems.push(bank(th, bankOff));
+    cItems.push(bank(0.5, bankOff), bank(0.5, CANAL.half + 8), KHv);
+    const cRoad = trail(cItems);
     road(cRoad, 2.4);
     // and the bank track the other way, past the first causeway to the canal's head
     const bRoad = [bank(0.12, bankOff)];
@@ -1799,11 +1849,17 @@ export const layout = {
     road([bank(-0.16, bankOff), bank(-0.16, CANAL.half + 10), bank(-0.16, CANAL.half + 60)], 2.0);
     // two more ways in to the canal country from home: the high road straight east from Marudhar, and a
     // lane out from Khetpura to Kheri Kalan
-    const mRoad = [[RV.x + 16, RV.z + 4], [700, 236], [1050, 268], [1390, 300], [1720, 318], [2050, 312], [NH.x - 40, NH.z + 6], [NH.x, NH.z]];
+    const mRoad = trail([[RV.x + 16, RV.z + 4], [700, 236], [1050, 268], [1390, 300], [1720, 318], [2050, 312], [NH.x - 40, NH.z + 6], NHv]);
     road(mRoad, 2.6);
-    const xRoad = [[K.x + 16, K.z + 4], [1300, 1010], [1640, 1090], [1960, 1170], [KH.x - 30, KH.z - 4], [KH.x, KH.z]];
+    const xRoad = trail([K, [1300, 1010], [1640, 1090], [1960, 1170], [KH.x - 30, KH.z - 4], KHv]);
     road(xRoad, 2.4);
-    layout.newRoads = { khet: kRoad, rann: rRoad, outer: oRoad, canal: cRoad, canalBank: bRoad, nahar: mRoad, kheri: xRoad };
+    // the far north road: out of Dhaniyapur across the outer line, between it and the little river, over the
+    // big river on a new bridge, and on east round the outside of the ring to join the Khetpura road into Kheri Kalan
+    const B4 = BRIDGES[3], DV = OV[0];
+    const dRoad = trail([DV, [-735, 1952], [-600, 2004], [-470, 1950], [-330, 1820], [-180, 1700], [-40, 1630], [B4.aw.x, B4.aw.z], [B4.w.x, B4.w.z], [B4.e.x, B4.e.z], [B4.ae.x, B4.ae.z],
+      [300, 1612], [650, 1560], [1000, 1430], [1350, 1240], [1640, 1090], [1960, 1170], [KH.x - 30, KH.z - 4], KHv]);
+    road(dRoad, 2.4);
+    layout.newRoads = { khet: kRoad, rann: rRoad, outer: oRoad, canal: cRoad, canalBank: bRoad, nahar: mRoad, kheri: xRoad, dk: dRoad };
     // a little shrine between Naharpur and the canal, under a big shade tree, beside the bank track
     for (let k = 0; k < 80 && !layout.naharShrine; k++) {
       const th = 0.085 + (k % 8) * 0.008, r = CANAL.Rc(th) - 26 - Math.floor(k / 8) * 4;
@@ -1820,6 +1876,46 @@ export const layout = {
       const a = (i / 7) * Math.PI * 2 + 0.4, d = 52 + (i % 3) * 9, x = V.x + Math.cos(a) * d, z = V.z + Math.sin(a) * d;
       if (!isFree(x, z, 2) || laneDist(x, z) < 3 || canalDist(x, z) < CANAL.half + 8) continue;
       layout.cows.push({ x, z, rot: a + 1.6, color: ['#ece6da', '#b98e64', '#2a2624', '#f2ede4', '#3a302a', '#8a6a4a', '#2a2624'][i], phase: i * 1.7 });
+    }
+  }
+  // Police stations (thanas): one by the main village, one at Noorpur, one at Naharpur. Each is a walled
+  // compound on clear, level ground beside a road: the thana building at the back, a yard in front with the
+  // police jeep and the flag, a gate onto a short drive to the road.
+  layout.police = [];
+  {
+    const sites = [
+      { name: 'Gaon', hi: 'गाँव', near: { x: roadX(205) + 30, z: 205 }, d0: 0, d1: 70 },
+      { name: 'Noorpur', hi: 'नूरपुर', near: { x: NP.x + 20, z: NP.z + 70 }, d0: 0, d1: 80 },
+      { name: 'Naharpur', hi: 'नहरपुर', near: { x: CV.nahar.x - 110, z: CV.nahar.z + 40 }, d0: 0, d1: 90 },
+    ];
+    const flatEnough = (x, z) => { let lo = 1e9, hi = -1e9; for (let a = 0; a < 8; a++) { const h = heightAt(x + Math.cos(a) * 10, z + Math.sin(a) * 10); lo = Math.min(lo, h); hi = Math.max(hi, h); } return hi - lo < 2.2; };
+    for (const S of sites) {
+      let best = null;
+      for (let d = S.d0; d <= S.d1 && !best; d += 5) for (let a = 0; a < Math.PI * 2 && !best; a += 0.4) {
+        const x = S.near.x + Math.cos(a) * d, z = S.near.z + Math.sin(a) * d;
+        if (!isFree(x, z, 11) || fieldType(x, z) || trackDist(x, z) < 26 || riverDist(x, z) < RIVER_HALF + 16 || canalDist(x, z) < CANAL.half + 16 || laneDist(x, z) < 11 || laneDist(x, z) > 32 || !flatEnough(x, z)) continue;
+        // face the nearest road
+        let rp = null, rd = 1e9;
+        for (const L of lanes) { const dx = L.bx - L.ax, dz = L.bz - L.az, l2 = dx * dx + dz * dz || 1; const t = Math.max(0, Math.min(1, ((x - L.ax) * dx + (z - L.az) * dz) / l2)); const px = L.ax + dx * t, pz = L.az + dz * t, dd = Math.hypot(px - x, pz - z); if (dd < rd) { rd = dd; rp = { x: px, z: pz }; } }
+        best = { ...S, x, z, rot: Math.atan2(rp.x - x, rp.z - z), road: rp };
+      }
+      if (!best) continue;
+      const B = best;
+      occupy(B.x, B.z, 12);
+      dirtCircles.push({ x: B.x, z: B.z, r: 10, s: 0.95 });
+      // the building at the back of the compound, and the compound wall with a gap for the gate at the front
+      colliders.push({ kind: 'b', ...rotPt(B, 0, -3.2), rot: B.rot, hw: 5.2, hd: 3.4 });
+      colliders.push({ kind: 'b', ...rotPt(B, 0, -8), rot: B.rot, hw: 9, hd: 0.2 });
+      for (const sx of [-1, 1]) {
+        colliders.push({ kind: 'b', ...rotPt(B, sx * 9, 0), rot: B.rot, hw: 0.2, hd: 8 });
+        colliders.push({ kind: 'b', ...rotPt(B, sx * 5.75, 8), rot: B.rot, hw: 3.25, hd: 0.2 });
+      }
+      colliders.push({ kind: 'c', ...rotPt(B, -6, 5.5), r: 0.12 }); // the flagpole
+      B.jeep = { ...rotPt(B, 5.2, 3.6), rot: B.rot + Math.PI / 2 };
+      // a drive from the gate to the road
+      const gate = rotPt(B, 0, 8.5);
+      addLane(gate.x, gate.z, B.road.x, B.road.z, 2.0);
+      layout.police.push(B);
     }
   }
   // bus stops: a shelter beside the road at each village
@@ -2014,14 +2110,7 @@ export const layout = {
   }
 
   // Chhota Gaon homes ring the square, leaving room for the post office, hospital and the lane in
-  for (let i = 0; i < 11; i++) {
-    const a = (i / 11) * Math.PI * 2 + 0.15;
-    const d = 18 + R() * 3;
-    const x = NV.x + Math.cos(a) * d, z = NV.z + Math.sin(a) * d;
-    if (Math.abs(z - NV.z) < 5 && x > NV.x) continue; // the lane
-    if (!isFree(x, z, 5.5)) continue;
-    addHouse(x, z, Math.atan2(NV.x - x, NV.z - z), R() < 0.5 ? 'round' : 'rect');
-  }
+  { const V = villageLanes(NV, Math.PI / 2, { main: 40, cross: 30, type: () => (R() < 0.5 ? 'round' : 'rect'), block: [...(layout.postOffice ? [{ ...layout.postOffice, r: 7 }] : []), ...(layout.hospital ? [{ ...layout.hospital, r: 8 }] : [])] }); walkFor('Chhota Gaon', NV, V.ends); }
 
   // Yard details per house
   for (const h of layout.houses) {

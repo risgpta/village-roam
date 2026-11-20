@@ -381,7 +381,7 @@ function buildStation(scene, train, h, hooks, line = [train]) {
       for (const m of lampMats) m.emissiveIntensity = night ? 3.5 : 0.1;
       // whichever train on this line is standing at the platform (the ring has three)
       let tr = st.train;
-      for (const t of line) if (t.at && t.at.name === h.name && t.v === 0 && (t.mode === 'dwell' || t.mode === 'driven')) { tr = t; break; }
+      for (const t of line) if (!t.goods && t.at && t.at.name === h.name && t.v === 0 && (t.mode === 'dwell' || t.mode === 'driven')) { tr = t; break; }
       st.train = tr;
       const standing = !!tr.at && tr.at.name === h.name && tr.v === 0 && (tr.mode === 'dwell' || tr.mode === 'driven');
       // a train has come in: work out which side its doors open, how many get off
@@ -489,7 +489,7 @@ export function buildStations(scene, railway, hooks = {}) {
   // one set of platforms per line, served by every train that runs on it
   const lines = new Map();
   for (const tr of railway.trains) {
-    tr.aboard = 12 + Math.floor(Math.random() * 14);
+    tr.aboard = tr.goods ? 0 : 12 + Math.floor(Math.random() * 14);
     if (!lines.has(tr.tk)) lines.set(tr.tk, []);
     lines.get(tr.tk).push(tr);
   }
