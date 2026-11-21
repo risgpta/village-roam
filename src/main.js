@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { noise2, clamp } from './noise.js';
 import {
-  isFree, fieldType, trackDist, TANK, TRACKS, CANAL, canalDist, roadX, groundHeight, resolveCollisions, pushOut, colliders, forColliders, NP, MP, heightAt, riverDist, WATER_Y, WATER, PLAY_RADIUS, layout, regionName, WF, RIVER_HALF, MARKET, TEA, tunnelAt, LID_W, TRACK_Y, CRICKET, localToWorld,
+  isFree, fieldType, trackDist, TANK, TRACKS, CANAL, canalDist, roadX, groundHeight, resolveCollisions, pushOut, colliders, forColliders, NP, MP, heightAt, riverDist, WATER_Y, WATER, PLAY_RADIUS, layout, regionName, WF, RIVER_HALF, MARKET, TEA, tunnelAt, LID_W, TRACK_Y, CRICKET, localToWorld, lanes,
 } from './world.js';
 import { buildTerrain, buildGrassData } from './terrain.js';
 import { startBakes } from './bakepool.js';
@@ -374,8 +374,8 @@ audio.onSay = (hi, roman) => {
   clearTimeout(captionTimer);
   captionTimer = setTimeout(() => el.classList.remove('show'), 2600);
 };
-const startZ = 30;
-const player = { x: roadX(startZ) + 0.5, z: startZ, y: 0, vy: 0, grounded: true, facing: Math.PI, speed: 0, dirX: 0, dirZ: -1 };
+const startZ = 205; // out on the main road, short of the village: a quiet start, the village up ahead
+const player = { x: roadX(startZ) + 4.6, z: startZ, y: 0, vy: 0, grounded: true, facing: Math.PI, speed: 0, dirX: 0, dirZ: -1 };
 player.y = groundHeight(player.x, player.z);
 let yaw = 0.25, pitch = 0.28, dist = 5.5, targetDist = 5.5;
 const keys = {};
@@ -394,7 +394,7 @@ function emergencySpot(kind) {
   return at;
 }
 const vehicles = [
-  { obj: new Bicycle(), name: 'bicycle', park: { x: roadX(25) + 2.3, z: 25, rot: 0.4 }, walk: 5.5, run: 8.5, boost: 12.5, accel: 1.3, reach: 2.2, rad: 0.4, lean: 1,
+  { obj: new Bicycle(), name: 'bicycle', park: { x: roadX(startZ + 4) + 8, z: startZ + 4, rot: 0.4 }, walk: 5.5, run: 8.5, boost: 12.5, accel: 1.3, reach: 2.2, rad: 0.4, lean: 1,
     on: 'On the bicycle', off: 'Off the bicycle', help: [['E', 'get off'], ['B', 'bell'], ['L', 'lamp'], ['Shift', 'pedal harder']], ask: 'ride the bicycle' },
   { obj: new Moped(), name: 'moped', nitro: true, park: { x: layout.moped.x, z: layout.moped.z, rot: -0.6 }, walk: 9, run: 14, boost: 21, accel: 0.9, reach: 2.2, rad: 0.45, lean: 1,
     on: 'Phat-phat-phat… the old moped starts', off: 'Off the moped', help: [['E', 'get off'], ['B', 'horn'], ['Shift', 'faster'], ['N', 'nitro'], ['L', 'lights']], ask: 'ride the moped', flame: true },
@@ -487,6 +487,45 @@ const vehicles = [
     if (ok) add(name, mk(), ok.x, ok.z, Math.atan2(roadX(ok.z + 1) - roadX(ok.z), 1) + (side > 0 ? Math.PI : 0));
   }
 }
+// nothing parked on the roadway: every ride left by a road or lane (the bikes, the scooter, the minibus, the
+// e-rickshaw…) is moved back onto clear ground at the side, so the traffic has the whole road to itself
+{
+  const segD = (x, z, q) => { const vx = q.bx - q.ax, vz = q.bz - q.az, t = Math.max(0, Math.min(1, ((x - q.ax) * vx + (z - q.az) * vz) / (vx * vx + vz * vz || 1))); return Math.hypot(x - q.ax - vx * t, z - q.az - vz * t); };
+  // how far inside the clear margin of the nearest road a spot is (≤ 0: clear), and the way out of it
+  const intrude = (x, z, rad) => {
+    let worst = -1e9, out = null;
+    const need = rad + 1.6;
+    const dm = 3.2 + need - Math.abs(x - roadX(z)); // the main road (about 6 m of roadway)
+    if (dm > worst) { worst = dm; out = { x: Math.sign(x - roadX(z)) || 1, z: 0 }; }
+    for (const q of lanes) {
+      if (Math.abs(x - q.ax) > 80 && Math.abs(x - q.bx) > 80) continue;
+      const d = q.w / 2 + 0.4 + need - segD(x, z, q);
+      if (d > worst) { const vx = q.bx - q.ax, vz = q.bz - q.az, l = Math.hypot(vx, vz) || 1; let nx = -vz / l, nz = vx / l; if ((x - q.ax) * nx + (z - q.az) * nz < 0) { nx = -nx; nz = -nz; } worst = d; out = { x: nx, z: nz }; }
+    }
+    return { d: worst, out };
+  };
+  const okAt = (v, x, z) => {
+    if (trackDist(x, z) < 7 || riverDist(x, z) < RIVER_HALF + 3 || canalDist(x, z) < CANAL.half + 3) return false;
+    if (intrude(x, z, v.rad ?? 1).d > 0) return false;
+    const p = { x, z }; resolveCollisions(p, (v.rad ?? 1) + 0.4, groundHeight(x, z));
+    if (Math.hypot(p.x - x, p.z - z) > 0.01) return false;
+    if (Math.abs(groundHeight(x + 1.5, z) - groundHeight(x - 1.5, z)) > 0.9 || Math.abs(groundHeight(x, z + 1.5) - groundHeight(x, z - 1.5)) > 0.9) return false;
+    return !vehicles.some((o) => o !== v && Math.hypot(o.park.x - x, o.park.z - z) < (o.rad ?? 1) + (v.rad ?? 1) + 1.2);
+  };
+  for (const v of vehicles) {
+    if (v.water || v.fly || !v.park) continue;
+    const P = v.park, I = intrude(P.x, P.z, v.rad ?? 1);
+    if (I.d <= 0) continue;
+    // step straight back from the road first, then a little up or down it as well
+    let best = null;
+    for (let k = 1; k <= 14 && !best; k++) for (const along of [0, 3, -3, 6, -6]) {
+      const ax = -I.out.z, az = I.out.x;
+      const x = P.x + I.out.x * k + ax * along, z = P.z + I.out.z * k + az * along;
+      if (okAt(v, x, z)) { best = { x, z }; break; }
+    }
+    if (best) { P.x = best.x; P.z = best.z; }
+  }
+}
 // the little plane, parked at the near end of the airstrip with its nose down the runway
 const AS = layout.airstrip;
 const planeFlight = new Flight(), heliFlight = new HeliFlight();
@@ -518,7 +557,7 @@ let boostFx = 0;
 const drive = { v: 0, steer: 0, brake: false };
 let passengers = null;
 let site = null, kites = null, mela = null;
-let goodsYards = null, workers = null, postcards = null, cricket = null;
+let goodsYards = null, workers = null, postcards = null, cricket = null, shrineBusSeen = false;
 const nitro = { fuel: 1, on: false, locked: false };
 const flames = new Puffs({ max: 160, color: '#9fd0ff', dark: '#ff7a1a', opacity: 0.9, additive: true, buoyancy: 0.3, drag: 3 });
 scene.add(flames.mesh);
@@ -1720,6 +1759,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Space' || e.code === 'Tab') e.preventDefault();
   if (e.code === 'Tab' && started && map) { if (!e.repeat) map.toggleBig(); return; }
   if (e.code === 'Escape' && map?.open) { map.toggleBig(false); return; }
+  if (map?.open && /^Digit[123]$/.test(e.code)) { map.setMode(['places', 'trains', 'roads'][+e.code.slice(5) - 1]); return; }
   if (e.code === 'Escape' && $('help').classList.contains('show')) { toggleHelp(false); return; }
   if (e.target instanceof HTMLSelectElement) return;
   if (e.code === 'Space' && !keys.Space && !ride) jumpQueued = true;
@@ -3003,10 +3043,16 @@ function trainBrakes(dt) {
   }
   audio.setTrainBrake(lvl, sp);
 }
-// moving things worth following on the map: the shrine bus, the police patrol (and any other with an icon)
+// the buses and jeeps on the roads, for the map: the shrine buses and the police patrol are pinned (shown on the
+// minimap too); the rest show on the map's buses & jeeps view. Ones waiting in a village for the night (or not
+// out yet) aren't on the road.
 function liveMarks() {
-  const out = [];
-  for (const t of people?.travellers.list ?? []) if (t.icon && !t.taken && !(t.hold > 0) && !t.crash) out.push({ x: t.p.x, z: t.p.z, icon: t.icon, label: t.label });
+  const out = [], T = people?.travellers;
+  for (const t of T?.list ?? []) {
+    if (!t.track || t.taken || t.hold > 0 || t.crash) continue;
+    if ((t.nightOff || t.nightHide) && T.night) continue;
+    out.push({ id: t.idx, x: t.p.x, z: t.p.z, icon: t.icon ?? (t.kind === 'bus' ? '🚌' : '🚙'), label: t.label, color: t.color, pin: !!t.icon, shrine: t.icon === '🛕', speed: t.speed, wait: t.wait, route: t.loop.pts });
+  }
   return out;
 }
 function mapTrains() {
@@ -3122,7 +3168,11 @@ function frame(now) {
   updateStorm(dt);
   if (started) villageVoices(dt);
   mark('wild/farm/etc');
-  if (started) { map.live = liveMarks(); map.cards = postcards?.marks(); }
+  if (started) {
+    map.live = liveMarks(); map.cards = postcards?.marks();
+    // the first time the boy is near one of the shrine buses, say what it is
+    if (!shrineBusSeen) for (const m of map.live) if (m.icon === '🛕' && Math.hypot(m.x - player.x, m.z - player.z) < 28) { shrineBusSeen = true; toast('🛕 Mandir Seva — the shrine bus, up the hill road to the summit temple and back. Track it on the map: Tab, then 3.'); break; }
+  }
   if (started) map.update(player, yaw, vehicles.map((v) => ({ name: v.name, x: v === ride ? player.x : v.park.x, z: v === ride ? player.z : v.park.z, ridden: v === ride })), mapTrains());
   mark('map');
   flocks.update(time, dt, player);

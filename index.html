@@ -86,8 +86,23 @@
       .bm-title { font-family: 'Tiro Devanagari Hindi', 'Cormorant Garamond', serif; font-size: 20px; color: var(--accent); }
       .bm-hint { margin-left: auto; font-size: 12px; color: var(--muted); }
       #bm-close { background: rgba(255,255,255,0.1); border: 0; color: var(--ink); width: 28px; height: 28px; border-radius: 99px; cursor: pointer; }
-      #bm-canvas { display: block; width: min(78vh, 86vw); height: min(78vh, 86vw); border-radius: 12px; cursor: grab; touch-action: none; }
+      #bm-canvas { display: block; width: min(78vh, 86vw - 250px); height: min(78vh, 86vw - 250px); border-radius: 12px; cursor: grab; touch-action: none; }
       #bm-canvas.dragging { cursor: grabbing; }
+      .bm-tabs { display: flex; gap: 4px; background: rgba(255,255,255,0.06); padding: 3px; border-radius: 10px; }
+      .bm-tabs button { background: transparent; border: 0; color: var(--muted); height: 28px; padding: 0 10px; border-radius: 8px; cursor: pointer; font: 600 12px Inter, sans-serif; white-space: nowrap; }
+      .bm-tabs button kbd { margin-right: 3px; opacity: 0.7; }
+      .bm-tabs button:hover { color: var(--ink); background: rgba(255,255,255,0.08); }
+      .bm-tabs button.on { background: rgba(255,214,120,0.18); color: var(--accent); }
+      .bm-body { display: flex; gap: 10px; }
+      #bm-list { width: 230px; height: min(78vh, 86vw - 250px); overflow-y: auto; display: none; flex-direction: column; gap: 4px; padding-right: 2px; }
+      #bm-list.show { display: flex; }
+      #bm-list h4 { margin: 2px 4px 6px; font: 600 12px Inter, sans-serif; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+      #bm-list button { display: flex; gap: 8px; align-items: center; text-align: left; background: rgba(255,255,255,0.05); border: 1px solid transparent; color: var(--ink); padding: 7px 8px; border-radius: 10px; cursor: pointer; font: 500 12px Inter, sans-serif; }
+      #bm-list button:hover { background: rgba(255,255,255,0.1); }
+      #bm-list button.on { border-color: var(--accent); background: rgba(255,214,120,0.12); }
+      #bm-list .sw { flex: none; width: 26px; height: 26px; border-radius: 99px; display: grid; place-items: center; background: #fff6e0; border: 2.5px solid; font-size: 13px; }
+      #bm-list b { display: block; font-weight: 600; font-size: 12px; }
+      #bm-list small { display: block; color: var(--muted); font-size: 11px; margin-top: 1px; }
       .bm-tools { display: flex; gap: 4px; }
       .bm-tools button { background: rgba(255,255,255,0.1); border: 0; color: var(--ink); min-width: 28px; height: 28px; border-radius: 8px; cursor: pointer; font: 600 15px Inter, sans-serif; }
       .bm-tools button:hover, #bm-close:hover { background: rgba(255,255,255,0.2); }
@@ -281,8 +296,8 @@
       </div>
       <div id="bigmap">
         <div class="bm-card">
-          <div class="bm-head"><span class="bm-title">गाँव — the area map</span><span class="bm-hint">scroll or pinch to zoom · drag to move · <kbd>Tab</kbd> / <kbd>Esc</kbd> to close</span><span class="bm-tools"><button id="bm-in" title="Zoom in">+</button><button id="bm-out" title="Zoom out">−</button><button id="bm-me" title="Centre on me">⌖</button><button id="bm-all" title="Show the whole map">⤢</button></span><button id="bm-close">✕</button></div>
-          <canvas id="bm-canvas" width="1100" height="1100"></canvas>
+          <div class="bm-head"><span class="bm-title">गाँव — the area map</span><span class="bm-tabs" id="bm-tabs"><button data-mode="places"><kbd>1</kbd> 📍 Places</button><button data-mode="trains"><kbd>2</kbd> 🚂 Trains</button><button data-mode="roads"><kbd>3</kbd> 🚌 Buses &amp; jeeps</button></span><span class="bm-hint">scroll to zoom · drag to move · <kbd>Tab</kbd> / <kbd>Esc</kbd> to close</span><span class="bm-tools"><button id="bm-in" title="Zoom in">+</button><button id="bm-out" title="Zoom out">−</button><button id="bm-me" title="Centre on me">⌖</button><button id="bm-all" title="Show the whole map">⤢</button></span><button id="bm-close">✕</button></div>
+          <div class="bm-body"><canvas id="bm-canvas" width="1100" height="1100"></canvas><div id="bm-list"></div></div>
         </div>
       </div>
       <div id="ridehud">
@@ -328,7 +343,7 @@
 <div class="row"><span><kbd>K</kbd></span><span>copy a link to this exact spot (the view, the hour, the weather) to share</span></div>
 <h3>Looking</h3>
 <div class="row"><span><kbd>C</kbd></span><span>camera: follow · close-up · wide · cinematic · bird's-eye</span></div>
-<div class="row"><span><kbd>Tab</kbd></span><span>the full map, with every place marked</span></div>
+<div class="row"><span><kbd>Tab</kbd></span><span>the full map: <kbd>1</kbd> places, <kbd>2</kbd> every train live, <kbd>3</kbd> the buses and jeeps live (the shrine bus too). Click one in the list to follow it.</span></div>
 <div class="row"><span><kbd>U</kbd></span><span>full screen</span></div>
             </div>
             <div class="hp-pane" data-pane="drive">
@@ -391,7 +406,7 @@
 <div class="place"><b>Khetpura and Rannvas</b><span class="hi">खेतपुरा · रणवास</span><p>By the ring railway: Punjabi farmers in Khetpura; Kutchi herders, goats and a camel in Rannvas.</p></div>
 <div class="place"><b>Dhaniyapur, Nadipar, Pathargaon</b><span class="hi">धनियापुर · नदीपार · पत्थरगाँव</span><p>The far villages: Bihari mud houses, Bengali huts by the little river, a stone hill village.</p></div>
 <h3>Out in the country</h3>
-<div class="place"><b>The hilltop shrine and Shikhar</b><span class="hi">शिखर</span><p>The stone stairway climbs the great mountain to the summit temple. The orange shrine shuttle bus runs up the hill road from the village and back.</p></div>
+<div class="place"><b>The hilltop shrine and Shikhar</b><span class="hi">शिखर</span><p>The stone stairway climbs the great mountain to the summit temple. Two orange Mandir Seva buses, saffron flags on the roof, run between the village bus stop and the summit temple; follow the dashed saffron line and the 🛕 badges on the map.</p></div>
 <div class="place"><b>Jharna — the waterfall</b><span class="hi">झरना</span><p>A tall waterfall far out in the hills, its stream running down a gorge to the river.</p></div>
 <div class="place"><b>The airstrip</b><span class="hi">हवाई पट्टी</span><p>Out in the open country: the plane, the helicopter and the hangar.</p></div>
 <div class="place"><b>Sonpur station and the railway</b><span class="hi">सोनपुर</span><p>Trains run between the stations; the ring line circles the whole land, through tunnels and over the viaduct across the Ghati valley.</p></div>

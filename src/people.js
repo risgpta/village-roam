@@ -1336,6 +1336,34 @@ function buildSchool(scene) {
 
 // ---------------- travellers on the road: cyclists and a bullock cart ----------------
 // out along a list of points (keeping to the left side of the road) and back again
+// the shrine bus's finery: tall saffron pennants on the roof corners, a string of little flags along the roof,
+// and a marigold garland swagged across the front, so it's known from a long way off
+function shrineDress(veh) {
+  const roof = 3.32, L = veh.len, W = veh.half * 2;
+  const saffron = new THREE.MeshStandardMaterial({ color: '#f07a12', roughness: 0.8, side: THREE.DoubleSide });
+  const pole = new THREE.MeshStandardMaterial({ color: '#d8c8a0', roughness: 0.6 });
+  const tri = (w, h) => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, -h, 0, 0, -h / 2, -w], 3)); g.computeVertexNormals(); return g; };
+  for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+    const ph = sz > 0 ? 1.5 : 1.1;
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, ph, 6), pole); p.position.set(sx * (W / 2 - 0.15), roof + ph / 2, sz * (L / 2 - 0.5)); veh.root.add(p);
+    const f = new THREE.Mesh(tri(0.9, 0.55), saffron); f.position.set(sx * (W / 2 - 0.15), roof + ph, sz * (L / 2 - 0.5)); veh.root.add(f);
+  }
+  // bunting along each side of the roof, between the poles
+  const bunt = new THREE.MeshStandardMaterial({ color: '#f2b21a', roughness: 0.8, side: THREE.DoubleSide });
+  const flag = new THREE.PlaneGeometry(0.22, 0.2);
+  for (const sx of [1, -1]) for (let i = 0; i < 10; i++) {
+    const z = -(L / 2 - 0.5) + ((L - 1) * (i + 0.5)) / 10, y = roof + 0.95 - Math.sin(((i + 0.5) / 10) * Math.PI) * 0.35;
+    const f = new THREE.Mesh(flag, i % 2 ? saffron : bunt);
+    f.position.set(sx * (W / 2 - 0.15), y - 0.1, z); f.rotation.y = Math.PI / 2; veh.root.add(f);
+  }
+  // the marigold garland: orange and yellow flowers in a swag across the front, under the windscreen
+  const mari = [new THREE.MeshStandardMaterial({ color: '#f28a0e', roughness: 0.9 }), new THREE.MeshStandardMaterial({ color: '#f6c21a', roughness: 0.9 })];
+  const bead = new THREE.IcosahedronGeometry(0.075, 0);
+  for (let i = 0; i <= 18; i++) {
+    const u = i / 18, x = (u - 0.5) * (W - 0.2), y = 1.95 - Math.sin(u * Math.PI) * 0.35;
+    const b = new THREE.Mesh(bead, mari[i % 2]); b.position.set(x, y, L / 2 + 0.06); veh.root.add(b);
+  }
+}
 function polyLoop(points, off) {
   const P = points.map(([x, z]) => pt(x, z));
   const side = (list, o) => list.map((p, i) => {
@@ -1351,7 +1379,7 @@ function polyLoop(points, off) {
   const half = seg[go.length - 1];
   pts.push(pts[0]); seg.push(total);
   return {
-    total, half,
+    total, half, pts: go,
     at(s, out) {
       s = ((s % total) + total) % total;
       let lo = 0, hi = seg.length - 1;
@@ -1624,6 +1652,10 @@ function buildTravellers(scene, hooks) {
     const nightHide = w.nightStay !== undefined ? !w.nightStay : wi % 4 !== 0;
     list.push({ kind: 'walker', holder: person.root, person, carry: w.carry, loop, s: (w.frac !== undefined ? w.frac : (wi * 0.618 + 0.37) % 1) * loop.total, v: w.kid ? 1.6 : 1.1 + Math.random() * 0.2, speed: 1, heading: 0, p: { x: 0, z: 0 }, nightHide });
   }
+  // what the map calls each bus and jeep
+  const JEEP_RUN = { jeepA: 'Gaon – Thennoor', jeepB: 'Gaon – Bamboo hill', outer: 'the outer road', rann: 'the Rann road', khet: 'the khet road', jeepK: 'Gaon – Kheri Kalan', west: 'the west road', dk: 'Dhaniyapur – Kheri Kalan' };
+  const title = (w) => w.toLowerCase().split('-').map((x) => x[0].toUpperCase() + x.slice(1)).join(' – ');
+  const trafficName = (tr) => tr.Kind === VillageBus ? `Bus · ${title(tr.opt.dest?.[1] ?? 'GAON')}` : tr.Kind === Jeep ? `Jeep · ${JEEP_RUN[tr.route] ?? 'country roads'}` : 'Car';
   // buses and jeeps: a driver at the wheel and passengers aboard, pausing at each end of the run
   const traffic = [
     { Kind: VillageBus, opt: { color: '#b8322b', band: '#e8e2d0', dest: ['गाँव – मारुधर – बंगलाग्राम', 'GAON-MARUDHAR'] }, route: 'busA', v: 7.5, s0: 0 },
@@ -1647,12 +1679,15 @@ function buildTravellers(scene, hooks) {
     // the police on patrol: round the main village and out over the bridge to Marudhar and Banglagram
     { Kind: PoliceJeep, opt: {}, route: 'busA', v: 8, frac: 0.55, police: true, allNight: true, icon: '🚓', label: 'Police patrol' },
     // the shrine shuttle runs from morning to night
-    { Kind: VillageBus, opt: { color: '#e07a1e', band: '#fff2d0', dest: ['शिखर मंदिर – गाँव', 'SHIKHAR MANDIR'], name: ['मंदिर सेवा', 'MANDIR SEVA'] }, route: 'shrine', v: 6, frac: 0, stopWait: 50, allNight: true, icon: '🛕', label: 'Mandir Seva — the shrine bus' },
+    // (two of them: one leaves the village bus stop as the other leaves the summit, so there's always one on the
+    // hill road; saffron flags on the roof and a marigold garland across the front)
+    ...[0, 0.5].map((frac) => ({ Kind: VillageBus, opt: { color: '#e07a1e', band: '#fff2d0', dest: ['शिखर मंदिर – गाँव', 'SHIKHAR MANDIR'], name: ['मंदिर सेवा', 'MANDIR SEVA'] }, route: 'shrine', v: 9, frac, stopWait: 22, allNight: true, shrine: true, icon: '🛕', label: 'Mandir Seva — the shrine bus' })),
   ];
   for (const tr of traffic) {
     const holder = new THREE.Group();
     scene.add(holder);
     const veh = new tr.Kind(tr.opt);
+    if (tr.shrine) shrineDress(veh);
     consolidate(veh.root); // fixed parts merged by material: far fewer draws
     holder.add(veh.root);
     const driver = tr.police ? new Person({ dress: 'pants', top: '#bfa26a', bottom: '#a88c58', headwear: 'cap', turban: '#3a3a5a', mustache: true, skin: '#6e4530', sleeves: 'short' })
@@ -1670,7 +1705,7 @@ function buildTravellers(scene, hooks) {
       return q;
     }).filter(Boolean);
     const loop = polyLoop(routes[tr.route], tr.Kind === VillageBus ? 1.8 : 1.5);
-    list.push({ kind: tr.Kind === VillageBus ? 'bus' : 'jeep', icon: tr.icon, label: tr.label, holder, veh, person: driver, riders, loop, s: tr.frac !== undefined ? tr.frac * loop.total : tr.s0, v: tr.v, speed: tr.v, heading: 0, p: { x: 0, z: 0 }, wait: 0, pitch: 0, bellCool: 0, stopWait: tr.stopWait, nightOff: !tr.allNight && traffic.indexOf(tr) % 2 === 1 });
+    list.push({ kind: tr.Kind === VillageBus ? 'bus' : 'jeep', icon: tr.icon, label: tr.label ?? trafficName(tr), color: tr.opt.color ?? '#e8e2d0', track: tr.Kind === VillageBus || tr.Kind === Jeep || tr.Kind === PoliceJeep, holder, veh, person: driver, riders, loop, s: tr.frac !== undefined ? tr.frac * loop.total : tr.s0, v: tr.v, speed: tr.v, heading: 0, p: { x: 0, z: 0 }, wait: 0, pitch: 0, bellCool: 0, stopWait: tr.stopWait, nightOff: !tr.allNight && traffic.indexOf(tr) % 2 === 1 });
   }
   // more bullock carts out on the country roads, plodding at walking pace
   if (routes.outer) addCart(polyLoop(routes.outer, 1.6), 300, '#b98e64', { turban: '#c4241c', skin: '#7a4c33' });
@@ -1699,6 +1734,7 @@ function buildTravellers(scene, hooks) {
   }
   return {
     list,
+    get night() { return weather.night; },
     setWeather(w) {
       weather = w;
       // after dark only one bus and one jeep keep running; the others wait in the village till morning

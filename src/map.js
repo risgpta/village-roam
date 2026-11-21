@@ -1,5 +1,8 @@
 // The map: a north-up minimap in the corner (click to collapse) and a full map on Tab, both drawn from
 // a painted picture of the whole area baked once at load, with places, rides and the boy marked on it.
+// The full map has three views: Places (a still map of where everything is), Trains (every train, live, on the
+// lines) and Buses & jeeps (the shrine buses, the police patrol and the rest, live, on their roads), and in the
+// two live views a list beside the map: click one to follow it.
 import {
   heightAt, riverDist, fieldType, dirtMask, trackDist, layout, WATER_Y, RIVER_HALF, PLAY_RADIUS,
   WILD, STATION, TRACK3, NEW_VILLAGES, SQUARE, TEA, GHAT, WF, FOOT, EH, NV, SCHOOL, GARDEN, MARKET, CRICKET, PUMP, TANK, CROSSING, HILLTOP, TRACKS, JUNGLE_HOMES, RING_SIGHTS, tribDist, TRIB, riverX, RBRIDGE, BRIDGES, desertMask, NP, MP, PEAK,
@@ -115,6 +118,74 @@ export class MapUI {
     this.view = { zoom: 1, cx: 0, cz: 0 };
     this.player = { x: 0, z: 0 };
     this.initPanZoom();
+    // the three views, and following one train or bus
+    this.listEl = document.getElementById('bm-list');
+    this.follow = null; this.listT = 0;
+    let m = 'places'; try { m = localStorage.getItem('gaon.mapMode') || m; } catch { /* no storage: start on places */ }
+    document.getElementById('bm-tabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { e.stopPropagation(); this.setMode(b.dataset.mode); } });
+    this.listEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const b = e.target.closest('button'); if (!b) return;
+      this.follow = this.follow === b.dataset.key ? null : b.dataset.key;
+      if (this.follow) this.view.zoom = Math.max(this.view.zoom, 3.2);
+      this.listT = 0; this.centreOnFollow(); this.redraw();
+    });
+    // the railway lines, sampled once, to draw bright on the trains view
+    this.lines = TRACKS.map((T) => { const q = {}, pts = []; for (const [a, b] of T.segs) { for (let t = a; t <= b + 0.1; t += 12) { T.path.at(Math.min(t, b), q); pts.push({ x: q.x, z: q.z }); } pts.push(null); } return pts; });
+    this.setMode(m);
+  }
+  setMode(m) {
+    if (!['places', 'trains', 'roads'].includes(m)) m = 'places';
+    this.mode = m; this.follow = null; this.listT = 0;
+    try { localStorage.setItem('gaon.mapMode', m); } catch { /* fine */ }
+    for (const b of document.querySelectorAll('#bm-tabs button')) b.classList.toggle('on', b.dataset.mode === m);
+    this.listEl.classList.add('show');
+    this.listEl.innerHTML = '';
+    this.redraw();
+  }
+  // the thing being followed, as a point on the map
+  followed() {
+    if (!this.follow) return null;
+    const [kind, key] = this.follow.split(':');
+    if (kind === 't') { const t = (this.trains ?? []).find((o) => o.name === key); return t && t.head; }
+    if (kind === 'p') return this.places.find((o) => o.name === key) ?? null;
+    return (this.live ?? []).find((o) => String(o.id) === key) ?? null;
+  }
+  centreOnFollow() { const f = this.followed(); if (f) { this.view.cx = f.x; this.view.cz = f.z; this.clampView(); } }
+  // the nearest named place, to say where something is
+  nearName(x, z) {
+    let best = null, bd = 520;
+    for (const p of this.places) { if (!p.big || !p.name) continue; const d = Math.hypot(p.x - x, p.z - z); if (d < bd) { bd = d; best = p.name; } }
+    return best;
+  }
+  drawList() {
+    const L = this.listEl, esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+    let html = '';
+    if (this.mode === 'places') {
+      // the places, A to Z: click one to go there on the map
+      const seen = new Set(), list = this.places.filter((p) => p.big && p.name && p.icon && !seen.has(p.name) && seen.add(p.name)).sort((a, b) => a.name.localeCompare(b.name));
+      html = `<h4>${list.length} places</h4>` + list.map((p) => {
+        const key = 'p:' + p.name;
+        return `<button data-key="${esc(key)}" class="${this.follow === key ? 'on' : ''}"><span class="sw" style="border-color:rgba(255,214,120,0.6)">${p.icon}</span><span><b>${esc(p.name)}</b></span></button>`;
+      }).join('');
+    } else if (this.mode === 'trains') {
+      const tr = this.trains ?? [];
+      html = `<h4>${tr.length} trains running</h4>` + tr.map((t) => {
+        const key = 't:' + t.name, st = t.at ? `at ${t.at}` : `${Math.round(Math.abs(t.v) * 3.6)} km/h${t.next ? ' → ' + t.next : ''}`;
+        return `<button data-key="${esc(key)}" class="${this.follow === key ? 'on' : ''}"><span class="sw" style="border-color:${t.color}">🚂</span><span><b>${esc(t.name.split(' — ')[0])}</b><small>${esc(t.driven ? 'you are driving' : st)}</small></span></button>`;
+      }).join('');
+    } else {
+      const lv = [...(this.live ?? [])].sort((a, b) => (b.shrine - a.shrine) || (b.pin - a.pin) || a.label.localeCompare(b.label));
+      html = `<h4>${lv.length} on the roads</h4>` + lv.map((m) => {
+        const key = 'v:' + m.id, near = this.nearName(m.x, m.z);
+        const stop = (layout.busStops ?? []).find((b) => Math.hypot(b.x - m.x, b.z - m.z) < 30);
+        const waiting = m.wait > 0.5 && m.speed < 0.5;
+        const st = waiting ? (stop ? `waiting at the ${stop.en} bus stop` : `waiting${near ? ' at ' + near : ''}`) : near ? `near ${near}` : 'out on the road';
+        return `<button data-key="${esc(key)}" class="${this.follow === key ? 'on' : ''}"><span class="sw" style="border-color:${m.shrine ? '#f07a12' : m.color}">${m.icon}</span><span><b>${esc(m.label)}</b><small>${esc(st)}</small></span></button>`;
+      }).join('') || '<small>Nothing on the roads just now.</small>';
+      if (lv.length < 6) html += '<small style="margin:6px 4px;color:var(--muted)">More buses and jeeps join the roads over the first few minutes.</small>';
+    }
+    if (L.innerHTML !== html) L.innerHTML = html;
   }
   // ---- zoom and drag on the big map ----
   // canvas pixels per metre at the current zoom
@@ -164,6 +235,7 @@ export class MapUI {
         return;
       }
       if (!last) return;
+      if (this.follow && Math.hypot(p.x - last.x, p.y - last.y) > 2) { this.follow = null; this.listT = 0; }
       const k = this.pxPerM();
       this.view.cx -= (p.x - last.x) / k; this.view.cz -= (p.y - last.y) / k;
       last = p;
@@ -183,8 +255,8 @@ export class MapUI {
     const btn = (id, f) => document.getElementById(id).addEventListener('click', (e) => { e.stopPropagation(); f(); });
     btn('bm-in', () => this.zoomAt(1.6));
     btn('bm-out', () => this.zoomAt(1 / 1.6));
-    btn('bm-me', () => { this.view.zoom = Math.max(this.view.zoom, 4); this.view.cx = this.player.x; this.view.cz = this.player.z; this.clampView(); this.redraw(); });
-    btn('bm-all', () => { this.view.zoom = 1; this.view.cx = 0; this.view.cz = 0; this.redraw(); });
+    btn('bm-me', () => { this.follow = null; this.view.zoom = Math.max(this.view.zoom, 4); this.view.cx = this.player.x; this.view.cz = this.player.z; this.clampView(); this.redraw(); });
+    btn('bm-all', () => { this.follow = null; this.view.zoom = 1; this.view.cx = 0; this.view.cz = 0; this.redraw(); });
   }
   // draw again straight away (while dragging), from the last thing the game told us
   redraw() { if (this.open && this.last) this.drawBig(...this.last); }
@@ -221,7 +293,11 @@ export class MapUI {
     this.trains = trains;
     this.last = [player, yaw, rides];
     if (!this.collapsed) this.drawMini(player, yaw, rides);
-    if (this.open) this.drawBig(player, yaw, rides);
+    if (this.open) {
+      if (this.follow) this.centreOnFollow();
+      this.drawBig(player, yaw, rides);
+      if ((this.listT -= 1) <= 0) { this.listT = this.mode === 'places' ? 30 : 15; this.drawList(); }
+    }
   }
   drawMini(player, yaw, rides) {
     if (!this.img) return;
@@ -257,6 +333,7 @@ export class MapUI {
     }
     // the shrine bus, the police patrol: their own badges
     for (const m of this.live ?? []) {
+      if (!m.pin) continue;
       const [u, v] = px(m.x, m.z);
       if (Math.hypot(u - R, v - R) > R - 8) continue;
       g.fillStyle = 'rgba(255,240,210,0.95)'; g.beginPath(); g.arc(u, v, 9, 0, 7); g.fill();
@@ -299,52 +376,90 @@ export class MapUI {
     g.drawImage(this.img, 0, 0);
     g.restore();
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    // zoomed out, only the main places carry names; zoomed in, all of them do
-    const showSmall = V.zoom >= 2.2;
-    for (const p of this.places) {
-      const [u, v] = P(p.x, p.z);
-      if (!inView(u, v)) continue;
-      if (!p.big && !showSmall && !p.icon) continue;
-      if (p.icon) { g.font = `${p.big ? 18 : 14}px system-ui, "Apple Color Emoji", sans-serif`; g.fillText(p.icon, u, v); }
-      if (!p.name || (!p.big && !showSmall)) continue;
-      g.font = `${p.big ? 600 : 500} ${p.icon ? 11 : 12}px Inter, sans-serif`;
-      g.lineWidth = 3; g.strokeStyle = 'rgba(20,16,12,0.75)';
-      const ty = p.icon ? v + 15 : v;
-      g.strokeText(p.name, u, ty);
-      g.fillStyle = p.icon ? '#fff6e0' : 'rgba(255,246,224,0.8)';
-      g.fillText(p.name, u, ty);
+    const mode = this.mode;
+    const label = (text, u, v, size = 11, weight = 600, col = '#fff6e0') => {
+      g.font = `${weight} ${size}px Inter, sans-serif`; g.lineWidth = 3; g.strokeStyle = 'rgba(20,16,12,0.75)';
+      g.strokeText(text, u, v); g.fillStyle = col; g.fillText(text, u, v);
+    };
+    if (mode !== 'places') {
+      // the live views: the land dimmed, so the moving things stand out
+      g.fillStyle = 'rgba(14,16,10,0.5)'; g.fillRect(0, 0, W, W);
     }
-    for (const r of rides) {
-      if (r.ridden) continue;
-      const [u, v] = P(r.x, r.z);
-      if (!inView(u, v)) continue;
-      g.fillStyle = 'rgba(255,255,255,0.9)'; g.beginPath(); g.arc(u, v, 10, 0, 7); g.fill();
-      g.font = '13px system-ui, "Apple Color Emoji", sans-serif'; g.fillText(RIDE_ICON[r.name] ?? '•', u, v + 0.5);
-    }
-    // the postcards: found ones as a stamp; the rest as a soft dashed circle round about where they hide
-    for (const c of this.cards ?? []) {
-      if (c.got) { const [u, v] = P(c.x, c.z); if (inView(u, v)) { g.font = '16px system-ui, "Apple Color Emoji", sans-serif'; g.fillText('📮', u, v); } continue; }
-      const [u, v] = P(c.x + c.ox, c.z + c.oz), r = Math.max(10, 95 * k);
-      if (!inView(u, v, r)) continue;
-      g.strokeStyle = 'rgba(255,214,120,0.55)'; g.lineWidth = 1.5; g.setLineDash([4, 4]);
-      g.beginPath(); g.arc(u, v, r, 0, 7); g.stroke(); g.setLineDash([]);
-      g.fillStyle = 'rgba(255,214,120,0.85)'; g.font = '600 11px Inter, sans-serif'; g.fillText('✉ ?', u, v);
-    }
-    // the shrine bus and the police patrol, live, with their names
-    for (const m of this.live ?? []) {
-      const [u, v] = P(m.x, m.z);
-      if (!inView(u, v)) continue;
-      g.fillStyle = 'rgba(255,240,210,0.95)'; g.beginPath(); g.arc(u, v, 11, 0, 7); g.fill();
-      g.strokeStyle = '#e07a1e'; g.lineWidth = 2.5; g.stroke();
-      g.font = '13px system-ui, "Apple Color Emoji", sans-serif'; g.fillText(m.icon, u, v + 0.5);
-      if (m.label) {
-        g.font = '600 11px Inter, sans-serif'; const w = g.measureText(m.label).width + 12;
-        g.fillStyle = 'rgba(20,16,12,0.78)'; g.beginPath(); g.roundRect ? g.roundRect(u + 14, v - 9, w, 18, 6) : g.rect(u + 14, v - 9, w, 18); g.fill();
-        g.fillStyle = '#fff6e0'; g.textAlign = 'left'; g.fillText(m.label, u + 20, v + 0.5); g.textAlign = 'center';
+    if (mode === 'places') {
+      // ---- places: where everything is, nothing moving ----
+      // zoomed out, only the main places carry names; zoomed in, all of them do
+      const showSmall = V.zoom >= 2.2;
+      for (const p of this.places) {
+        const [u, v] = P(p.x, p.z);
+        if (!inView(u, v)) continue;
+        if (!p.big && !showSmall && !p.icon) continue;
+        if (p.icon) { g.font = `${p.big ? 18 : 14}px system-ui, "Apple Color Emoji", sans-serif`; g.fillText(p.icon, u, v); }
+        if (!p.name || (!p.big && !showSmall)) continue;
+        label(p.name, u, p.icon ? v + 15 : v, p.icon ? 11 : 12, p.big ? 600 : 500, p.icon ? '#fff6e0' : 'rgba(255,246,224,0.8)');
+      }
+      // the postcards: found ones as a stamp; the rest as a soft dashed circle round about where they hide
+      for (const c of this.cards ?? []) {
+        if (c.got) { const [u, v] = P(c.x, c.z); if (inView(u, v)) { g.font = '16px system-ui, "Apple Color Emoji", sans-serif'; g.fillText('📮', u, v); } continue; }
+        const [u, v] = P(c.x + c.ox, c.z + c.oz), r = Math.max(10, 95 * k);
+        if (!inView(u, v, r)) continue;
+        g.strokeStyle = 'rgba(255,214,120,0.55)'; g.lineWidth = 1.5; g.setLineDash([4, 4]);
+        g.beginPath(); g.arc(u, v, r, 0, 7); g.stroke(); g.setLineDash([]);
+        g.fillStyle = 'rgba(255,214,120,0.85)'; g.font = '600 11px Inter, sans-serif'; g.fillText('✉ ?', u, v);
+      }
+    } else if (mode === 'trains') {
+      // ---- trains: the lines drawn bright, the stations named, every train live ----
+      g.lineCap = 'round'; g.lineJoin = 'round';
+      for (const [w, col] of [[5, 'rgba(20,16,12,0.7)'], [2.2, '#e8dcc0']]) {
+        g.strokeStyle = col; g.lineWidth = w; g.beginPath();
+        for (const line of this.lines) { let pen = false; for (const q of line) { if (!q) { pen = false; continue; } const [u, v] = P(q.x, q.z); if (pen) g.lineTo(u, v); else { g.moveTo(u, v); pen = true; } } }
+        g.stroke();
+      }
+      for (const p of this.places) {
+        if (p.icon !== '🚉') continue;
+        const [u, v] = P(p.x, p.z);
+        if (!inView(u, v)) continue;
+        g.fillStyle = '#fff6e0'; g.strokeStyle = 'rgba(20,16,12,0.85)'; g.lineWidth = 2;
+        g.beginPath(); g.arc(u, v, 4.5, 0, 7); g.fill(); g.stroke();
+        if (p.big || V.zoom >= 1.8) label(p.name, u, v + 12, 10.5, 600, 'rgba(255,246,224,0.9)');
+      }
+      const s2 = 2.5 * Math.min(2, Math.sqrt(V.zoom));
+      for (const t of this.trains ?? []) if (this.follow !== 't:' + t.name) drawTrain(g, t, P, s2, true);
+      const ft = (this.trains ?? []).find((t) => this.follow === 't:' + t.name);
+      if (ft) { const [u, v] = P(ft.head.x, ft.head.z); g.strokeStyle = 'rgba(255,214,120,0.9)'; g.lineWidth = 2.5; g.beginPath(); g.arc(u, v, 20 + Math.sin(performance.now() * 0.006) * 3, 0, 7); g.stroke(); drawTrain(g, ft, P, s2 * 1.2, true); }
+    } else {
+      // ---- buses & jeeps: each one's run drawn in its colour, the shrine route bold, every one live ----
+      for (const p of this.places) {
+        if (!p.big || !p.name || p.icon === '🚉') continue;
+        const [u, v] = P(p.x, p.z);
+        if (inView(u, v)) label(p.name, u, v, 10, 500, 'rgba(255,246,224,0.55)');
+      }
+      const seen = new Set();
+      g.lineCap = 'round'; g.lineJoin = 'round';
+      const lv = this.live ?? [];
+      for (const m of [...lv].sort((a, b) => a.shrine - b.shrine)) {
+        if (!m.route || seen.has(m.route)) continue;
+        seen.add(m.route);
+        const on = this.follow === 'v:' + m.id;
+        g.strokeStyle = m.shrine ? '#f07a12' : m.color; g.globalAlpha = m.shrine || on ? 0.95 : 0.4;
+        g.lineWidth = m.shrine ? 3.5 : on ? 3 : 1.8; g.setLineDash(m.shrine ? [8, 5] : []);
+        g.beginPath(); m.route.forEach((q, i) => { const [u, v] = P(q.x, q.z); i ? g.lineTo(u, v) : g.moveTo(u, v); }); g.stroke();
+        g.setLineDash([]); g.globalAlpha = 1;
+      }
+      for (const m of [...lv].sort((a, b) => a.shrine - b.shrine || a.pin - b.pin)) {
+        const [u, v] = P(m.x, m.z);
+        if (!inView(u, v)) continue;
+        const on = this.follow === 'v:' + m.id, r = m.shrine ? 13 : 11;
+        if (on) { g.strokeStyle = 'rgba(255,214,120,0.9)'; g.lineWidth = 2.5; g.beginPath(); g.arc(u, v, r + 8 + Math.sin(performance.now() * 0.006) * 3, 0, 7); g.stroke(); }
+        g.fillStyle = 'rgba(255,246,224,0.96)'; g.beginPath(); g.arc(u, v, r, 0, 7); g.fill();
+        g.strokeStyle = m.shrine ? '#f07a12' : m.color; g.lineWidth = 3; g.stroke();
+        g.font = `${m.shrine ? 15 : 13}px system-ui, "Apple Color Emoji", sans-serif`; g.fillText(m.icon, u, v + 0.5);
+        if (m.pin || on || V.zoom >= 2.5) {
+          g.font = '600 11px Inter, sans-serif'; const w = g.measureText(m.label).width + 12;
+          g.fillStyle = 'rgba(20,16,12,0.82)'; g.beginPath(); g.roundRect ? g.roundRect(u + r + 4, v - 9, w, 18, 6) : g.rect(u + r + 4, v - 9, w, 18); g.fill();
+          g.fillStyle = '#fff6e0'; g.textAlign = 'left'; g.fillText(m.label, u + r + 10, v + 0.5); g.textAlign = 'center';
+        }
       }
     }
-    // the trains, live
-    for (const t of this.trains ?? []) drawTrain(g, t, P, 2.5 * Math.min(2, Math.sqrt(V.zoom)), true);
     // the boy, pulsing (or an arrow on the edge pointing to him when he is out of view)
     const [u, v] = P(player.x, player.z);
     if (inView(u, v, 0)) {
