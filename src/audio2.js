@@ -353,3 +353,37 @@ P.setSiren = function (kind, on = true) {
     S.g.gain.setTargetAtTime(fire ? 0.06 : 0.05, t, 0.15);
   } else S.g.gain.setTargetAtTime(0, t, 0.2);
 };
+
+// ---------- fire ----------
+// striking a match: a dry scrape, a flaring hiss as the head catches
+P.matchStrike = function () {
+  if (!this.ctx) return;
+  const t = this.ctx.currentTime + 0.01;
+  const sc = this._noise(t, 0.16), sf = this._bp(3200, 1.2), sg = this._g(0);
+  sg.gain.setValueAtTime(0, t); sg.gain.linearRampToValueAtTime(0.16, t + 0.02); sg.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+  sc.connect(sf).connect(sg).connect(this.master);
+  const fl = this._noise(t + 0.08, 0.7), ff = this._bp(1400, 0.6), fg = this._g(0);
+  fg.gain.setValueAtTime(0, t + 0.08); fg.gain.linearRampToValueAtTime(0.09, t + 0.13); fg.gain.exponentialRampToValueAtTime(0.002, t + 0.75);
+  fl.connect(ff).connect(fg).connect(this.master);
+};
+// a fire's voice: a low roar that grows with the blaze, and the snap and pop of burning straw and wood
+P.setFire = function (roar = 0, crackle = 0) {
+  if (!this.ctx) return;
+  const t = this.ctx.currentTime;
+  if (!this._fireG) {
+    if (roar <= 0.001) return;
+    const s = this.ctx.createBufferSource(); s.buffer = this._brownBuf ?? this.white; s.loop = true; s.start(t, Math.random() * 3);
+    this._fireG = this._g(0);
+    s.connect(this._bp(420, 0.5, 'lowpass')).connect(this._fireG).connect(this.master);
+  }
+  this._fireG.gain.setTargetAtTime(Math.min(0.22, roar * 0.16), t, 0.3);
+  // pops: a few a second, more the bigger the fire
+  this._popT = (this._popT ?? 0) - 1 / 60;
+  if (crackle > 0.02 && this._popT <= 0) {
+    this._popT = 0.05 + Math.random() * 0.3 / Math.min(3, crackle + 0.3);
+    const at = t + Math.random() * 0.02, n = this._noise(at, 0.05), f = this._bp(1800 + Math.random() * 3500, 2.5), g = this._g(0);
+    const v = Math.min(0.2, 0.05 + crackle * 0.06) * (0.4 + Math.random() * 0.6);
+    g.gain.setValueAtTime(v, at); g.gain.exponentialRampToValueAtTime(0.0005, at + 0.02 + Math.random() * 0.04);
+    n.connect(f).connect(g).connect(this.master);
+  }
+};

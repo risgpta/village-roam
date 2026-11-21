@@ -178,6 +178,9 @@ export const SHAPES = {
   person: { half: [0.22, 0.8, 0.14], com: [0, 0.82, 0], mass: 65 },
   bus: { half: [1.25, 1.5, 4.5], com: [0, 1.6, 0], mass: 7000 },
   jeep: { half: [0.9, 0.9, 2.1], com: [0, 1.0, 0], mass: 1800 },
+  cart: { half: [0.95, 0.9, 3.3], com: [0, 0.9, 0.5], mass: 700 },
+  camel: { half: [0.4, 1.0, 0.9], com: [0, 1.3, 0], mass: 500 },
+  elephant: { half: [0.9, 1.5, 1.4], com: [0, 1.8, 0], mass: 4000 },
 };
 export function shapeOf(kind, over = {}) {
   const s = { ...SHAPES[kind], ...over };

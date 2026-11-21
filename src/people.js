@@ -555,9 +555,15 @@ export class Person {
     this.legs.forEach((Lg, i) => { Lg.hip.rotation.set(-0.25 * f - (i ? 0.3 : 0) * f, 0, (i ? 0.12 : -0.12) * f); Lg.knee.rotation.set(0.5 * f + (i ? 0.4 : 0) * f, 0, 0); });
     this.head.rotation.set(-0.35 * f, 0.4 * f, 0);
   }
-  // step aside by (dx, dz) metres for `hold` seconds, then drift back (the owner keeps setting the root's
-  // position; the offset rides on top of it)
-  dodge(dx, dz, hold = 3.5) { this.dodgeV = { dx, dz, t: 0, hold }; }
+  // step aside by (dx, dz) metres for `hold` seconds, then walk back (the owner keeps setting the root's
+  // position; the offset rides on top of it). They really walk it: turning toward where they're stepping, at a
+  // brisk walk with their legs going, easing to a stop, waiting, then strolling back. A second honk while
+  // they're at it just keeps them out of the way a little longer — they carry on from where they are.
+  dodge(dx, dz, hold = 3.5) {
+    const d = this.dodgeV;
+    if (d) { d.tx = dx; d.tz = dz; d.hold = Math.max(hold, d.phase === 'hold' ? d.hold - d.t : 0); d.t = 0; d.phase = 'go'; return; }
+    this.dodgeV = { tx: dx, tz: dz, ox: 0, oz: 0, vx: 0, vz: 0, hold, t: 0, phase: 'go', turn: 0 };
+  }
   update(dt, speed, action) {
     // far away, the pose needn't change every frame: every 2nd frame past 90 m, every 4th past 180 m (with the
     // time saved up, so they don't slow down)
@@ -573,12 +579,24 @@ export class Person {
       this._acc = 0;
     }
     if (this.dodgeV && this.root.parent?.isScene) {
-      const d = this.dodgeV;
-      d.t += dt;
-      const k = d.t < 0.6 ? ss(d.t / 0.6) : d.t < d.hold ? 1 : d.t < d.hold + 1.2 ? 1 - ss((d.t - d.hold) / 1.2) : 0;
-      this.root.position.x += d.dx * k; this.root.position.z += d.dz * k;
-      if (d.t < 0.6) speed = Math.max(speed, 1.6); // a few quick steps
-      if (d.t > d.hold + 1.2) this.dodgeV = null;
+      const d = this.dodgeV, back = d.phase === 'back';
+      const ex = (back ? 0 : d.tx) - d.ox, ez = (back ? 0 : d.tz) - d.oz, dist = Math.hypot(ex, ez);
+      // a brisk walk out of the way, an easy stroll back, slowing down over the last half metre
+      const sp = dist > 1e-3 ? Math.min(back ? 1.0 : 1.45, dist * 2.4) : 0;
+      const a = 1 - Math.exp(-dt * 7);
+      d.vx += ((dist > 1e-3 ? (ex / dist) * sp : 0) - d.vx) * a; d.vz += ((dist > 1e-3 ? (ez / dist) * sp : 0) - d.vz) * a;
+      d.ox += d.vx * dt; d.oz += d.vz * dt;
+      const v = Math.hypot(d.vx, d.vz);
+      if (d.phase === 'go' && dist < 0.06 && v < 0.2) { d.phase = 'hold'; d.t = 0; }
+      else if (d.phase === 'hold') { d.t += dt; if (d.t > d.hold) d.phase = 'back'; }
+      this.root.position.x += d.ox; this.root.position.z += d.oz;
+      speed = Math.max(speed, v);
+      // face the way they're walking; standing aside, turn back to how they were
+      const want = v > 0.3 ? Math.atan2(d.vx, d.vz) - this.root.rotation.y : 0;
+      const dw = Math.atan2(Math.sin(want - d.turn), Math.cos(want - d.turn));
+      d.turn += dw * (1 - Math.exp(-dt * (v > 0.3 ? 9 : 4)));
+      if (!(this.fallT > 0)) this.body.rotation.y = d.turn;
+      if (back && dist < 0.03 && v < 0.05 && Math.abs(d.turn) < 0.05) { this.dodgeV = null; if (!(this.fallT > 0)) this.body.rotation.y = 0; }
     }
     if (this.fallT > 0) { this.fallStep(dt); return; }
     this.t += dt;
@@ -1411,6 +1429,26 @@ function roadLoop(off) {
       const a = pts[i - 1], b = pts[i], t = (s - seg[i - 1]) / (seg[i] - seg[i - 1] || 1);
       out.x = a.x + (b.x - a.x) * t; out.z = a.z + (b.z - a.z) * t;
       return out;
+    },
+  };
+}
+// a bullock cart the boy can drive, parked: the same cart and pair of bullocks as on the roads (see addCart)
+export function makeBullockCart(coat = '#ece6da') {
+  const vroot = new THREE.Group();
+  const cart = cartModel();
+  cart.g.position.z = -2.2;
+  vroot.add(cart.g);
+  const bulls = [-0.55, 0.55].map((x) => { const c = makeCow(coat); c.g.position.set(x, 0, 2.0); c.g.scale.setScalar(0.92); vroot.add(c.g); return c; });
+  return {
+    kind: 'cart', root: vroot, driverSeat: new THREE.Vector3(0, 1.0, -1.35), seats: [], len: 6.6, half: 0.95, wheelR: 0.72,
+    update(dt, speed) {
+      for (const w of cart.wheels) w.rotation.x += (speed * dt) / 0.7;
+      for (const b of bulls) {
+        b.ph = (b.ph ?? Math.random() * 6) + speed * dt * 3.2;
+        for (const [i, l] of b.legs.entries()) l.hip.rotation.x = Math.sin(b.ph + (i % 3 === 0 ? 0 : Math.PI)) * 0.3 * Math.min(1, Math.abs(speed));
+        b.neck.rotation.x = 0.15 + Math.sin(b.ph * 2) * 0.04;
+        b.tail.rotation.z = Math.sin(performance.now() * 0.002 + b.ph) * 0.3;
+      }
     },
   };
 }

@@ -13,7 +13,7 @@ const N = 2900; // baked image size, px (must match BAKE.map in bakers.js)
 const toU = (x) => ((x + E) / (2 * E)) * N;
 const toV = (z) => ((z + E) / (2 * E)) * N; // north (-z) at the top
 
-const FIELD_COL = [null, [214, 184, 52], [124, 156, 64], [96, 150, 128], [70, 112, 50], [218, 170, 40], [136, 94, 60]];
+const FIELD_COL = [null, [214, 184, 52], [124, 156, 64], [96, 150, 128], [70, 112, 50], [218, 170, 40], [136, 94, 60], [190, 162, 102]];
 
 // the painted picture of the whole area: the ground (baked in workers, see bakers.js), then trees, houses
 // and the railway drawn over it
@@ -63,7 +63,7 @@ function places() {
     ...(L.busStops || []).map((b) => ['', b, '🚏', 0]),
     ['Crocodiles', { x: riverX(380) + 18, z: 380 }, '🐊', 1], ['Crocodiles', { x: riverX(-400) + 18, z: -400 }, '🐊', 1],
     ['Mustard', { x: -77, z: -5 }, '', 0], ['Wheat', { x: 37, z: -56 }, '', 0], ['Rice paddies', { x: 140, z: -56 }, '', 0],
-    ['Sugarcane', { x: -175, z: -30 }, '', 0], ['Sunflowers', { x: -93, z: 95 }, '', 0], ['Tractor field', { x: -47, z: -182 }, '🚜', 0],
+    ['Sugarcane', { x: -175, z: -30 }, '', 0], ['Sunflowers', { x: -93, z: 95 }, '', 0], ['Tractor field', { x: -47, z: -182 }, '🚜', 0], ['Harvested field', { x: -34, z: 206 }, '🌾', 0],
   ];
   return P.filter((p) => p[1]).map(([name, o, icon, big]) => ({ name, x: o.x, z: o.z, icon, big }));
 }

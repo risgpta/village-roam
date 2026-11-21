@@ -3,6 +3,7 @@
 // is done; the bands are stitched into one array per job. If workers aren't available, the same functions run
 // here on the main thread instead.
 import { BAKE, bakeRows } from './bakers.js';
+import workerUrl from './bake.worker.js?worker&url';
 
 const BAND = 48; // rows per piece of work
 
@@ -10,8 +11,9 @@ export function startBakes(kinds) {
   const jobs = new Map(), queue = [];
   for (const kind of kinds) {
     const { N } = BAKE[kind];
-    const per = kind === 'color' || kind === 'map' ? 4 : 1; // elements per pixel in the result
-    const Arr = kind === 'height' ? Float32Array : kind === 'grass' ? Uint16Array : Uint8ClampedArray;
+    const ring = kind.startsWith('ring');
+    const per = kind === 'color' || kind === 'map' || ring ? 4 : 1; // elements per pixel in the result
+    const Arr = kind === 'height' || ring ? Float32Array : kind === 'grass' ? Uint16Array : Uint8ClampedArray;
     const out = new Arr(N * N * per * (kind === 'grass' ? 4 : 1));
     let left = Math.ceil(N / BAND), resolve;
     const done = new Promise((r) => (resolve = r));
@@ -34,14 +36,18 @@ export function startBakes(kinds) {
   };
   let workers = [];
   try {
-    const n = Math.max(2, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
-    // deal the bands out round-robin, so every worker has some of each job and they all finish together
+    // a few cores left for this thread and the browser: each worker builds its own copy of the world before it
+    // starts, so past a point more workers only means more copies and stragglers
+    const n = Math.max(2, Math.min(9, (navigator.hardwareConcurrency || 4) - 3));
+    // deal the bands out in the order the game needs them (heights, colours, grass, then the map), round-robin
+    // so every worker has some of each and they finish together. Each worker's list goes in its name: it can
+    // start the moment it loads, with no message from this (busy) thread.
     const lists = Array.from({ length: n }, () => []);
     queue.forEach((q, i) => lists[i % n].push(q));
     queue.length = 0;
     for (let i = 0; i < n; i++) {
-      const w = new Worker(new URL('./bake.worker.js', import.meta.url), { type: 'module' });
       const mine = lists[i], got = new Set();
+      const w = new Worker(workerUrl, { type: 'module', name: JSON.stringify({ list: mine }) });
       const fail = (why) => {
         // this worker can't do its share: bake whatever it hadn't sent back here instead
         console.warn('bake worker failed, finishing its share here:', why);
@@ -51,15 +57,13 @@ export function startBakes(kinds) {
       };
       w.onmessage = (e) => {
         const m = e.data;
-        if (m.ready) return;
+        if (m.ready) { w.postMessage({ list: mine }); return; } // (a browser that didn't pass the name on)
         if (m.finished) { w.terminate(); workers = workers.filter((o) => o !== w); return; }
         if (m.error) { fail(m.error); return; }
         got.add(m.kind + m.j0);
         jobs.get(m.kind).put(m.j0, m.buf);
       };
       w.onerror = (e) => { e.preventDefault?.(); fail(e.message); };
-      // sent straight away: the worker picks it up as soon as it has loaded, without waiting on this thread
-      w.postMessage({ list: mine });
       workers.push(w);
     }
   } catch (err) {

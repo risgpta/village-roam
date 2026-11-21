@@ -17,7 +17,9 @@ import { buildVegetation, setFoliageGlow, setFoliageSeason, updateVegetation } f
 import { buildRiver, buildWaterfall, streamDist } from './water.js';
 import { buildVillage, setNightGlow } from './props.js';
 import { buildRailway } from './rail.js';
-import { buildPeople } from './people.js';
+import { buildPeople, makeBullockCart } from './people.js';
+import { AnimalMount } from './mounts.js';
+import { buildFire } from './fire.js';
 import { buildAnimals } from './animals.js';
 import { LanternLights } from './gear.js';
 import { Boy } from './boy.js';
@@ -487,6 +489,14 @@ const vehicles = [
     if (ok) add(name, mk(), ok.x, ok.z, Math.atan2(roadX(ok.z + 1) - roadX(ok.z), 1) + (side > 0 ? Math.PI : 0));
   }
 }
+// animals to ride: a decorated camel at Marudhar, and a temple elephant at Thennoor
+{
+  const rv = layout.rv, tv = layout.tv;
+  if (rv) vehicles.push({ obj: new AnimalMount('camel'), name: 'camel', mount: true, park: { x: rv.x + 40.6, z: rv.z + 49.5, rot: 0.8 }, walk: 1.5, run: 3.0, boost: 4.6, accel: 0.45, reach: 2.4, rad: 0.7, lean: 0, flame: false,
+    on: 'Up on the camel — W to walk on, Shift to trot', off: 'Down off the camel', ask: 'ride the camel', help: [['W', 'walk on'], ['Shift', 'trot'], ['A D', 'turn'], ['B', 'click to it'], ['E', 'climb down']] });
+  if (tv) vehicles.push({ obj: new AnimalMount('elephant'), name: 'elephant', mount: true, park: { x: tv.x + 1, z: tv.z + 14, rot: -0.6 }, walk: 1.3, run: 2.4, boost: 3.2, accel: 0.35, reach: 3.2, rad: 1.15, lean: 0, flame: false,
+    on: 'Up on the temple elephant — W to walk on, B for a trumpet', off: 'Down off the elephant', ask: 'ride the elephant', help: [['W', 'walk on'], ['Shift', 'a bit faster'], ['A D', 'turn'], ['B', 'trumpet'], ['E', 'climb down']] });
+}
 // nothing parked on the roadway: every ride left by a road or lane (the bikes, the scooter, the minibus, the
 // e-rickshaw…) is moved back onto clear ground at the side, so the traffic has the whole road to itself
 {
@@ -557,7 +567,7 @@ let boostFx = 0;
 const drive = { v: 0, steer: 0, brake: false };
 let passengers = null;
 let site = null, kites = null, mela = null;
-let goodsYards = null, workers = null, postcards = null, cricket = null, shrineBusSeen = false;
+let goodsYards = null, workers = null, postcards = null, cricket = null, shrineBusSeen = false, boatHudT = 0, fire = null;
 const nitro = { fuel: 1, on: false, locked: false };
 const flames = new Puffs({ max: 160, color: '#9fd0ff', dark: '#ff7a1a', opacity: 0.9, additive: true, buoyancy: 0.3, drag: 3 });
 scene.add(flames.mesh);
@@ -693,7 +703,7 @@ function reachOf(v) {
   return { fr: 0.9, bk: -0.9, w: 0.25 };
 }
 // how steep a slope each kind can climb (rise over run)
-const CLIMB = { police: 0.65, cart: 0.32, bus: 0.38, minibus: 0.4, erick: 0.38, auto: 0.45, car: 0.5, jeep: 0.65, bicycle: 0.42, moped: 0.6, scooter: 0.55 };
+const CLIMB = { camel: 0.5, elephant: 0.45, police: 0.65, cart: 0.32, bus: 0.38, minibus: 0.4, erick: 0.38, auto: 0.45, car: 0.5, jeep: 0.65, bicycle: 0.42, moped: 0.6, scooter: 0.55 };
 function hornFor(v) {
   if (v.siren) {
     v.obj.siren = !v.obj.siren;
@@ -712,6 +722,8 @@ function hornFor(v) {
   else if (v.name === 'bus') audio.busHorn(1);
   else if (v.name === 'jeep') audio.jeepHorn(1);
   else if (v.name === 'cart') audio.cowbell(1);
+  else if (v.name === 'camel') audio.camel(0.8);
+  else if (v.name === 'elephant') audio.trumpet(0);
   if (v.name !== 'boat') makeWay();
 }
 
@@ -738,6 +750,9 @@ TAKE_TPL.car = { walk: 12, run: 18, boost: 28, accel: 0.9, reach: 3.0, rad: 0.82
   four: true, wb: 2.05, rev: 4.5, probes: [-0.9, 0.15, 1.2], exit: [-1.2, 0], box: [0.33, 0.15, 0.8, 1.68],
   shapeOver: { half: [0.78, 0.7, 1.65], com: [0.33, 0.7, 0.15] },
   off: 'Out of the car', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['N', 'nitro'], ['L', 'lights']], ask: 'drive the car' };
+// a bullock cart standing by the road just short of the village, where the walk starts
+vehicles.push({ ...TAKE_TPL.cart, name: 'cart', obj: new TakenVehicle(makeBullockCart('#d8cfc0')), park: { x: roadX(startZ - 16) - 11, z: startZ - 16, rot: Math.PI },
+  on: 'Up on the bullock cart — W to gee up, S to whoa', off: 'Off the bullock cart', ask: 'drive the bullock cart' });
 // the police jeep at each thana, ready to drive (B: siren and lights, and the traffic makes way)
 for (const B of layout.police ?? []) {
   vehicles.push({ ...TAKE_TPL.jeep, name: 'police', obj: new TakenVehicle(new PoliceJeep()), park: { x: B.jeep.x, z: B.jeep.z, rot: B.jeep.rot }, siren: true, sound: 'jeep',
@@ -866,7 +881,7 @@ function updateRobbed(dt) {
 // a parked scooter shoved by the car falls on its side, the car hits a bus and stops dead, and anything
 // the train catches on the line is thrown clear — further and higher the faster the train is going.
 const crashes = new Crashes();
-const MASS = { police: 1800, bicycle: 60, moped: 130, scooter: 150, auto: 420, erick: 480, car: 900, jeep: 1800, minibus: 3600, bus: 7000, cart: 700, ambulance: 2600, firetruck: 9000 };
+const MASS = { camel: 500, elephant: 4000, police: 1800, bicycle: 60, moped: 130, scooter: 150, auto: 420, erick: 480, car: 900, jeep: 1800, minibus: 3600, bus: 7000, cart: 700, ambulance: 2600, firetruck: 9000 };
 const UPV = new THREE.Vector3(0, 1, 0);
 function obbDist(x, z, b) {
   const dx = x - b.x, dz = z - b.z, c = Math.cos(b.rot), sn = Math.sin(b.rot);
@@ -952,7 +967,7 @@ function updateKnock(dt) {
 function knockables() {
   const out = [];
   for (const v of vehicles) {
-    if (v === ride || v.water || v.fly) continue;
+    if (v === ride || v.water || v.fly || v.mount) continue; // (the camel and the elephant aren't knocked about)
     const sh = shapeOf(v.name, v.shapeOver);
     const x = v.crash ? v.crash.p.x : v.park.x, z = v.crash ? v.crash.p.z : v.park.z;
     if (Math.abs(x - player.x) + Math.abs(z - player.z) > 60) continue;
@@ -1180,6 +1195,16 @@ function splashAround(n, sp = 1) {
 // Q sits the boy down wherever he is: the corner clutter fades and the camera drifts slowly round. E does the small thing at hand: a cup of chai at the stall, the temple bell, a pat for the
 // dog, puffed rice for the fish, a diya set on the river at dusk.
 const sit = { on: false, t: 0, chai: 0 };
+// the struck match in the boy's right hand: a little teardrop of flame on a matchstick
+const matchFlame = new THREE.Group();
+{
+  const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.06, 5), new THREE.MeshStandardMaterial({ color: '#e8d8b0', roughness: 0.8 }));
+  stick.rotation.x = Math.PI / 2; matchFlame.add(stick);
+  const fl = new THREE.Mesh(new THREE.SphereGeometry(0.011, 8, 6).scale(1, 1.9, 1), new THREE.MeshBasicMaterial({ color: '#ffc45a' }));
+  fl.position.set(0, 0.016, 0.03); matchFlame.add(fl);
+  matchFlame.position.set(0, -0.06, 0.04); matchFlame.visible = false;
+  boy.arms[1].hand.add(matchFlame);
+}
 const purse = { spent: 0 };
 const wallet = () => (passengers?.fare ?? 0) - purse.spent;
 const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.024, 0.07, 10), new THREE.MeshStandardMaterial({ color: '#b8683c', roughness: 0.8 }));
@@ -1370,7 +1395,12 @@ function nearAct() {
   // fishing: from the canal's bank
   { const n = CANAL.path.near(px, pz); if (n && n.d > CANAL.half + 0.6 && n.d < CANAL.half + 3.4) { const q = CANAL.path.at(n.s); return { ask: 'sit and fish in the canal', run: () => startFishing(q.x, q.z, CANAL.level) }; } }
   if (cricket && Math.hypot(px - CRICKET.x, pz - CRICKET.z) < 16 && !ATMO.night && !ATMO.rainy) return { ask: 'play gully cricket with the kids', run: startCricket };
-  if (Math.hypot(px - TEA.x, pz - TEA.z) < 6.5) return { ask: wallet() >= 10 ? 'have a cup of chai · ₹10' : 'have a cup of chai', run: haveChai };
+  if (Math.hypot(px - TEA.x, pz - TEA.z) < 6.5) {
+    const T = village?.tea;
+    if (T && !T.lit) return { ask: 'have a cup of chai (light the chulha first: F)', run: () => toast('The chulha is cold — strike a match (F) by it to light it 🔥') };
+    if (T && T.boil > 0) return null;
+    return { ask: wallet() >= 10 ? 'make a pan of chai · ₹10' : 'make a pan of chai', run: () => { if (!T) { haveChai(); return; } T.boil = 10; audio.tink(0.4); toast('Milk, tea leaves, a bit of ginger and sugar go in the pan — it comes to the boil…'); } };
+  }
   const T = layout.temple;
   if (T && Math.hypot(px - T.x, pz - T.z) < 8) return { ask: 'ring the temple bell', run: () => { audio.bell(1); boy.greetT = 2.4; toast('The bell rings out over the village 🔔'); } };
   const dog = people?.dogs.find((d) => d.follower && Math.hypot(d.p.x - px, d.p.z - pz) < 1.9);
@@ -1576,7 +1606,7 @@ function paxCamera(dt) {
 async function build() {
   // the heavy bakes (terrain heights and colours, grass, the map) start at once on the other CPU cores, while
   // this thread builds the trees, the village, the railway and the people
-  const bakes = startBakes(['height', 'color', 'grass', 'map']);
+  const bakes = startBakes(['height', 'color', 'ringA', 'ringB', 'grass', 'map']);
   status('Planting neem, banyan and coconut trees…');
   await nextFrame();
   const vegGroup = buildVegetation();
@@ -1647,6 +1677,7 @@ async function build() {
     onBat: (d) => { audio.tock(clamp(1 - d / 60, 0, 1)); if (d < 35 && Math.random() < 0.5) { const [hi, ro] = pick([['चौका!', 'Chauka!'], ['शाबाश!', 'Shaabaash!'], ['भागो!', 'Bhaago!']]); setTimeout(() => audio.say(hi, { roman: ro, pitch: 1.9, rate: 1.2, volume: 1 - d / 40 }), 250); } },
   });
   workers = buildWorkers(scene, { onThwack: (d) => audio.tock(clamp(1 - d / 60, 0, 1) * 0.5) });
+  fire = buildFire(scene, village, { onStrike: () => audio.matchStrike(), onSound: (roar, crackle) => audio.setFire(roar, crackle) });
   postcards = buildPostcards(scene, {
     onCollect: (s, got, n) => {
       toast(got === n ? `📮 The last postcard — ${s.title}! You've seen the whole country 🎉` : `📮 Postcard ${got} of ${n} — ${s.title}`);
@@ -1715,12 +1746,16 @@ async function build() {
   await nextFrame();
   status('Shaping the land and hills…');
   await nextFrame();
-  terrainObj = buildTerrain(await bakes.height, await bakes.color);
+  terrainObj = buildTerrain(await bakes.height, await bakes.color, { a: await bakes.ringA, b: await bakes.ringB });
   scene.add(terrainObj);
-  status('Growing the grass…');
-  await nextFrame();
-  grass = buildGrass(buildGrassData(await bakes.grass));
-  scene.add(grass);
+  // the grass comes in when its bake is done: the walk can start without waiting for it (it's usually there
+  // before anyone has clicked Begin)
+  bakes.grass.then((data) => {
+    grass = buildGrass(buildGrassData(data));
+    grass?.userData.setCenter(player.x, player.z);
+    scene.add(grass);
+    applySeason(true);
+  });
   map = new MapUI(bakes.map); // the map fills in by itself once its bake is done
   applySeason(true);
   applySharedLink();
@@ -1761,6 +1796,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && map?.open) { map.toggleBig(false); return; }
   if (map?.open && /^Digit[123]$/.test(e.code)) { map.setMode(['places', 'trains', 'roads'][+e.code.slice(5) - 1]); return; }
   if (e.code === 'Escape' && $('help').classList.contains('show')) { toggleHelp(false); return; }
+  if (e.code === 'Escape' && $('settings').classList.contains('show')) { toggleSettings(false); return; }
   if (e.target instanceof HTMLSelectElement) return;
   if (e.code === 'Space' && !keys.Space && !ride) jumpQueued = true;
   keys[e.code] = true;
@@ -1774,6 +1810,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyO' && !e.repeat && postcards) { postcards.toggle(); return; }
   if (e.code === 'Escape' && postcards?.open) { postcards.toggle(false); return; }
   if (e.code === 'KeyK' && !e.repeat && !(ride && ride.fly)) shareSpot();
+  if (e.code === 'KeyF' && !e.repeat && fire && !ride && !drv && !pax && !swim.on && !cricketOn) { const r = fire.strike(player.x, player.z); boy.greetT = 1.2; if (r.text) toast(r.text); }
   if (cricketOn) {
     if (e.code === 'Space' && !e.repeat) cricket.action();
     if (e.code === 'KeyX' && !e.repeat) cricket.swap();
@@ -1813,9 +1850,9 @@ canvas.addEventListener('mousedown', () => {
 window.addEventListener('mouseup', () => { dragging = false; });
 window.addEventListener('mousemove', (e) => {
   if (document.pointerLockElement === canvas || dragging) {
-    yaw -= e.movementX * 0.0024;
+    yaw -= e.movementX * 0.0024 * settings.sens;
     autoYaw = performance.now();
-    pitch = clamp(pitch + e.movementY * 0.0022, -0.2, 1.25);
+    pitch = clamp(pitch + e.movementY * 0.0022 * settings.sens * (settings.invertY ? -1 : 1), -0.2, 1.25);
   }
 });
 window.addEventListener('wheel', (e) => { targetDist = clamp(targetDist + e.deltaY * 0.004, 2.2, 18); }, { passive: true });
@@ -1920,13 +1957,58 @@ let shadowTick = 0;
 // Dynamic resolution: if frames start taking too long the picture renders at a lower resolution (and is
 // scaled up), and goes back up when there is time to spare — so the frame rate stays smooth.
 // (never far below full sharpness: a blurry picture is worse than a few dropped frames)
-const MAX_PR = Math.min(window.devicePixelRatio, 1.5), MIN_PR = MAX_PR * 0.85;
+let MAX_PR = Math.min(window.devicePixelRatio, 1.5), MIN_PR = MAX_PR * 0.85;
 const dyn = { pr: MAX_PR, ema: 16, slowT: 0, fastT: 0, cpu: 8 };
 function setPixelRatio(pr) {
   dyn.pr = pr;
   renderer.setPixelRatio(pr);
   composer.setPixelRatio(pr);
   composer.setSize(window.innerWidth, window.innerHeight);
+}
+// ---------------- settings ----------------
+// Picture quality, the mouse and the field of view, kept in this browser (nothing is sent anywhere).
+//  high: as built — sharp, soft sun shadows, a gentle bloom, trees and houses far out
+//  medium: a little less sharp, lighter shadows, not quite so far
+//  low: for older machines — no sun shadows, no bloom, a shorter view
+const QUALITY = {
+  high: { pr: 1.5, shadow: 2048, shadows: true, bloom: true, view: 1 },
+  medium: { pr: 1.15, shadow: 1024, shadows: true, bloom: true, view: 0.8 },
+  low: { pr: 0.9, shadow: 1024, shadows: false, bloom: false, view: 0.6 },
+};
+const settings = { quality: 'high', sens: 1, invertY: false, fov: 55 };
+try { Object.assign(settings, JSON.parse(localStorage.getItem('gaon.settings') || '{}')); } catch { /* defaults */ }
+const settingsView = () => (QUALITY[settings.quality] ?? QUALITY.high).view;
+function applySettings(save = true) {
+  const Q = QUALITY[settings.quality] ?? QUALITY.high;
+  MAX_PR = Math.min(window.devicePixelRatio, Q.pr); MIN_PR = MAX_PR * 0.85;
+  setPixelRatio(MAX_PR);
+  if (sun.castShadow !== Q.shadows) sun.castShadow = Q.shadows;
+  if (sun.shadow.mapSize.x !== Q.shadow) { sun.shadow.mapSize.set(Q.shadow, Q.shadow); sun.shadow.map?.dispose(); sun.shadow.map = null; }
+  renderer.shadowMap.needsUpdate = true;
+  bloom.enabled = Q.bloom;
+  if (save) try { localStorage.setItem('gaon.settings', JSON.stringify(settings)); } catch { /* fine */ }
+  // the panel shows what's set
+  for (const b of document.querySelectorAll('#set-quality button')) b.classList.toggle('on', b.dataset.q === settings.quality);
+  $('set-sens').value = settings.sens; $('set-sens-v').textContent = settings.sens.toFixed(1) + '×';
+  $('set-fov').value = settings.fov; $('set-fov-v').textContent = settings.fov + '°';
+  $('set-invert').checked = settings.invertY;
+}
+function toggleSettings(v) {
+  const el = $('settings'), on = v ?? !el.classList.contains('show');
+  el.classList.toggle('show', on);
+  if (on && document.pointerLockElement) document.exitPointerLock();
+}
+{
+  $('set-quality').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { settings.quality = b.dataset.q; applySettings(); } });
+  $('set-sens').addEventListener('input', (e) => { settings.sens = +e.target.value; applySettings(); });
+  $('set-fov').addEventListener('input', (e) => { settings.fov = +e.target.value; applySettings(); });
+  $('set-invert').addEventListener('change', (e) => { settings.invertY = e.target.checked; applySettings(); });
+  $('set-reset').addEventListener('click', () => { Object.assign(settings, { quality: 'high', sens: 1, invertY: false, fov: 55 }); applySettings(); });
+  $('set-close').addEventListener('click', (e) => { e.stopPropagation(); toggleSettings(false); });
+  $('settingsbtn').addEventListener('click', (e) => { e.stopPropagation(); toggleSettings(); });
+  $('settings').addEventListener('click', (e) => { if (e.target.id === 'settings') toggleSettings(false); });
+  for (const el of document.querySelectorAll('#settings, #settingsbtn')) for (const ev of ['mousedown', 'pointerdown']) el.addEventListener(ev, (e) => e.stopPropagation());
+  applySettings(false);
 }
 function dynamicResolution(frameMs) {
   if (!started || document.hidden) return;
@@ -2201,8 +2283,28 @@ function updatePlayer(dt) {
   dust.update(dt);
   // the riding HUD: speed, nitro gauge, key hints
   const hud = $('ridehud');
-  hud.classList.toggle('show', !!ride && started);
-  if (ride) {
+  hud.classList.toggle('show', !!ride && started && !ride.water);
+  // the boat has its own little panel: the oars dipping with each stroke, the pace, and how far the bank is
+  $('boathud').classList.toggle('show', !!ride?.water && started);
+  if (ride?.water) {
+    const ph = ride.obj.phase ?? 0, pull = Math.min(1, player.speed / ride.run);
+    const turn = (keys.KeyA || keys.ArrowLeft ? 1 : 0) - (keys.KeyD || keys.ArrowRight ? 1 : 0);
+    // each oar sweeps with the stroke; turning, only the outside oar pulls
+    const sweep = (side) => { const on = turn === 0 ? 1 : (side === turn ? 0.25 : 1.2); return Math.sin(ph) * 22 * on * Math.max(pull, keys.KeyW || keys.ArrowUp ? 0.6 : 0); };
+    $('bh-oarL').setAttribute('transform', `rotate(${(-sweep(-1)).toFixed(1)} 46 27)`);
+    $('bh-oarR').setAttribute('transform', `rotate(${sweep(1).toFixed(1)} 74 27)`);
+    const kmh = player.speed * 3.6;
+    $('bh-speed').textContent = kmh < 0.5 ? '0' : kmh.toFixed(1);
+    $('bh-pace').textContent = kmh < 0.6 ? 'drifting' : kmh < 4 ? 'gliding along' : kmh < 7.5 ? 'rowing steady' : 'rowing hard';
+    boatHudT -= dt;
+    if (boatHudT <= 0) {
+      boatHudT = 0.4;
+      const b = bankNear(), el = $('bh-bank');
+      el.classList.toggle('near', !!b);
+      el.innerHTML = b ? `The bank is right here — <kbd>E</kbd> to step ashore` : '<kbd>W</kbd> row · <kbd>A</kbd><kbd>D</kbd> turn · <kbd>Shift</kbd> pull harder';
+    }
+  }
+  if (ride && !ride.water) {
     $('rh-speed').textContent = Math.round(player.speed * 3.6);
     $('rh-name').textContent = { auto: 'Auto rickshaw', car: 'Little car', minibus: 'Gaon minibus', erick: 'E-rickshaw', bus: 'Village bus', jeep: 'Jeep', moped: 'Motorbike', cart: 'Bullock cart' }[ride.name] ?? ride.name[0].toUpperCase() + ride.name.slice(1);
     hud.classList.toggle('four', !!ride.four);
@@ -2232,7 +2334,7 @@ function updatePlayer(dt) {
     hud.classList.toggle('nonitro', !boat && !ride.nitro);
   }
   document.body.classList.toggle('nitro', boosting);
-  const fov = (camMode >= 3 || (inside && ride && ride.four) ? camera.fov : 55) + (camMode >= 3 || (inside && ride && ride.four) ? 0 : boostFx * 12);
+  const fov = (camMode >= 3 || (inside && ride && ride.four) ? camera.fov : settings.fov) + (camMode >= 3 || (inside && ride && ride.four) ? 0 : boostFx * 12);
   if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = fov; camera.updateProjectionMatrix(); }
   // the moped: engine note and blue-grey two-stroke smoke
   const onMoped = ride && ['moped', 'scooter', 'auto', 'car', 'minibus', 'jeep', 'bus'].includes(ride.name);
@@ -2255,9 +2357,10 @@ function updatePlayer(dt) {
   if (!nv && !ride && !swim.on) { if (nearCoach()) nv = { ask: 'ride the train as a passenger 🚃' }; else { const act = nearAct(); if (act) nv = { ask: act.ask }; } }
   if (nv && swim.on && !nv.water) nv = null;
   const keyChips = (list) => list.map(([k, t]) => `<span class="chip"><kbd>${k}</kbd>${t}</span>`).join('');
-  const html = ride ? keyChips(ride.help) : nv ? keyChips([['E', swim.on ? 'climb into the boat' : nv.ask]]) : swim.on ? keyChips([['W', 'swim'], ['Shift', 'swim faster']]) : '';
+  const fp = !ride && !swim.on && !drv && !pax && fire ? fire.prompt(player.x, player.z) : null;
+  const html = ride ? keyChips(ride.help) : nv || fp ? keyChips([...(nv ? [['E', swim.on ? 'climb into the boat' : nv.ask]] : []), ...(fp ? [['F', fp]] : [])]) : swim.on ? keyChips([['W', 'swim'], ['Shift', 'swim faster']]) : '';
   if ($('prompt').dataset.html !== html) { $('prompt').innerHTML = html; $('prompt').dataset.html = html; }
-  $('prompt').classList.toggle('show', started && (ride ? (player.speed < 0.5 && !(four && f)) || ridePromptT > 0 : !!nv || (swim.on && player.speed < 0.2)));
+  $('prompt').classList.toggle('show', started && (ride ? (player.speed < 0.5 && !(four && f)) || ridePromptT > 0 : !!nv || !!fp || (swim.on && player.speed < 0.2)));
   ridePromptT -= dt;
 }
 
@@ -2384,7 +2487,7 @@ function trainCamera(dt, lg = drvLoco.g, view = drvView) {
   camera.position.lerp(camPos, 1 - Math.exp(-dt * 6));
   camTarget.set(c.x + Math.sin(lg.rotation.y) * 6, c.y, c.z + Math.cos(lg.rotation.y) * 6);
   camera.lookAt(camTarget);
-  if (Math.abs(camera.fov - 55) > 0.05) { camera.fov = 55; camera.updateProjectionMatrix(); }
+  if (Math.abs(camera.fov - settings.fov) > 0.05) { camera.fov = settings.fov; camera.updateProjectionMatrix(); }
 }
 
 // ---------------- flying the plane ----------------
@@ -2836,15 +2939,15 @@ function updateCamera(dt) {
     camera.up.set(0, 0, -1);
     camera.lookAt(camera.position.x, player.y, camera.position.z - 0.01);
     camera.up.set(0, 1, 0);
-    if (Math.abs(camera.fov - 55) > 0.05) { camera.fov = 55; camera.updateProjectionMatrix(); }
+    if (Math.abs(camera.fov - settings.fov) > 0.05) { camera.fov = settings.fov; camera.updateProjectionMatrix(); }
     return;
   }
   const modeDist = camMode === 1 ? 2.4 : camMode === 2 ? 15 : null;
   canopyTimer -= dt;
   if (canopyTimer < 0) { canopyTimer = 0.4; refreshCanopies(); }
-  dist += ((modeDist ?? targetDist) - dist) * (1 - Math.exp(-dt * 4));
+  dist += (Math.max(modeDist ?? targetDist, (!modeDist && ride?.obj?.camDist) || 0) - dist) * (1 - Math.exp(-dt * 4));
   const pch = camMode === 1 ? Math.min(pitch, 0.25) : camMode === 2 ? Math.max(pitch, 0.5) : pitch;
-  camTarget.set(player.x, player.y + (camMode === 1 ? 1.2 : 1.15), player.z);
+  camTarget.set(player.x, player.y + (camMode === 1 ? 1.2 : 1.15) + (ride?.obj?.camLift ?? 0), player.z);
   if (camMode === 1) { camTarget.x += Math.cos(yaw) * 0.45; camTarget.z -= Math.sin(yaw) * 0.45; } // over the shoulder
   const cp = Math.cos(pch);
   const ox = Math.sin(yaw) * cp, oy = Math.sin(pch), oz = Math.cos(yaw) * cp;
@@ -3146,11 +3249,11 @@ function frame(now) {
   shadowTick++;
   updateShadows(); renderer.shadowMap.needsUpdate = true;
 
-  updateVegetation(camera.position, scene.fog.density);
+  updateVegetation(camera.position, scene.fog.density / settingsView());
   terrainObj.userData.update(camera.position);
   updateCull(camera.position);
-  updateStream(camera.position, 2.6 / Math.max(scene.fog.density, 0.0012));
-  grass.userData.setCenter(player.x, player.z);
+  updateStream(camera.position, (2.6 / Math.max(scene.fog.density, 0.0012)) * settingsView());
+  grass?.userData.setCenter(player.x, player.z);
   river.material.uniforms.uTime.value = time;
   const mu = motes.material.uniforms;
   mu.uTime.value = time;
@@ -3181,6 +3284,14 @@ function frame(now) {
   buffs?.update(dt, player, time);
   hamlets?.update(dt, player);
   workers?.update(dt, player, time);
+  fire?.update(dt, { player, t: time, rain: ATMO.rain ?? 0, night: !!ATMO.night, dusk: !!ATMO.night || (ATMO.sunElev ?? 30) < 7, season, wind: windUniforms.uWind.value });
+  matchFlame.visible = (fire?.matchT ?? 0) > 0;
+  if (matchFlame.visible) { const k = fire.matchT; matchFlame.scale.setScalar(Math.min(1, k * 2) * (0.85 + 0.15 * Math.sin(time * 30))); }
+  // a pan of chai on the boil at the stall: when it's ready, up onto the bench with a glass
+  if (village?.tea?.boil > 0) {
+    village.tea.boil -= dt;
+    if (village.tea.boil <= 0) { if (Math.hypot(player.x - TEA.x, player.z - TEA.z) < 9 && !ride && !sit.on) haveChai(); else toast('The chai is ready at the stall ☕'); }
+  }
   if (started) postcards?.update(dt, player, time, !!ride);
   shops?.update(dt, player);
   shrineLife?.update(dt, player);
@@ -3382,6 +3493,7 @@ window.__gaon = {
   get scanHide() { return [terrainObj, grass, river, waterfall && waterfall.group].filter(Boolean); },
   get postcards() { return postcards; }, get cricket() { return cricket; }, get workers() { return workers; }, get goodsYards() { return goodsYards; },
   startCricket, stopCricket, shareSpot, haveChai, liveMarks, map: () => map,
+  get fire() { return fire; }, setSeason(k) { season = k; applySeason(true); }, act() { const a = nearAct(); a?.run(); return a?.ask; }, get sitOn() { return sit.on; }, tea: () => village?.tea,
   begin() { started = true; audio.start(); applySound(); document.body.classList.add('started'); },
 };
 

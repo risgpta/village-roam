@@ -17,8 +17,8 @@ const C = {
 };
 const mix = (a, b, t, o) => { o[0] = a[0] + (b[0] - a[0]) * t; o[1] = a[1] + (b[1] - a[1]) * t; o[2] = a[2] + (b[2] - a[2]) * t; return o; };
 
-export function terrainColor(x, z, out) {
-  const h = heightAt(x, z, false); // the hill as it looks from outside, even over a tunnel
+export function terrainColor(x, z, out, hIn) {
+  const h = hIn ?? heightAt(x, z, false); // the hill as it looks from outside, even over a tunnel (a baker may pass it in)
   const dr = Math.abs(x - riverX(z));
   const d = Math.hypot(x, z);
   const n = fbm(x * 0.05, z * 0.05, 3) * 0.5 + 0.5;
@@ -41,6 +41,10 @@ export function terrainColor(x, z, out) {
     else if (ft === 6) {
       const furrow = Math.sin(z * Math.PI * 2 / 0.9) * 0.5 + 0.5;
       mix(c, mix(C.plough1, C.plough2, furrow, [0, 0, 0]), 0.92, c);
+    } else if (ft === 7) {
+      // stubble: pale straw in the rows the reaper left, dry earth between
+      const row = Math.sin(x * Math.PI * 2 / 0.75) * 0.5 + 0.5;
+      mix(c, mix([150, 120, 74], [196, 168, 108], row * (0.7 + n * 0.3), [0, 0, 0]), bund ? 0.6 : 0.9, c);
     }
   }
   const td = trackDist(x, z);
@@ -106,7 +110,7 @@ function freeAfterUpload(geo) {
   if (geo.index) geo.index.onUpload(drop);
 }
 // heights: the terrain grid (BAKE.height), colors: the colour map's pixels (BAKE.color) — both baked in workers
-export function buildTerrain(heights, colors) {
+export function buildTerrain(heights, colors, rings = {}) {
   const group = new THREE.Group();
   const col = [0, 0, 0];
   // --- inner: the baked colour map ---
@@ -170,26 +174,38 @@ export function buildTerrain(heights, colors) {
   };
 
   // --- rings round it: mid-detail out to the edge of the walkable land, then coarse far hills & mountains ---
-  const ring = (half, S, hole, dy) => {
-    const n = Math.round((half * 2) / S);
-    const verts = [], cols = [], idx = [];
-    for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) {
-      const x = -half + i * S, z = -half + j * S;
-      verts.push(x, heightAt(x, z) + dy, z);
+  // sRGB byte → linear, once for all 256 values
+  const LIN = new Float32Array(256);
+  for (let i = 0; i < 256; i++) { const c = i / 255; LIN[i] = c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }
+  const ring = (half, S, hole, dy, baked) => {
+    const n = Math.round((half * 2) / S), N1 = n + 1;
+    // typed arrays filled in place: this runs over ~2 million vertices
+    const verts = new Float32Array(N1 * N1 * 3), cols = new Float32Array(N1 * N1 * 3);
+    const inHole = (x, z) => x - S >= -hole && x + S <= hole && z - S >= -hole && z + S <= hole;
+    for (let j = 0, v = 0; j <= n; j++) for (let i = 0; i <= n; i++, v++) {
+      const x = -half + i * S, z = -half + j * S, o = v * 3;
+      verts[o] = x; verts[o + 2] = z;
+      // baked in the workers (height and sRGB colour per vertex): just copy it over. A vertex deep inside the
+      // hole belongs to no triangle and is left at zero.
+      if (baked) { const k = v * 4; verts[o + 1] = baked[k]; cols[o] = LIN[Math.round(baked[k + 1] * 255)]; cols[o + 1] = LIN[Math.round(baked[k + 2] * 255)]; cols[o + 2] = LIN[Math.round(baked[k + 3] * 255)]; continue; }
+      if (inHole(x, z)) continue;
+      verts[o + 1] = heightAt(x, z) + dy;
       terrainColor(x, z, col);
-      const c = new THREE.Color(col[0] / 255, col[1] / 255, col[2] / 255).convertSRGBToLinear();
-      cols.push(c.r, c.g, c.b);
+      cols[o] = LIN[col[0] | 0]; cols[o + 1] = LIN[col[1] | 0]; cols[o + 2] = LIN[col[2] | 0];
     }
+    const idxA = new Uint32Array(n * n * 6);
+    let q = 0;
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
       const x0 = -half + i * S, z0 = -half + j * S;
       if (x0 >= -hole && x0 + S <= hole && z0 >= -hole && z0 + S <= hole) continue;
-      const a = j * (n + 1) + i, b = a + n + 1;
-      idx.push(a, b, a + 1, a + 1, b, b + 1);
+      const a = j * N1 + i, b = a + N1;
+      idxA[q++] = a; idxA[q++] = b; idxA[q++] = a + 1; idxA[q++] = a + 1; idxA[q++] = b; idxA[q++] = b + 1;
     }
+    const idx = idxA.subarray(0, q);
     const og = new THREE.BufferGeometry();
-    og.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-    og.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
-    og.setIndex(idx);
+    og.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+    og.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+    og.setIndex(new THREE.BufferAttribute(idx, 1));
     og.computeVertexNormals();
     og.computeBoundingSphere();
     freeAfterUpload(og);
@@ -197,8 +213,8 @@ export function buildTerrain(heights, colors) {
     m.receiveShadow = true;
     group.add(m);
   };
-  ring(MID_HALF, 6, INNER_HALF, -0.03);
-  ring(OUTER_HALF, 24, MID_HALF - 24, -0.2);
+  ring(MID_HALF, 6, INNER_HALF, -0.03, rings.a);
+  ring(OUTER_HALF, 24, MID_HALF - 24, -0.2, rings.b);
   // over each tunnel, a strip of hillside laid back across the hollowed-out bore
   for (const T of TRACKS) for (const [a, b] of T.tunnels) {
     const P = T.path, q = {}, verts = [], cols = [], idx = [];

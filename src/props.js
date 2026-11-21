@@ -2010,7 +2010,7 @@ export function buildVillage() {
   const T = layout.temple;
   place(temple(), T.x, T.z, T.rot, 0);
   place(well(), layout.well.x, layout.well.z, 0.4, 0);
-  for (const hs of layout.haystacks) place(haystack(R), hs.x, hs.z, R() * 6).scale.setScalar(hs.s);
+  for (const hs of layout.haystacks) { hs.obj = place(haystack(R), hs.x, hs.z, R() * 6); hs.obj.scale.setScalar(hs.s); hs.obj.userData.keep = true; }
   for (const c of layout.charpais) { place(charpai(), c.x, c.z, c.rot); colliders.push({ kind: 'b', x: c.x, z: c.z, rot: c.rot, hw: 0.45, hd: 0.95 }); }
   for (const p of layout.pots) place(pot(p.s), p.x, p.z, 0, -0.02);
   for (const t of layout.tulsis) { place(tulsi(), t.x, t.z, t.rot); colliders.push({ kind: 'c', x: t.x, z: t.z, r: 0.4 }); }
@@ -2129,10 +2129,14 @@ export function buildVillage() {
   kiteObj.position.set(38, 30, -48);
   out.add(kiteObj);
 
+  // the chai stall's chulha: cold till the boy lights it (see fire.js); then the coals glow and the pan steams —
+  // hard while a fresh pan of chai is on the boil
+  const tea = { lit: false, boil: 0, panPos, chulha: lw(-0.75, 1.1, 0.7) };
   const update = (t, dt = 0.016, player) => {
-    M.coal.emissiveIntensity = (1.2 + nightLevel * 1.5) * (0.85 + 0.15 * Math.sin(t * 11) * Math.sin(t * 4.3));
-    if (!player || Math.abs(player.x - TS.x) + Math.abs(player.z - TS.z) < 120) {
-      steamAcc += dt * 7;
+    tea.glow = (tea.glow ?? 0) + ((tea.lit ? 1 : 0) - (tea.glow ?? 0)) * Math.min(1, dt * 0.8);
+    M.coal.emissiveIntensity = tea.glow * (1.2 + nightLevel * 1.5) * (0.85 + 0.15 * Math.sin(t * 11) * Math.sin(t * 4.3));
+    if (tea.glow > 0.3 && (!player || Math.abs(player.x - TS.x) + Math.abs(player.z - TS.z) < 120)) {
+      steamAcc += dt * (tea.boil > 0 ? 22 : 7) * tea.glow;
       while (steamAcc > 1) {
         steamAcc -= 1;
         steam.emit(panPos.x + (Math.random() - 0.5) * 0.2, panPos.y, panPos.z + (Math.random() - 0.5) * 0.2,
@@ -2157,5 +2161,5 @@ export function buildVillage() {
     kiteObj.rotation.y = Math.sin(t * 0.4) * 0.4;
   };
 
-  return { group: out, update, cows: layout.cows, teaLight, kite: kiteObj, setSteamColor: (c) => { steam.material.uniforms.uColor.value.set(c); steam.material.uniforms.uDark.value.set(c); } };
+  return { group: out, update, cows: layout.cows, teaLight, tea, kite: kiteObj, setSteamColor: (c) => { steam.material.uniforms.uColor.value.set(c); steam.material.uniforms.uDark.value.set(c); } };
 }

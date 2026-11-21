@@ -617,9 +617,25 @@ export class RowBoat {
     const rope = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.025, 6, 18).rotateX(Math.PI / 2), std('#b8a070', { roughness: 0.95 }));
     rope.position.set(0.15, 0.08, 1.0);
     g.add(rope);
-    const net = new THREE.Mesh(ellipsoid(0.32, 0.1, 0.35, 12, 8), new THREE.MeshStandardMaterial({ map: netTexture(), color: '#d8d0b8', roughness: 1, transparent: true, alphaTest: 0.3 }));
+    const net = new THREE.Mesh(ellipsoid(0.32, 0.1, 0.35, 12, 8), new THREE.MeshStandardMaterial({ map: netTexture(), color: '#d8d0b8', roughness: 1, alphaTest: 0.3, side: THREE.DoubleSide }));
     net.position.set(-0.05, 0.08, -1.3);
     g.add(net);
+    // the river mustn't show inside the hull (the boat sits low, its floor below the waterline): an unseen lid
+    // across the top of the hull, just under the rim, that writes depth only. It's drawn after everything solid
+    // (so the floor, the seats and the rower show through it) and before the water, which it then hides.
+    {
+      const n = 40, pos = [0, 0.3, 0], idx = [];
+      for (let i = 0; i < n; i++) {
+        const t = (i / n) * Math.PI * 2, zz = Math.sin(t), x = 0.7 * Math.cos(t) * (1 - Math.pow(Math.abs(zz), 3) * 0.6);
+        pos.push(x * 0.97, 0.33 + Math.pow(Math.abs(zz), 2.5) * 0.18, 2.3 * zz * 0.975);
+        idx.push(0, 1 + i, 1 + ((i + 1) % n));
+      }
+      const lg = new THREE.BufferGeometry();
+      lg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); lg.setIndex(idx);
+      const lid = new THREE.Mesh(lg, new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide }));
+      lid.renderOrder = 1; lid.userData.keep = true; lid.castShadow = false; lid.frustumCulled = false;
+      g.add(lid);
+    }
     const rim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.035, 5, 32).rotateX(Math.PI / 2).scale(0.71, 1, 2.28), paint);
     rim.position.y = 0.35;
     g.add(rim);

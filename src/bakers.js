@@ -5,7 +5,7 @@
 import { smoothstep, fbm } from './noise.js';
 import {
   INNER_HALF, DATA_HALF, RIVER_HALF, PLAY_RADIUS, heightAt, riverX, riverDist, dirtMask, fieldType, isBund, trackDist, waterfallMask, fallsRock, GARDEN,
-  desertMask, tunnelMask, jungleMask, tribDist, TRIB, layout, canalDist, CANAL,
+  desertMask, tunnelMask, jungleMask, tribDist, TRIB, layout, canalDist, CANAL, MID_HALF, OUTER_HALF,
 } from './world.js';
 import { terrainColor } from './terrain.js';
 
@@ -14,6 +14,9 @@ export const BAKE = {
   color: { N: 4096, half: INNER_HALF }, // the terrain's colour map (1.64 m a pixel)
   grass: { N: 3600, half: DATA_HALF }, // grass height / density / crop type (1.86 m a texel)
   map: { N: 2900, half: 3360 }, // the painted area map
+  // the two rings of land round the inner terrain (see buildTerrain): per vertex, its height and colour
+  ringA: { N: Math.round((MID_HALF * 2) / 6) + 1, half: MID_HALF, S: 6, hole: INNER_HALF, dy: -0.03 },
+  ringB: { N: Math.round((OUTER_HALF * 2) / 24) + 1, half: OUTER_HALF, S: 24, hole: MID_HALF - 24, dy: -0.2 },
 };
 
 // float32 → float16 bits (as THREE.DataUtils.toHalfFloat, without needing three here)
@@ -26,6 +29,25 @@ function toHalf(v) {
   return sign | (e << 10) | (m >> 13);
 }
 
+// Heights for a band of another bake, the cheap way: heightAt (the costly call) is worked out only at the terrain
+// mesh's own grid points (2.97 m apart) for the rows the band covers, and everything in between is interpolated
+// — which is exactly how the mesh itself shapes the ground between its vertices, so the colours, the grass and
+// the map line up with it. Outside the mesh's square it falls back to heightAt.
+function bandHeights(z0, z1, bore) {
+  const { N, half } = BAKE.height, step = (half * 2) / (N - 1);
+  const r0 = Math.max(0, Math.floor((z0 + half) / step)), r1 = Math.min(N - 1, Math.ceil((z1 + half) / step));
+  const H = new Float32Array((r1 - r0 + 1) * N);
+  for (let r = r0; r <= r1; r++) { const z = -half + r * step; for (let i = 0; i < N; i++) H[(r - r0) * N + i] = heightAt(-half + i * step, z, bore); }
+  return (x, z) => {
+    const fx = (x + half) / step, fz = (z + half) / step;
+    if (fx < 0 || fx > N - 1 || fz < r0 || fz > r1) return heightAt(x, z, bore);
+    const i = Math.min(N - 2, Math.floor(fx)), j = Math.min(r1 - 1, Math.max(r0, Math.floor(fz)));
+    const u = fx - i, v = fz - j, a = (j - r0) * N + i, b = a + N;
+    if (r1 === r0) return H[a] + (H[a + 1] - H[a]) * u;
+    return (H[a] * (1 - u) + H[a + 1] * u) * (1 - v) + (H[b] * (1 - u) + H[b + 1] * u) * v;
+  };
+}
+
 function heightRows(j0, j1) {
   const { N, half } = BAKE.height, step = (half * 2) / (N - 1), out = new Float32Array((j1 - j0) * N);
   for (let j = j0; j < j1; j++) for (let i = 0; i < N; i++) out[(j - j0) * N + i] = heightAt(-half + i * step, -half + j * step);
@@ -34,10 +56,12 @@ function heightRows(j0, j1) {
 
 function colorRows(j0, j1) {
   const { N, half } = BAKE.color, out = new Uint8ClampedArray((j1 - j0) * N * 4), col = [0, 0, 0];
+  const hz = (j) => -half + ((j + 0.5) / N) * half * 2, H = bandHeights(hz(j0), hz(j1 - 1), false);
   for (let j = j0; j < j1; j++) {
-    const z = -half + ((j + 0.5) / N) * half * 2;
+    const z = hz(j);
     for (let i = 0; i < N; i++) {
-      terrainColor(-half + ((i + 0.5) / N) * half * 2, z, col);
+      const x = -half + ((i + 0.5) / N) * half * 2;
+      terrainColor(x, z, col, H(x, z));
       const k = ((j - j0) * N + i) * 4;
       out[k] = col[0]; out[k + 1] = col[1]; out[k + 2] = col[2]; out[k + 3] = 255;
     }
@@ -49,11 +73,12 @@ function colorRows(j0, j1) {
 const PAD = layout.airstrip?.pad ?? null;
 function grassRows(j0, j1) {
   const { N, half } = BAKE.grass, data = new Uint16Array((j1 - j0) * N * 4), one = toHalf(1);
+  const gz = (j) => -half + ((j + 0.5) / N) * half * 2, H = bandHeights(gz(j0), gz(j1 - 1), true);
   for (let j = j0; j < j1; j++) {
-    const z = -half + ((j + 0.5) / N) * half * 2;
+    const z = gz(j);
     for (let i = 0; i < N; i++) {
       const x = -half + ((i + 0.5) / N) * half * 2;
-      const h = heightAt(x, z);
+      const h = H(x, z);
       const dr = Math.abs(x - riverX(z));
       let dens = 1 - dirtMask(x, z) * 1.15;
       dens *= smoothstep(RIVER_HALF + 1.5, RIVER_HALF + 4.5, dr);
@@ -75,6 +100,7 @@ function grassRows(j0, j1) {
         else if (ft === 4) dens *= 0.12;
         else if (ft === 5) dens *= 0.3;
         else if (ft === 6) dens = 0;
+        else if (ft === 7) dens = 0; // the harvested field: its stubble is drawn by fire.js, so it can burn
       } else if (ft) dens *= 0.5;
       else if (dens > 0) dens *= 0.5 + 0.5 * smoothstep(-0.35, 0.25, fbm(x * 0.07, z * 0.07, 2));
       const k = ((j - j0) * N + i) * 4;
@@ -87,13 +113,14 @@ function grassRows(j0, j1) {
   return data.buffer;
 }
 
-const FIELD_COL = [null, [214, 184, 52], [124, 156, 64], [96, 150, 128], [70, 112, 50], [218, 170, 40], [136, 94, 60]];
+const FIELD_COL = [null, [214, 184, 52], [124, 156, 64], [96, 150, 128], [70, 112, 50], [218, 170, 40], [136, 94, 60], [190, 162, 102]];
 // the area map's ground: water, fields, desert, dirt, rails and sand, shaded by the slope (light from the
 // north-west). Heights are worked out one row either side of the band, for the shading.
 function mapRows(j0, j1) {
   const { N, half: E } = BAKE.map, out = new Uint8ClampedArray((j1 - j0) * N * 4);
   const r0 = Math.max(0, j0 - 1), r1 = Math.min(N, j1 + 1), H = new Float32Array((r1 - r0) * N);
-  for (let j = r0; j < r1; j++) for (let i = 0; i < N; i++) H[(j - r0) * N + i] = heightAt((i / N) * 2 * E - E, (j / N) * 2 * E - E);
+  const HB = bandHeights((r0 / N) * 2 * E - E, ((r1 - 1) / N) * 2 * E - E, true);
+  for (let j = r0; j < r1; j++) for (let i = 0; i < N; i++) H[(j - r0) * N + i] = HB((i / N) * 2 * E - E, (j / N) * 2 * E - E);
   const h = (i, j) => H[(Math.min(r1 - 1, Math.max(r0, j)) - r0) * N + Math.min(N - 1, Math.max(0, i))];
   const pond = layout.bv?.pond;
   for (let j = j0; j < j1; j++) for (let i = 0; i < N; i++) {
@@ -120,5 +147,21 @@ function mapRows(j0, j1) {
   return out.buffer;
 }
 
-const KINDS = { height: heightRows, color: colorRows, grass: grassRows, map: mapRows };
+// a ring's vertices, a row at a time: height, then colour (0–1, sRGB) — four floats each. Vertices deep in the
+// hole belong to no triangle and are left at zero.
+function ringRows(kind) {
+  return (j0, j1) => {
+    const { N, half, S, hole, dy } = BAKE[kind], out = new Float32Array((j1 - j0) * N * 4), col = [0, 0, 0];
+    for (let j = j0; j < j1; j++) for (let i = 0; i < N; i++) {
+      const x = -half + i * S, z = -half + j * S, k = ((j - j0) * N + i) * 4;
+      if (x - S >= -hole && x + S <= hole && z - S >= -hole && z + S <= hole) continue;
+      out[k] = heightAt(x, z) + dy;
+      terrainColor(x, z, col);
+      out[k + 1] = col[0] / 255; out[k + 2] = col[1] / 255; out[k + 3] = col[2] / 255;
+    }
+    return out.buffer;
+  };
+}
+
+const KINDS = { height: heightRows, color: colorRows, grass: grassRows, map: mapRows, ringA: ringRows('ringA'), ringB: ringRows('ringB') };
 export function bakeRows(kind, j0, j1) { return KINDS[kind](j0, j1); }

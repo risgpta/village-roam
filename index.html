@@ -109,6 +109,19 @@
       @media (max-width: 700px) { .bm-hint { display: none; } .bm-tools { margin-left: auto; } }
       #ridehud { position: absolute; right: 18px; bottom: 60px; width: 190px; padding: 12px 16px 14px; border-radius: 16px; background: rgba(18, 14, 10, 0.5); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.12); opacity: 0; transform: translateY(8px); transition: opacity .35s, transform .35s; }
       #ridehud.show { opacity: 1; transform: none; }
+      #boathud { position: absolute; right: 18px; bottom: 60px; width: 230px; padding: 12px 16px 13px; border-radius: 16px; background: rgba(36, 26, 16, 0.55); backdrop-filter: blur(10px); border: 1px solid rgba(255, 228, 180, 0.18); color: var(--ink); opacity: 0; transform: translateY(8px); transition: opacity .35s, transform .35s; pointer-events: none; }
+      #boathud.show { opacity: 1; transform: none; }
+      .bh-top { font: 600 11px Inter, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+      .bh-top b { font: 400 17px 'Tiro Devanagari Hindi', serif; letter-spacing: 0; text-transform: none; color: var(--accent); margin-right: 6px; }
+      .bh-mid { display: flex; align-items: center; gap: 10px; margin: 6px 0 4px; }
+      #bh-oars { width: 92px; height: 42px; flex: none; }
+      #bh-oarL, #bh-oarR { transition: transform .12s ease-out; }
+      .bh-speed { font: 600 30px/1 Inter, sans-serif; font-variant-numeric: tabular-nums; }
+      .bh-speed small { font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 4px; }
+      .bh-speed em { display: block; font: italic 500 12px 'Cormorant Garamond', serif; color: var(--accent); margin-top: 3px; letter-spacing: .02em; }
+      .bh-bank { font-size: 11.5px; color: var(--muted); border-top: 1px solid rgba(255, 228, 180, 0.12); padding-top: 7px; }
+      .bh-bank kbd { background: rgba(255,255,255,0.9); color: #1d1a16; border-radius: 5px; padding: 1px 6px; font-size: 10px; font-weight: 700; }
+      .bh-bank.near { color: var(--ink); }
       #ridehud.nonitro .rh-nitro { display: none; }
       #tunnel { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 55%, rgba(30,22,14,0.82), rgba(4,3,2,0.97) 70%); opacity: 0; transition: opacity .5s; display: grid; place-items: center; color: rgba(255,230,190,0.6); font: 600 14px Inter, sans-serif; letter-spacing: .3em; }
       #tunnel.show { opacity: 1; }
@@ -174,6 +187,21 @@
       #sharebtn { position: absolute; top: 64px; left: 168px; padding: 6px 11px; border-radius: 999px; font: 12px Inter, sans-serif; color: var(--ink); cursor: pointer; pointer-events: auto; }
       #sharebtn kbd { background: rgba(255,255,255,0.9); color: #1d1a16; border: 0; border-radius: 5px; padding: 0 5px; font-size: 10px; font-weight: 700; margin-left: 4px; }
       /* the postcard album */
+      #settings { position: absolute; inset: 0; display: none; place-items: center; background: rgba(10, 8, 6, 0.55); backdrop-filter: blur(3px); pointer-events: auto; z-index: 7; }
+      #settings.show { display: grid; }
+      .st-card { width: min(440px, 92vw); border-radius: 18px; padding: 18px 20px 20px; background: rgba(24, 19, 14, 0.92); border: 1px solid rgba(255,255,255,0.14); color: var(--ink); box-shadow: 0 20px 60px rgba(0,0,0,0.45); font: 500 13px Inter, sans-serif; }
+      .st-head { display: flex; align-items: center; margin-bottom: 14px; }
+      .st-title { font-family: 'Cormorant Garamond', serif; font-size: 24px; color: var(--accent); }
+      #set-close { margin-left: auto; background: rgba(255,255,255,0.1); border: 0; color: var(--ink); width: 28px; height: 28px; border-radius: 99px; cursor: pointer; }
+      .st-row { display: grid; grid-template-columns: 120px 1fr auto; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid rgba(255,255,255,0.08); }
+      .st-row small { grid-column: 2 / 4; color: var(--muted); font-size: 11px; margin-top: -4px; }
+      .st-row output { min-width: 40px; text-align: right; color: var(--accent); font-variant-numeric: tabular-nums; }
+      .st-row input[type=range] { width: 100%; accent-color: #e8b04a; }
+      .st-row input[type=checkbox] { width: 18px; height: 18px; accent-color: #e8b04a; }
+      #set-quality { display: flex; gap: 4px; background: rgba(255,255,255,0.06); padding: 3px; border-radius: 10px; grid-column: 2 / 4; }
+      #set-quality button { flex: 1; background: transparent; border: 0; color: var(--muted); height: 28px; border-radius: 8px; cursor: pointer; font: 600 12px Inter, sans-serif; }
+      #set-quality button.on { background: rgba(255,214,120,0.18); color: var(--accent); }
+      #set-reset { margin-top: 12px; background: rgba(255,255,255,0.08); border: 0; color: var(--muted); padding: 7px 12px; border-radius: 8px; cursor: pointer; font: 600 12px Inter, sans-serif; }
       #album { position: absolute; inset: 0; display: none; place-items: center; background: rgba(10, 8, 6, 0.55); pointer-events: auto; z-index: 6; }
       #album.show { display: grid; }
       .al-card { width: min(980px, 94vw); max-height: 88vh; overflow: auto; border-radius: 18px; padding: 18px 20px 22px; background: #f6ecd8; color: #2a1d0c; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
@@ -287,6 +315,16 @@
       <div id="pc-count" class="glass" title="Postcards found (O)"></div>
       <button id="sharebtn" class="glass" title="Copy a link to this spot (K)">🔗 Share this spot<kbd>K</kbd></button>
       <div id="cricket"><div id="ck-score" class="glass"></div><div id="ck-meter"><div id="ck-mark"></div></div><div id="ck-msg"></div><div id="ck-hint" class="glass"></div></div>
+      <div id="settings">
+        <div class="st-card">
+          <div class="st-head"><span class="st-title">Settings</span><button id="set-close" title="Close (Esc)">✕</button></div>
+          <div class="st-row"><span>Picture quality</span><div id="set-quality"><button data-q="low">Low</button><button data-q="medium">Medium</button><button data-q="high">High</button></div><small>Low turns off sun shadows and glow and draws less far — for older machines.</small></div>
+          <div class="st-row"><span>Mouse sensitivity</span><input id="set-sens" type="range" min="0.3" max="2.5" step="0.1"><output id="set-sens-v"></output></div>
+          <div class="st-row"><span>Invert mouse Y</span><input id="set-invert" type="checkbox"><span></span></div>
+          <div class="st-row"><span>Field of view</span><input id="set-fov" type="range" min="45" max="80" step="1"><output id="set-fov-v"></output></div>
+          <button id="set-reset">Back to the defaults</button>
+        </div>
+      </div>
       <div id="album"><div class="al-card"><div class="al-head"><span class="al-title"><b>डाक</b>Postcards</span><span id="pc-sub"></span><button id="al-close" title="Close (O)">✕</button></div><div id="pc-grid"></div></div></div>
       <div id="prompt"></div>
       <div id="speedlines"></div>
@@ -299,6 +337,19 @@
           <div class="bm-head"><span class="bm-title">गाँव — the area map</span><span class="bm-tabs" id="bm-tabs"><button data-mode="places"><kbd>1</kbd> 📍 Places</button><button data-mode="trains"><kbd>2</kbd> 🚂 Trains</button><button data-mode="roads"><kbd>3</kbd> 🚌 Buses &amp; jeeps</button></span><span class="bm-hint">scroll to zoom · drag to move · <kbd>Tab</kbd> / <kbd>Esc</kbd> to close</span><span class="bm-tools"><button id="bm-in" title="Zoom in">+</button><button id="bm-out" title="Zoom out">−</button><button id="bm-me" title="Centre on me">⌖</button><button id="bm-all" title="Show the whole map">⤢</button></span><button id="bm-close">✕</button></div>
           <div class="bm-body"><canvas id="bm-canvas" width="1100" height="1100"></canvas><div id="bm-list"></div></div>
         </div>
+      </div>
+      <div id="boathud">
+        <div class="bh-top"><b>नाव</b> Rowing boat</div>
+        <div class="bh-mid">
+          <svg id="bh-oars" viewBox="0 0 120 54" aria-hidden="true">
+            <path d="M18 27 C 36 8, 84 8, 102 27 C 84 46, 36 46, 18 27 Z" fill="rgba(255,236,200,0.14)" stroke="rgba(255,236,200,0.55)" stroke-width="1.5"/>
+            <g id="bh-oarL"><line x1="46" y1="27" x2="8" y2="27" stroke="#e8c48a" stroke-width="3" stroke-linecap="round"/><rect x="0" y="23" width="12" height="8" rx="3" fill="#e8c48a"/></g>
+            <g id="bh-oarR"><line x1="74" y1="27" x2="112" y2="27" stroke="#e8c48a" stroke-width="3" stroke-linecap="round"/><rect x="108" y="23" width="12" height="8" rx="3" fill="#e8c48a"/></g>
+            <circle cx="60" cy="27" r="5" fill="#f2b544"/>
+          </svg>
+          <div class="bh-speed"><span id="bh-speed">0</span><small>km/h</small><em id="bh-pace">drifting</em></div>
+        </div>
+        <div class="bh-bank" id="bh-bank">Row to a bank to step ashore</div>
       </div>
       <div id="ridehud">
         <div class="rh-top" style="display:flex;align-items:center"><span id="rh-name">Bicycle</span><span class="rh-gear" id="rh-gears"><b id="g-r" class="r">R</b><b id="g-n">N</b><b id="g-d">D</b></span></div>
@@ -343,6 +394,9 @@
 <div class="row"><span><kbd>K</kbd></span><span>copy a link to this exact spot (the view, the hour, the weather) to share</span></div>
 <h3>Looking</h3>
 <div class="row"><span><kbd>C</kbd></span><span>camera: follow · close-up · wide · cinematic · bird's-eye</span></div>
+<div class="row"><span><kbd>F</kbd></span><span>strike a match: light the chulha at the chai stall (then <kbd>E</kbd> makes chai), the diyas at the temple and the ghat, the lamps by the doors, the winter alaav — or burn a heap of leaves, a haystack, or the stubble on the harvested field by the road (it spreads with the wind; rain puts it out)</span></div>
+<div class="row"><span>ride animals</span><span>a camel at Marudhar, the temple elephant at Thennoor, a bullock cart by the road where you start — walk up and press <kbd>E</kbd></span></div>
+<div class="row"><span>⚙ Settings</span><span>picture quality, mouse sensitivity, invert Y, field of view (the button at the bottom right)</span></div>
 <div class="row"><span><kbd>Tab</kbd></span><span>the full map: <kbd>1</kbd> places, <kbd>2</kbd> every train live, <kbd>3</kbd> the buses and jeeps live (the shrine bus too). Click one in the list to follow it.</span></div>
 <div class="row"><span><kbd>U</kbd></span><span>full screen</span></div>
             </div>
@@ -453,7 +507,7 @@
           </div>
         </div>
       </div>
-      <div class="btns"><label title="Season">🍃<select id="season"></select></label><label title="Time of day (T)">🌤<select id="atmo"></select></label><label title="Weather (J)">☁<select id="wx"></select></label><label title="Sound theme">🎵<select id="sound"></select></label><button id="mute">Sound on</button><button id="fullscreen" title="Full screen (U)">⛶ Full screen</button></div>
+      <div class="btns"><label title="Season">🍃<select id="season"></select></label><label title="Time of day (T)">🌤<select id="atmo"></select></label><label title="Weather (J)">☁<select id="wx"></select></label><label title="Sound theme">🎵<select id="sound"></select></label><button id="mute">Sound on</button><button id="fullscreen" title="Full screen (U)">⛶ Full screen</button><button id="settingsbtn" title="Settings: picture quality, mouse, field of view">⚙ Settings</button></div>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>

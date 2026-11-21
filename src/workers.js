@@ -106,7 +106,7 @@ export function buildWorkers(scene, hooks = {}) {
       let p = null;
       for (let k = 0; k < 80 && !p; k++) {
         const a = rnd() * Math.PI * 2, d = 45 + rnd() * 120, x = V.x + Math.cos(a) * d, z = V.z + Math.sin(a) * d;
-        if (fieldType(x, z) && isFree(x, z, 1.2)) p = { x, z, field: true };
+        if (fieldType(x, z) && fieldType(x, z) !== 7 && isFree(x, z, 1.2)) p = { x, z, field: true };
       }
       for (let k = 0; k < 60 && !p; k++) {
         const a = rnd() * Math.PI * 2, d = 50 + rnd() * 30, x = V.x + Math.cos(a) * d, z = V.z + Math.sin(a) * d;

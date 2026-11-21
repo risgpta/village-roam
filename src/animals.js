@@ -32,16 +32,8 @@ export function consolidate(root) {
     }
     for (const [m, list] of buckets) {
       if (list.length < 2) continue;
-      const geos = list.map((c) => {
-        c.updateMatrix();
-        // keep shared vertices shared: merging as indexed geometry uses a fraction of the memory
-        const g = c.geometry.clone().applyMatrix4(c.matrix);
-        if (!g.index) { const n = g.attributes.position.count, idx = new (n > 65535 ? Uint32Array : Uint16Array)(n); for (let i = 0; i < n; i++) idx[i] = i; g.setIndex(new THREE.BufferAttribute(idx, 1)); }
-        for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
-        if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
-        return g;
-      });
-      const merged = new THREE.Mesh(mergeGeos(geos), m);
+      for (const c of list) c.updateMatrix();
+      const merged = new THREE.Mesh(mergeGeos(list), m);
       merged.castShadow = !m.transparent; // (glass throws no shadow)
       merged.receiveShadow = list.some((c) => c.receiveShadow);
       for (const c of list) n.remove(c);
@@ -49,21 +41,39 @@ export function consolidate(root) {
     }
   }
 }
-function mergeGeos(geos) {
-  let count = 0;
-  for (const g of geos) count += g.attributes.position.count;
+// Merge meshes' geometries into one, each moved by its mesh's own matrix, written straight into the merged
+// arrays (no copies of the pieces on the way: this runs for every person, cart and bus at load). Shared
+// vertices stay shared (indexed); a piece with no uvs gets zeros.
+const _nm = new THREE.Matrix3();
+function mergeGeos(list) {
+  let count = 0, icount = 0;
+  for (const c of list) { const g = c.geometry; count += g.attributes.position.count; icount += g.index ? g.index.count : g.attributes.position.count; }
   const pos = new Float32Array(count * 3), nor = new Float32Array(count * 3), uv = new Float32Array(count * 2);
-  let o = 0, icount = 0;
-  for (const g of geos) icount += g.index ? g.index.count : g.attributes.position.count;
   const idx = new (count > 65535 ? Uint32Array : Uint16Array)(icount);
-  let io = 0;
-  for (const g of geos) {
-    pos.set(g.attributes.position.array, o * 3);
-    nor.set(g.attributes.normal.array, o * 3);
-    uv.set(g.attributes.uv.array, o * 2);
-    const n = g.attributes.position.count;
-    if (g.index) { const src = g.index.array; for (let i = 0; i < src.length; i++) idx[io++] = src[i] + o; }
-    else for (let i = 0; i < n; i++) idx[io++] = i + o;
+  let o = 0, io = 0;
+  for (const c of list) {
+    const g = c.geometry, P = g.attributes.position, N = g.attributes.normal, U = g.attributes.uv, n = P.count;
+    const e = c.matrix.elements, ne = _nm.getNormalMatrix(c.matrix).elements;
+    // plain arrays read straight (the accessors are slow over millions of vertices); interleaved ones copied out
+    const flat = (A, w) => (A.isInterleavedBufferAttribute || A.normalized || A.itemSize !== w ? Float32Array.from({ length: A.count * w }, (_, q) => A.getComponent(Math.floor(q / w), q % w)) : A.array);
+    const pa = flat(P, 3), na = flat(N, 3), ua = U ? flat(U, 2) : null;
+    const e0 = e[0], e1 = e[1], e2 = e[2], e4 = e[4], e5 = e[5], e6 = e[6], e8 = e[8], e9 = e[9], e10 = e[10], e12 = e[12], e13 = e[13], e14 = e[14];
+    const n0 = ne[0], n1 = ne[1], n2 = ne[2], n3 = ne[3], n4 = ne[4], n5 = ne[5], n6 = ne[6], n7 = ne[7], n8 = ne[8];
+    for (let i = 0, j = 0, k = o * 3; i < n; i++, j += 3, k += 3) {
+      const x = pa[j], y = pa[j + 1], z = pa[j + 2];
+      pos[k] = e0 * x + e4 * y + e8 * z + e12;
+      pos[k + 1] = e1 * x + e5 * y + e9 * z + e13;
+      pos[k + 2] = e2 * x + e6 * y + e10 * z + e14;
+      const a = na[j], b = na[j + 1], d = na[j + 2];
+      const nx = n0 * a + n3 * b + n6 * d, ny = n1 * a + n4 * b + n7 * d, nz = n2 * a + n5 * b + n8 * d;
+      const l = 1 / (Math.sqrt(nx * nx + ny * ny + nz * nz) || 1);
+      nor[k] = nx * l; nor[k + 1] = ny * l; nor[k + 2] = nz * l;
+    }
+    if (ua) uv.set(ua.subarray ? ua.subarray(0, n * 2) : ua, o * 2);
+    // a mirrored piece (negative scale) turns its triangles inside out: wind them back
+    const flip = c.matrix.determinant() < 0;
+    if (g.index) { const src = g.index.array; for (let i = 0; i < src.length; i += 3) { idx[io++] = src[i] + o; idx[io++] = src[i + (flip ? 2 : 1)] + o; idx[io++] = src[i + (flip ? 1 : 2)] + o; } }
+    else for (let i = 0; i < n; i += 3) { idx[io++] = i + o; idx[io++] = i + (flip ? 2 : 1) + o; idx[io++] = i + (flip ? 1 : 2) + o; }
     o += n;
   }
   const out = new THREE.BufferGeometry();

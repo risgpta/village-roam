@@ -43,7 +43,10 @@ export const GARDEN = { x: -40, z: 84, hw: 9, hd: 7 };
 export const FIELDS = [
   [1, -112, -42, -58, 48], [2, 20, 54, -88, -24], [3, 110, 170, -90, -22], [4, -210, -140, -70, 10],
   [5, -125, -62, 66, 124], [6, -78, -16, -215, -150],
+  // a harvested field by the road where the walk starts: just stubble left, ready to be burnt off (fire.js)
+  [7, -50, -18, 190, 222],
 ];
+export const STUBBLE = { x0: -50, x1: -18, z0: 190, z1: 222 };
 export const PADDY_Y = 0.55;
 // the weekly haat: two rows of stalls facing a lane that runs east off the road
 export const MARKET = { x: 24, z: 88, x0: 8, x1: 38 };
@@ -829,7 +832,7 @@ export function fieldType(x, z) {
   for (let i = 0; i < HOME_FIELDS; i++) { const f = FIELDS[i]; if (x > f[1] && x < f[2] && z > f[3] && z < f[4]) return f[0]; }
   return 0;
 }
-export const FIELD_NAMES = ['', 'Mustard fields', 'Wheat fields', 'Rice paddies', 'Sugarcane', 'Sunflower field', 'Ploughed field'];
+export const FIELD_NAMES = ['', 'Mustard fields', 'Wheat fields', 'Rice paddies', 'Sugarcane', 'Sunflower field', 'Ploughed field', 'Harvested field'];
 export function isBund(x, z) {
   const a = ((x % 17) + 17) % 17, b = ((z % 17) + 17) % 17;
   return a < 0.9 || b < 0.9;
