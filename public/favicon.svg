@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffb347"/>
+      <stop offset="0.55" stop-color="#f0702a"/>
+      <stop offset="1" stop-color="#9c2e1c"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fff6d8"/>
+      <stop offset="1" stop-color="#ffd877"/>
+    </radialGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#sky)"/>
+  <circle cx="40" cy="27" r="12" fill="url(#sun)"/>
+  <!-- the land -->
+  <path d="M0 47 C 14 42, 30 44, 42 46 S 58 46, 64 44 V 64 H 0 Z" fill="#2c1a10"/>
+  <!-- a thatched hut: round wall, conical roof -->
+  <path d="M9 44 L22 25 L35 44 Z" fill="#2c1a10"/>
+  <rect x="12" y="41" width="20" height="10" rx="1.5" fill="#2c1a10"/>
+  <rect x="19.5" y="43.5" width="5" height="7.5" rx="1" fill="#f0702a"/>
+  <!-- a palm on the right -->
+  <path d="M50 49 C 50.5 42, 52 37, 54.5 33" stroke="#2c1a10" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+  <path d="M54.5 33 C 49 31, 46 33, 44 36 M54.5 33 C 58 29.5, 61 30, 63 32 M54.5 33 C 53 28.5, 55 25.5, 58 24.5 M54.5 33 C 51 30, 47.5 28.5, 45 29.5" stroke="#2c1a10" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+</svg>

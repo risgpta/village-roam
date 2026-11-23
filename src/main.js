@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { noise2, clamp } from './noise.js';
 import {
-  isFree, fieldType, trackDist, TANK, TRACKS, CANAL, canalDist, roadX, groundHeight, resolveCollisions, pushOut, colliders, forColliders, NP, MP, heightAt, riverDist, WATER_Y, WATER, PLAY_RADIUS, layout, regionName, WF, RIVER_HALF, MARKET, TEA, tunnelAt, LID_W, TRACK_Y, CRICKET, localToWorld, lanes,
+  isFree, fieldType, trackDist, TANK, TRACKS, CANAL, canalDist, roadX, groundHeight, resolveCollisions, pushOut, colliders, forColliders, NP, MP, heightAt, riverDist, WATER_Y, WATER, PLAY_RADIUS, layout, jungleMask, regionName, WF, RIVER_HALF, MARKET, TEA, tunnelAt, LID_W, TRACK_Y, CRICKET, localToWorld, lanes,
 } from './world.js';
 import { buildTerrain, buildGrassData } from './terrain.js';
 import { startBakes } from './bakepool.js';
@@ -57,15 +57,80 @@ import { windUniforms } from './wind.js';
 import { createEnvironment, addSurfaceGrain } from './realism.js';
 import { sampleAtmo, WEATHERS, TIMES, clockText } from './daycycle.js';
 import { updateCull, streamGroup, updateStream, setupTinyCull, updateTinyCull } from './perf.js';
+import { wheelRig, groundPose, settleWheels } from './suspension.js';
+import { WaterJet } from './waterjet.js';
 import { buildBuffaloes } from './buffalo.js';
 import { buildShops } from './shops.js';
 
 const $ = (id) => document.getElementById(id);
+// the riding panel's speedometer: ticks round the arc once, then the arc filled toward the top speed
+{
+  const g = $('rh-ticks'), cx = 60, cy = 64.6;
+  if (g) for (let i = 0; i <= 10; i++) {
+    const a = ((215.9 - (251.8 * i) / 10) * Math.PI) / 180, r0 = i % 5 ? 37 : 34, r1 = 40;
+    const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    l.setAttribute('x1', (cx + Math.cos(a) * r0).toFixed(1)); l.setAttribute('y1', (cy - Math.sin(a) * r0).toFixed(1));
+    l.setAttribute('x2', (cx + Math.cos(a) * r1).toFixed(1)); l.setAttribute('y2', (cy - Math.sin(a) * r1).toFixed(1));
+    g.appendChild(l);
+  }
+}
+let dialShown = -1;
+function setDial(kmh, max) {
+  const k = Math.round(Math.max(0, Math.min(1, kmh / Math.max(1, max))) * 200) / 2;
+  if (k !== dialShown) { dialShown = k; $('rh-arc').style.strokeDashoffset = String(100 - k); }
+}
 // ?prof: time each loading step and each part of the frame (read with __gaon.prof())
 const PROF = new URLSearchParams(location.search).has('prof');
 const loadTimes = [['page start → modules loaded (incl. layout generation)', Math.round(performance.now())]]; let loadMark = performance.now();
-const status = (s) => { const t = performance.now(); loadTimes.push([s, Math.round(t - loadMark)]); loadMark = t; $('start').textContent = s; };
-const lap = (name) => { const t = performance.now(); loadTimes.push(['  · ' + name, Math.round(t - loadMark)]); loadMark = t; };
+// The loading bar on the start card: each step of the build, as it's reached, sends the bar on toward the
+// next one, timed to how long that step usually takes (measured), so it keeps moving smoothly even while the
+// page is too busy to draw anything else (the bar is a transform the browser animates on its own).
+const LOAD_PLAN = [['modules', 1.9], ['Planting', 2.45], ['Letting', 2.62], ['Raising', 2.68], ['Laying', 3.28], ['railway', 3.68], ['Waking', 4.45],
+  ['people', 7.3], ['passengers', 7.39], ['site/', 7.59], ['farm', 7.69], ['wildlife', 7.79], ['fish/', 7.9], ['lanterns/', 7.9], ['herds/', 8.0], ['hamlets', 8.33],
+  ['shops', 8.53], ['shrine/', 8.83], ['Drawing', 8.83], ['Shaping', 8.88], ['terrain', 13.7], ['season', 13.85], ['freeze', 14.3], ['tiny-mesh', 15.05],
+  ['shaders', 15.1], ['Almost', 15.1], ['first frames', 16.4], ['Begin', 16.4]];
+const LOAD_T = LOAD_PLAN.at(-1)[1];
+let loadStep = -1;
+function loadProgress(name) {
+  const i = LOAD_PLAN.findIndex(([k], j) => j > loadStep && name.startsWith(k));
+  if (i < 0) return;
+  loadStep = i;
+  const fill = document.querySelector('.lb-fill'), rider = document.querySelector('.lb-rider');
+  if (!fill) return;
+  const last = i === LOAD_PLAN.length - 1;
+  const next = last ? 1 : LOAD_PLAN[i + 1][1] / LOAD_T, dur = last ? 0.35 : Math.max(0.2, LOAD_PLAN[i + 1][1] - LOAD_PLAN[i][1]);
+  for (const el of [fill, rider]) {
+    if (el.style.animationName !== 'none') {
+      // (taking over from the opening animation: hold it where it got to, then carry on from there)
+      const m = new DOMMatrix(getComputedStyle(el).transform);
+      el.style.animation = 'none';
+      el.style.transform = el === fill ? `scaleX(${m.a})` : `translateX(${m.e}px)`;
+      void el.offsetWidth;
+    }
+    el.style.transition = `transform ${dur}s linear`;
+  }
+  fill.style.transform = `scaleX(${next})`;
+  rider.style.transform = `translateX(${(next * 100).toFixed(2)}%)`;
+  // the number follows the bar itself, whenever the page has a moment to draw it
+  if (!loadProgress.ticking) {
+    loadProgress.ticking = true;
+    const pct = document.querySelector('.lb-pct');
+    const tick = () => {
+      pct.textContent = `${Math.round(new DOMMatrix(getComputedStyle(fill).transform).a * 100)}%`;
+      if (!document.body.classList.contains('ready')) requestAnimationFrame(tick); else pct.textContent = '100%';
+    };
+    requestAnimationFrame(tick);
+  }
+}
+const status = (s) => {
+  const t = performance.now(); loadTimes.push([s, Math.round(t - loadMark)]); loadMark = t;
+  // the step under the bar; the button just says it's getting ready, till it is
+  if (s === 'Begin the walk') $('start').textContent = s;
+  else { const el = document.querySelector('.lb-step'); if (el) el.textContent = s; }
+  loadProgress(s);
+};
+const lap = (name) => { const t = performance.now(); loadTimes.push(['  · ' + name, Math.round(t - loadMark)]); loadMark = t; loadProgress(name); };
+loadProgress('modules');
 const profAcc = new Map(); let profT = 0, profFrames = 0;
 // (and the slowest frames, part by part: __gaon.prof().long)
 const profCur = {}, profLong = [];
@@ -427,7 +492,7 @@ const vehicles = [
   { obj: new FireTruck(), name: 'firetruck', park: emergencySpot('firetruck'), walk: 10, run: 15, boost: 19, accel: 0.6, reach: 4.4, rad: 1.2, lean: 0.03, flame: false,
     four: true, wb: 4.65, rev: 3, probes: [-3.3, -1.2, 1.2, 3.3], exit: [-1.4, 2.2], box: [0.55, 0, 1.2, 3.75], sound: 'bus', siren: true,
     shapeOver: { half: [1.2, 1.45, 3.75], com: [0.55, 1.5, 0], mass: 9000 },
-    on: 'The 101 fire tender — B for the siren and bell', off: 'Down from the fire tender', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster'], ['B', 'siren on / off'], ['L', 'lights'], ['E', 'climb down']], ask: 'drive the fire tender' },
+    on: 'The 101 fire tender — B for the siren and bell, hold K for the water cannon', off: 'Down from the fire tender', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['K', 'water cannon (hold)'], ['B', 'siren on / off'], ['L', 'lights'], ['E', 'climb down']], ask: 'drive the fire tender' },
   { obj: new RowBoat(), name: 'boat', water: true, park: { x: layout.boat.x, z: layout.boat.z, rot: layout.boat.rot }, walk: 1.8, run: 2.8, boost: 3.6, accel: 0.6, reach: 3.4, rad: 0.9, lean: 0,
     on: 'In the boat — row with W, A, D', off: 'Back on the bank', help: [['E', 'get out at a bank'], ['Shift', 'row harder']], ask: 'row the boat' },
 ];
@@ -595,11 +660,22 @@ let ride = null, bikeRoll = 0, bikeSteer = 0, lastFacing = 0, autoYaw = 0;
 const mopedSmoke = new Puffs({ max: 80, color: '#9a9690', dark: '#4a4744', opacity: 0.55, buoyancy: 0.4, drag: 1.2 });
 scene.add(mopedSmoke.mesh);
 let mopedAcc = 0;
+// a vehicle's wheels, measured once (three or more: the two-wheelers lean on their stand instead)
+const rigOf = (v) => (v.rig === undefined ? (v.rig = v.water || v.fly ? null : wheelRig(v.obj.root, v.obj.wheels ?? v.obj.veh?.wheels)) : v.rig);
+const _pose = { y: 0, pitch: 0, roll: 0 };
 function parkVehicle(v, x, z, rot) {
   scene.attach(v.obj.root);
   v.obj.root.position.set(x, v.water ? WY() : groundHeight(x, z), z);
   v.obj.root.rotation.set(0, rot, v.lean ? -0.1 : 0);
   v.park.x = x; v.park.z = z; v.park.rot = rot;
+  // standing on a slope: tilted to the ground, every wheel down on it
+  const rig = rigOf(v);
+  if (rig) {
+    const y0 = v.obj.root.position.y;
+    groundPose(rig, x, z, rot, (gx, gz) => groundHeight(gx, gz, y0 + 1), _pose);
+    v.obj.root.rotation.set(_pose.pitch, rot, _pose.roll, 'YXZ');
+    v.obj.root.position.y = _pose.y + settleWheels(rig, _pose.y, _pose.pitch, _pose.roll);
+  }
 }
 // what a parked vehicle blocks: a box for the four-wheelers, a small circle for the two-wheelers
 function parkedShape(v) {
@@ -608,6 +684,22 @@ function parkedShape(v) {
     return { kind: 'b', x: v.park.x + lx * Math.cos(r) + lz * Math.sin(r), z: v.park.z - lx * Math.sin(r) + lz * Math.cos(r), rot: r, hw, hd };
   }
   return { kind: 'c', x: v.park.x, z: v.park.z, r: { moped: 0.45 }[v.name] ?? 0.3 };
+}
+// the vehicles nearest the boy, as boxes on the ground, for the grass to lie flat under (see grass.js)
+const _press = [];
+function grassPressers() {
+  _press.length = 0;
+  const near = (x, z) => Math.abs(x - player.x) + Math.abs(z - player.z) < 70;
+  if (ride && ride.box && !ride.water && !ride.fly) {
+    const [lx, lz, hw, hd] = ride.box, r = player.facing;
+    _press.push({ x: player.x + lx * Math.cos(r) + lz * Math.sin(r), z: player.z - lx * Math.sin(r) + lz * Math.cos(r), rot: r, hw, hd, d: 0 });
+  }
+  for (const v of vehicles) if (v !== ride && v.box && !v.water && !v.fly && !v.crash && near(v.park.x, v.park.z)) { const b = parkedShape(v); b.d = Math.hypot(b.x - player.x, b.z - player.z); _press.push(b); }
+  for (const t of people.travellers.list) {
+    if (t.taken || t.crash || !t.holder.visible || !(t.veh || t.kind === 'cart') || !near(t.p.x, t.p.z)) continue;
+    _press.push({ x: t.p.x, z: t.p.z, rot: t.heading, hw: t.veh ? t.veh.half : 0.9, hd: t.veh ? t.veh.len / 2 : 2.6, d: Math.hypot(t.p.x - player.x, t.p.z - player.z) });
+  }
+  return _press.sort((a, b) => a.d - b.d);
 }
 const nearVehicle = () => vehicles.find((v) => v !== ride && !v.crash && Math.hypot(player.x - v.park.x, player.z - v.park.z) < v.reach);
 // stepping out of the boat: find a bit of dry bank close by
@@ -661,6 +753,8 @@ function toggleRide() {
     player.x = v.park.x; player.z = v.park.z;
     player.facing = v.obj.root.rotation.y;
     lastFacing = player.facing;
+    // (carrying on from how it stood: no jolt as you climb in)
+    if (rigOf(v)) { ridePitch = v.obj.root.rotation.x; rideRoll = v.obj.root.rotation.z; player.y = v.obj.root.position.y; }
     boy.root.add(v.obj.root);
     v.obj.root.position.set(0, 0, 0);
     v.obj.root.rotation.set(0, 0, 0);
@@ -1364,20 +1458,83 @@ function fishTick(dt) {
     toast('A bite! The float bobs under…');
   }
 }
-// ---- the hand pump: a few strokes of the handle and cold water gushes out
+// ---- the hand pump: the boy takes the handle and works it up and down; each stroke down pushes a gush of
+// cold water out of the spout, falling into the bucket (which fills, and then spills over the platform) ----
+const pumpS = { on: false, t: 0, phase: 0, strokes: 0, target: 0, flow: 0, bucket: 0, P: null, surf: null, _v: new THREE.Vector3(), _d: new THREE.Vector3() };
+// a point on the pump, from its own frame (x across, y up, z toward the spout) to the world
+function pumpPt(P, lx, ly, lz, out) { const c = Math.cos(P.rot ?? 0), s = Math.sin(P.rot ?? 0); return out.set(P.x + lx * c + lz * s, heightAt(P.x, P.z) + ly, P.z - lx * s + lz * c); }
 function pumpWater(P) {
-  boy.greetT = 2.2;
-  for (let k = 0; k < 5; k++) setTimeout(() => {
-    audio.tock?.(0.35);
-    for (let i = 0; i < 8; i++) swim.splash.emit(P.x + Math.sin(P.rot ?? 0) * 0.45, groundHeight(P.x, P.z) + 0.75, P.z + Math.cos(P.rot ?? 0) * 0.45, (Math.random() - 0.5) * 0.3, -0.6 - Math.random(), (Math.random() - 0.5) * 0.3, 0.5, 0.04, 0.12, 0.8);
-    if (k > 0) audio.splash(0.12);
-  }, k * 380);
-  toast('Creak, creak — cold water gushes from the hand pump 💧');
+  if (pumpS.on) { pumpS.target += 5; return; }
+  Object.assign(pumpS, { on: true, t: 0, phase: -Math.PI / 2, strokes: 0, target: 6, P });
+  P.boyPumping = true;
+  if (!pumpS.surf) {
+    // the water in the bucket: a disc that rises as it fills
+    pumpS.surf = new THREE.Mesh(new THREE.CircleGeometry(0.185, 24).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#4d7f95', roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.85 }));
+    scene.add(pumpS.surf);
+  }
+  toast('You take the handle — creak, creak… and cold water gushes out 💧 (E to keep pumping)');
+}
+function stopPumping() {
+  pumpS.on = false;
+  if (pumpS.P) { pumpS.P.boyPumping = false; if (pumpS.P.handle) pumpS.P.handle.rotation.x = 0.1; }
+}
+function updatePump(dt) {
+  const P = pumpS.P;
+  const moving = keys.KeyW || keys.KeyA || keys.KeyS || keys.KeyD || keys.ArrowUp || keys.ArrowDown || keys.ArrowLeft || keys.ArrowRight || jumpQueued;
+  jumpQueued = false;
+  pumpS.t += dt;
+  if ((pumpS.t > 0.4 && moving) || pumpS.strokes >= pumpS.target) { stopPumping(); return; }
+  // the stroke: the handle's end goes up, then is pulled down; water comes as it goes down
+  const prev = pumpS.phase;
+  pumpS.phase += dt * (Math.PI * 2 / 1.15);
+  if (Math.floor((pumpS.phase + Math.PI / 2) / (Math.PI * 2)) > Math.floor((prev + Math.PI / 2) / (Math.PI * 2))) { pumpS.strokes++; audio.tock?.(0.32); }
+  const th = 0.12 + 0.36 * Math.sin(pumpS.phase);
+  if (P.handle) P.handle.rotation.x = th;
+  // water: a moment after the down stroke starts, gushing, then easing off
+  const want = Math.max(0, -Math.cos(pumpS.phase - 0.35));
+  pumpS.flow += (want - pumpS.flow) * (1 - Math.exp(-dt * 10));
+  if (pumpS.flow > 0.08) {
+    const o = pumpPt(P, 0, 0.86, -0.04, pumpS._v), d = pumpPt(P, 0, 0.86 - 0.8, -0.04 + 0.35, pumpS._d).sub(o);
+    hose.emit(o.x, o.y, o.z, d.x, d.y, d.z, 0.6 + pumpS.flow * 0.6, Math.round(pumpS.flow * 650 * dt + Math.random() * 0.6), 0.035, heightAt(P.x, P.z), 0.38);
+  }
+  // the boy at the end of the handle, gripping it, his arms and body going with it
+  const stand = pumpPt(P, 0, 0, -1.35 - 0.3, pumpS._v);
+  player.x = stand.x; player.z = stand.z; player.y = groundHeight(stand.x, stand.z, player.y); player.speed = 0; player.facing = P.rot ?? 0;
+  boy.root.position.set(player.x, player.y, player.z);
+  boy.root.rotation.set(0, player.facing, 0);
+  boy.setGear('none');
+  boy.update(dt, 0, false, 0);
+  const endY = 1.05 + Math.sin(th) * 1.0, shoulderY = 1.0, reach = 0.3 + (1 - Math.cos(th));
+  const a = -Math.atan2(reach, -(endY - shoulderY));
+  for (const [i, A] of boy.arms.entries()) { A.shoulder.rotation.set(a, 0, (i ? -1 : 1) * 0.16); A.elbow.rotation.set(-0.2, 0, 0); }
+  boy.torso.rotation.x = 0.12 + 0.12 * Math.max(0, -Math.sin(pumpS.phase));
+  for (const L of boy.legs) L.knee.rotation.x = 0.1 + 0.18 * Math.max(0, -Math.sin(pumpS.phase));
+}
+// the bucket under the spout (in the world), filling as water lands in it and slowly going down again
+function pumpBucket(dt) {
+  const P = layout.pump;
+  if (!P || !pumpS.surf) return;
+  pumpS.bucket = Math.max(0, pumpS.bucket - dt / 400);
+  const c = pumpPt(P, 0, 0.27 - 0.115 + pumpS.bucket * 0.225, 0.05, pumpS._d);
+  pumpS.surf.position.copy(c);
+  pumpS.surf.visible = pumpS.bucket > 0.02;
+}
+// is a drop in flight inside the bucket? (it lands on the water there, or on its bottom)
+function inBucket(x, y, z) {
+  const P = layout.pump;
+  if (!P) return false;
+  const c = pumpPt(P, 0, 0, 0.05, pumpS._d);
+  if (Math.hypot(x - c.x, z - c.z) > 0.19) return false;
+  const top = c.y + 0.395, water = c.y + 0.155 + pumpS.bucket * 0.225;
+  if (y < top && y < water + 0.02) { pumpS.bucket = Math.min(1, pumpS.bucket + 0.0006); return pumpS.bucket < 1; } // (full: it spills over)
+  return false;
 }
 // the small thing at hand, if the boy is standing somewhere that has one
 function nearAct() {
-  if (ride || drv || pax || swim.on || sit.on || knock.on) return null;
+  if (ride || drv || pax || swim.on || sit.on || knock.on || joy) return null;
   const px = player.x, pz = player.z;
+  // the mela's giant wheel and swinging boat
+  { const mr = mela?.rideAt(px, pz); if (mr) return { ask: mr === 'wheel' ? 'ride the giant wheel · ₹20' : 'ride the swinging boat · ₹20', run: () => startJoy(mr) }; }
   // the tame elephant by the line: she raises her trunk and blesses you
   const ele = trackScene?.elephants.find((e) => e.mahout && Math.hypot(e.p.x - px, e.p.z - pz) < 6.5);
   if (ele) return { ask: 'offer the elephant a banana', run: () => { ele.bless = 3.2; audio.trumpet(4); boy.greetT = 2.5; toast('She takes the banana, lifts her trunk and touches your head — a blessing! 🐘'); } };
@@ -1580,6 +1737,7 @@ function updatePassenger(dt) {
   hud.classList.add('show', 'bus', 'nonitro'); hud.classList.remove('four', 'boat', 'boost', 'empty');
   $('rh-name').textContent = 'Passenger';
   $('rh-speed').textContent = Math.round(Math.abs(tr.v) * 3.6);
+  setDial(Math.abs(tr.v) * 3.6, 80);
   $('px-count').textContent = `🧍 ${tr.aboard} aboard`;
   $('px-fare').textContent = tr.name;
   let nxt = null, nd = Infinity;
@@ -1841,7 +1999,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyU' && !e.repeat) toggleFullscreen();
   if (e.code === 'KeyO' && !e.repeat && postcards) { postcards.toggle(); return; }
   if (e.code === 'Escape' && postcards?.open) { postcards.toggle(false); return; }
-  if (e.code === 'KeyK' && !e.repeat && !(ride && ride.fly)) shareSpot();
+  if (e.code === 'KeyK' && !e.repeat && !(ride && ride.fly) && ride?.name !== 'firetruck') shareSpot(); // (on the fire tender, K is the water cannon)
   if (e.code === 'KeyF' && !e.repeat && fire && !ride && !drv && !pax && !swim.on && !cricketOn) { const r = fire.strike(player.x, player.z); boy.greetT = 1.2; if (r.text) toast(r.text); }
   if (cricketOn) {
     if (e.code === 'Space' && !e.repeat) cricket.action();
@@ -1850,12 +2008,14 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (e.code === 'KeyE' && !e.repeat) {
+    if (joy) { wantOffJoy(); return; }
+    if (pumpS.on) { pumpS.target += 5; return; }
     if (sit.on) standUp();
     else if (pax) leaveTrain();
     else if (!ride && !drv && !nearRide() && !nearCab()) { const pc = nearCoach(), act = pc ? null : nearAct(); if (pc) boardTrain(pc); else if (act) act.run(); }
     else toggleRide();
   }
-  if (e.code === 'KeyQ' && !e.repeat && !ride && !drv && !pax) { if (sit.on) standUp(); else sitDown(); }
+  if (e.code === 'KeyQ' && !e.repeat && !ride && !drv && !pax && !joy) { if (sit.on) standUp(); else sitDown(); }
   if (e.code === 'KeyP' && !e.repeat && !(ride && ride.fly)) wantShot = true;
   if (e.code === 'KeyV' && pax && !e.repeat) { pax.view = 1 - pax.view; pax.yaw0 = yaw; toast(pax.view ? 'Outside view' : 'At the window'); }
   if (e.code === 'KeyH') toggleHelp();
@@ -2069,6 +2229,8 @@ function updatePlayer(dt) {
   if (knock.on) { updateKnock(dt); return; }
   if (drv) { updateTrainDrive(dt); return; }
   if (pax) { updatePassenger(dt); return; }
+  if (joy) { updateJoy(dt); return; }
+  if (pumpS.on) { updatePump(dt); return; }
   if (sit.on) { updateSit(dt); return; }
   if (cricketOn) { updateCricket(dt); return; }
   if (ride && ride.fly) { if (ride.heli) updateHeli(dt); else updateFlight(dt); return; }
@@ -2127,7 +2289,16 @@ function updatePlayer(dt) {
     drive.v = v;
     drive.steer += (r - drive.steer) * (1 - Math.exp(-dt * 4.5));
     const ang = drive.steer * 0.6 / (1 + Math.abs(v) * 0.045);
+    const f0 = player.facing;
     player.facing -= (v / ride.wb) * Math.tan(ang) * dt;
+    // it turns about its back axle, the way a real car or bus does — the back wheels follow, the front swings
+    // into the turn — not about the driver's seat (a bus pivoting on its driver slides its tail sideways)
+    const rg = rigOf(ride);
+    if (rg) {
+      rg.zr ??= (() => { const zs = rg.list.map((q) => q.z), zmin = Math.min(...zs); const back = rg.list.filter((q) => q.z < zmin + 0.4); return back.reduce((a, q) => a + q.z, 0) / back.length; })();
+      player.x += rg.zr * (Math.sin(f0) - Math.sin(player.facing));
+      player.z += rg.zr * (Math.cos(f0) - Math.cos(player.facing));
+    }
     player.speed = Math.abs(v);
   } else player.speed += (target - player.speed) * (1 - Math.exp(-dt * (riding ? (target > player.speed ? ride.accel : 2.5) : swim.on ? 3 : player.grounded ? 7 : 1.5)));
   if (len > 0 && !four) {
@@ -2220,7 +2391,13 @@ function updatePlayer(dt) {
     swim.stroke += dt * (1.6 + player.speed * 1.4);
     if (swim.stroke > Math.PI) { swim.stroke -= Math.PI; if (player.speed > 0.3) { splashAround(5, 0.8); audio.splash(0.45); } }
   }
-  if (riding && !ride.water && !ride.fly) {
+  const rig = riding && !ride.water && !ride.fly ? rigOf(ride) : null;
+  if (rig) {
+    // on its wheels: the height, pitch and roll of the ground under all of them
+    const y1 = player.y + 1;
+    groundPose(rig, player.x, player.z, player.facing, (x, z) => groundHeight(x, z, y1), _pose);
+    gy = _pose.y;
+  } else if (riding && !ride.water && !ride.fly) {
     const R = reachOf(ride), fx = Math.sin(player.facing), fz = Math.cos(player.facing);
     const hf = groundHeight(player.x + fx * R.fr, player.z + fz * R.fr, player.y + 1), hb = groundHeight(player.x + fx * R.bk, player.z + fz * R.bk, player.y + 1);
     gy = Math.max(gy, hb + (hf - hb) * (-R.bk / (R.fr - R.bk)));
@@ -2258,7 +2435,11 @@ function updatePlayer(dt) {
     bikeRoll += (clamp(-yawRate * player.speed * 0.05 * ride.lean, -0.32, 0.32) - bikeRoll) * (1 - Math.exp(-dt * 5));
     boy.root.rotation.z = bikeRoll + rideRoll;
     // pitch with the slope of the ground under the wheels
-    if (!ride.water) {
+    if (rig) {
+      // the body follows the ground's slope like a sprung chassis: smoothly, never snapping over every bump
+      ridePitch += (_pose.pitch - ridePitch) * (1 - Math.exp(-dt * 8));
+      rideRoll += (_pose.roll - rideRoll) * (1 - Math.exp(-dt * 8));
+    } else if (!ride.water) {
       // tilt along the ground under its real front and back (a bullock cart reaches 4.5 m ahead of its driver)
       const fx = Math.sin(player.facing), fz = Math.cos(player.facing), R = reachOf(ride);
       const hf = groundHeight(player.x + fx * R.fr, player.z + fz * R.fr, player.y + 1), hb = groundHeight(player.x + fx * R.bk, player.z + fz * R.bk, player.y + 1);
@@ -2276,6 +2457,11 @@ function updatePlayer(dt) {
     drive.lastV = vNow;
     drive.squat = (drive.squat ?? 0) + (clamp(-acc * (four ? 0.006 : 0.004), -0.05, 0.05) - (drive.squat ?? 0)) * (1 - Math.exp(-dt * 5));
     boy.root.rotation.x = ridePitch + (ride.water ? 0 : drive.squat);
+    // then each wheel down onto the ground under it (and the body lifted if a spring can't reach)
+    if (rig && player.grounded) {
+      const lift = settleWheels(rig, player.y, boy.root.rotation.x, boy.root.rotation.z);
+      if (lift > 0) { player.y += lift; boy.root.position.y = player.y; }
+    }
     // wheels on dry earth raise a little dust
     if (!ride.water && player.speed > 4 && !ATMO.rainy && Math.random() < dt * player.speed * 1.2) {
       const side = (Math.random() - 0.5) * (four ? 1.3 : 0.2);
@@ -2316,6 +2502,7 @@ function updatePlayer(dt) {
   // the riding HUD: speed, nitro gauge, key hints
   const hud = $('ridehud');
   hud.classList.toggle('show', !!ride && started && !ride.water);
+  document.body.classList.toggle('driving', !!ride && started && player.speed > 1.5);
   // the boat has its own little panel: the oars dipping with each stroke, the pace, and how far the bank is
   $('boathud').classList.toggle('show', !!ride?.water && started);
   if (ride?.water) {
@@ -2338,7 +2525,8 @@ function updatePlayer(dt) {
   }
   if (ride && !ride.water) {
     $('rh-speed').textContent = Math.round(player.speed * 3.6);
-    $('rh-name').textContent = { auto: 'Auto rickshaw', car: 'Little car', minibus: 'Gaon minibus', erick: 'E-rickshaw', bus: 'Village bus', jeep: 'Jeep', moped: 'Motorbike', cart: 'Bullock cart' }[ride.name] ?? ride.name[0].toUpperCase() + ride.name.slice(1);
+    setDial(player.speed * 3.6, (ride.boost || ride.run || 10) * 3.6);
+    $('rh-name').textContent = { auto: 'Auto rickshaw', car: 'Little car', minibus: 'Gaon minibus', erick: 'E-rickshaw', bus: 'Village bus', jeep: 'Jeep', moped: 'Motorbike', cart: 'Bullock cart', firetruck: 'Fire tender 101', ambulance: 'Ambulance 108', police: 'Police jeep' }[ride.name] ?? ride.name[0].toUpperCase() + ride.name.slice(1);
     hud.classList.toggle('four', !!ride.four);
     hud.classList.toggle('bus', !!ride.obj.seats);
     if (ride.four) {
@@ -2481,6 +2669,7 @@ function updateTrainDrive(dt) {
   hud.classList.add('show', 'bus'); hud.classList.remove('four', 'boat', 'boost', 'empty');
   $('rh-name').textContent = 'Steam engine';
   $('rh-speed').textContent = Math.round(Math.abs(tr.v) * 3.6);
+  setDial(Math.abs(tr.v) * 3.6, 80);
   $('rh-label').textContent = vc < -0.1 ? 'REVERSE' : 'STEAM';
   $('rh-nitro').style.width = `${Math.round(Math.min(1, Math.abs(tr.v) / 22) * 100)}%`;
   $('rh-key').textContent = 'W';
@@ -3068,6 +3257,8 @@ const wildEvents = {
   growl: (d, k) => audio.growl(d, k),
   roar: (d) => { audio.roar(d); if (d < 40) scare.shake = Math.max(scare.shake, 0.5); },
   howl: (d) => audio.howl(d),
+  hoot: (d) => audio.hoot?.(d),
+  screech: (d) => audio.screech?.(d),
   cackle: (d) => audio.cackle(d),
   chatter: (d) => audio.chatter(d),
   snort: (d) => audio.snort(d),
@@ -3212,6 +3403,93 @@ function mapTrains() {
   return out;
 }
 
+// ---- riding the mela's giant wheel or its swinging boat: up over the whole village, or swung high ----
+let joy = null;
+function startJoy(kind) {
+  const r = mela?.board(kind);
+  if (!r) { toast('Every gondola is full — wait for the next turn'); return; }
+  const paid = wallet() >= 20; if (paid) purse.spent += 20;
+  joy = { kind, ...r, t: 0, wantOff: false, saidTop: false };
+  r.anchor.add(boy.root);
+  boy.root.position.copy(r.pos); boy.root.rotation.set(0, r.face, 0);
+  boy.setGear('none');
+  audio.tink(0.6);
+  targetDist = Math.max(targetDist, 7);
+  toast(kind === 'wheel' ? `Up into a gondola of the giant wheel 🎡${paid ? ' · ₹20' : ''} — E to get down when it comes round` : `Onto the swinging boat ⛵${paid ? ' · ₹20' : ''} — hold on! E to get off when it slows`);
+}
+function wantOffJoy() {
+  if (!joy) return;
+  joy.wantOff = true;
+  if (joy.kind === 'wheel' && !mela.rideState('wheel').bottom) toast("You'll step out when your gondola comes down to the bottom");
+  if (joy.kind === 'boat' && mela.rideState('boat').amp > 0.25) toast('Hold on till the boat slows down…');
+}
+function leaveJoy() {
+  if (joy.kind === 'wheel') mela.wheelStopForBoy(false);
+  scene.add(boy.root);
+  const x = joy.exit.x, z = joy.exit.z;
+  player.x = x; player.z = z; player.y = groundHeight(x, z); player.vy = 0; player.grounded = true; player.speed = 0;
+  boy.root.position.set(x, player.y, z); boy.root.rotation.set(0, player.facing, 0);
+  toast(joy.kind === 'wheel' ? 'Down from the giant wheel — what a view!' : 'Off the swinging boat, legs a little wobbly 😄');
+  joy = null;
+}
+function updateJoy(dt) {
+  joy.t += dt;
+  {
+    const html = [['E', joy.wantOff ? 'getting down…' : joy.kind === 'wheel' ? 'get down at the bottom' : 'get off when it slows'], ['Mouse', 'look round']].map(([k, t]) => `<span class="chip"><kbd>${k}</kbd>${t}</span>`).join('');
+    if ($('prompt').dataset.html !== html) { $('prompt').innerHTML = html; $('prompt').dataset.html = html; }
+    $('prompt').classList.add('show');
+  }
+  jumpQueued = false;
+  boy.sit(dt, false, true);
+  // everything that follows the boy (the camera, the map, the sounds) follows him round on the ride
+  boy.root.getWorldPosition(tmp);
+  player.x = tmp.x; player.z = tmp.z; player.y = tmp.y - 0.38; player.speed = 0; player.vy = 0;
+  if (!dragging && performance.now() - autoYaw > 3500) yaw += dt * 0.05; // the view turns slowly over the country
+  if (joy.kind === 'wheel') {
+    const st = mela.rideState('wheel');
+    if (!joy.saidTop && st.height > mela.wheel.position.y + 4) { joy.saidTop = true; toast('From the top you can see the whole village — the river, the fields, the train far off 🎡'); }
+    // two turns, then it lets him out at the bottom (or sooner, if he asked)
+    if ((joy.wantOff || st.laps >= 2) && joy.t > 4 && mela.wheelStopForBoy(true)) leaveJoy();
+  } else {
+    const st = mela.rideState('boat');
+    if (joy.wantOff && st.amp < 0.25 && st.swing < 0.2) leaveJoy();
+  }
+}
+
+// ---- the fire tender's water cannon: hold K; it points where you look, and its water puts fires out ----
+const hose = new WaterJet(scene);
+const hoseState = { yaw: 0, pitch: 0.3, on: 0, toastT: 0, _o: new THREE.Vector3(), _d: new THREE.Vector3(), _q: new THREE.Quaternion() };
+function updateHose(dt) {
+  const truck = ride?.name === 'firetruck' && !ride.crash ? ride.obj : null;
+  const spraying = !!truck && started && !!keys.KeyK;
+  hoseState.on += ((spraying ? 1 : 0) - hoseState.on) * (1 - Math.exp(-dt * (spraying ? 6 : 10)));
+  if (truck?.monitor) {
+    // where the camera looks, as an angle from the truck's nose; the lower the camera, the higher it aims
+    const look = Math.atan2(-Math.sin(yaw), -Math.cos(yaw));
+    const wantYaw = Math.atan2(Math.sin(look - player.facing), Math.cos(look - player.facing));
+    const wantPitch = clamp(0.62 - pitch * 0.85, 0.04, 0.8);
+    const dy = Math.atan2(Math.sin(wantYaw - hoseState.yaw), Math.cos(wantYaw - hoseState.yaw));
+    hoseState.yaw += clamp(dy, -dt * 2.2, dt * 2.2); // (the turret swings round at its own pace)
+    hoseState.pitch += (wantPitch - hoseState.pitch) * (1 - Math.exp(-dt * 4));
+    truck.aim(hoseState.yaw, hoseState.pitch);
+    if (hoseState.on > 0.05) {
+      truck.barrel.updateWorldMatrix(true, false);
+      const o = truck.barrel.localToWorld(hoseState._o.copy(truck.nozzleTip));
+      truck.barrel.getWorldQuaternion(hoseState._q);
+      const d = hoseState._d.set(0, 0, 1).applyQuaternion(hoseState._q);
+      hose.emit(o.x, o.y, o.z, d.x, d.y, d.z, 22 * (0.6 + 0.4 * hoseState.on), Math.round(1100 * dt * hoseState.on + Math.random()), 0.025, player.y, 1);
+    }
+  }
+  audio.setHose?.(Math.max(hoseState.on, pumpS.flow * 0.35));
+  pumpBucket(dt);
+  if (!hose.active) return;
+  hoseState.toastT -= dt;
+  hose.update(dt, (x, z) => groundHeight(x, z, 50), (x, y, z) => {
+    const out = fire?.douse(x, z);
+    if (out && hoseState.toastT <= 0) { hoseState.toastT = 4; toast(`Hssss… ${out} is out 💧`); }
+  }, ATMO.night ? 0.45 : 1, (x, y, z) => inBucket(x, y, z) || (!!fire && fire.solidAt(x, y, z)));
+}
+
 function loop(now) {
   // schedule the next frame first: a bug in one frame must never freeze the whole game
   requestAnimationFrame(loop);
@@ -3293,6 +3571,7 @@ function frame(now) {
   updateCull(camera.position);
   updateStream(camera.position, (2.6 / Math.max(scene.fog.density, 0.0012)) * settingsView());
   grass?.userData.setCenter(player.x, player.z);
+  if (grass) grass.userData.setPress(grassPressers());
   river.material.uniforms.uTime.value = time;
   const mu = motes.material.uniforms;
   mu.uTime.value = time;
@@ -3324,6 +3603,7 @@ function frame(now) {
   hamlets?.update(dt, player);
   workers?.update(dt, player, time);
   fire?.update(dt, { player, t: time, rain: ATMO.rain ?? 0, night: !!ATMO.night, dusk: !!ATMO.night || (ATMO.sunElev ?? 30) < 7, season, wind: windUniforms.uWind.value });
+  updateHose(dt);
   matchFlame.visible = (fire?.matchT ?? 0) > 0;
   if (matchFlame.visible) { const k = fire.matchT; matchFlame.scale.setScalar(Math.min(1, k * 2) * (0.85 + 0.15 * Math.sin(time * 30))); }
   // a pan of chai on the boil at the stall: when it's ready, up onto the bench with a glass
@@ -3377,6 +3657,7 @@ function frame(now) {
       cow: nearest(layout.cows, player.x, player.z),
     }, (() => { const n = train.nearest(player.x, player.z); return { active: train.active, distance: n.d, speed: n.v, dwell: n.dwell }; })());
     audio.setTractor(farm.tractorDistance(player.x, player.z));
+    audio.setJungle?.(jungleMask(player.x, player.z), !!ATMO.night); // (insects, birds and monkeys in the jungle)
     audio.setFalls(waterfall ? Math.hypot(player.x - waterfall.impact.x, player.y - waterfall.impact.y, player.z - waterfall.impact.z) : 999);
     {
       // village life around you: how close the nearest village is, and the goats
@@ -3509,6 +3790,8 @@ window.__gaon = {
   get stations() { return stations; },
   get herds() { return herds; },
   get hamlets() { return hamlets; },
+  heightAt, groundHeight, // (testing: the ground)
+  get hose() { return hose; }, get joy() { return joy; }, layout, pumpS,
   get shrineLife() { return shrineLife; },
   get trackside() { return trackside; },
   allPeople: ALL_PEOPLE,

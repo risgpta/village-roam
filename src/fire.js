@@ -26,7 +26,9 @@ export function buildFire(scene, village, hooks = {}) {
   // (brighter than white: in daylight the flames must still read as fire, and the bloom gives them a glow)
   flame.material.uniforms.uDark.value.set('#ffd060').multiplyScalar(1.7); flame.material.uniforms.uColor.value.set('#ff3a06').multiplyScalar(1.5);
   sparks.material.uniforms.uDark.value.multiplyScalar(3); sparks.material.uniforms.uColor.value.multiplyScalar(2);
-  scene.add(flame.mesh, smoke.mesh, sparks.mesh);
+  // (and the white steam when water hits a fire)
+  const steamP = new Puffs({ max: 360, color: '#eef3f5', dark: '#ffffff', opacity: 0.45, buoyancy: 1.3, drag: 1.1 });
+  scene.add(flame.mesh, smoke.mesh, sparks.mesh, steamP.mesh);
   const glows = [0, 1].map(() => { const l = new THREE.PointLight('#ff8a3a', 0, 24, 1.4); l.castShadow = false; scene.add(l); return l; });
   let emitAcc = 0;
   // a fire's look: flames licking up over a patch r wide and h tall, smoke rising off it, a spark now and then
@@ -224,7 +226,7 @@ export function buildFire(scene, village, hooks = {}) {
   // ---- lighting things ----
   const wet = (ctx) => ctx.rain > 0.3;
   function ignite(f) {
-    if (f.state !== 0) return false;
+    if (f.state !== 0 || f.wetT > 0) return false;
     f.state = 1; f.t = 0; f.heat = 0;
     if (f.kind === 'haystack') {
       f.mats = [];
@@ -233,7 +235,7 @@ export function buildFire(scene, village, hooks = {}) {
     if (f.kind === 'alaav') gatherRound();
     return true;
   }
-  function igniteCell(c) { if (c.state !== 0) return false; c.state = 1; c.t = 0; c.heat = 0; return true; }
+  function igniteCell(c) { if (c.state !== 0 || c.wetT > 0) return false; c.state = 1; c.t = 0; c.heat = 0; return true; }
   // what's within reach of the boy's match, nearest first
   function target(px, pz, ctx) {
     let best = null, bd = 1e9;
@@ -266,6 +268,7 @@ export function buildFire(scene, village, hooks = {}) {
       const t = target(px, pz, lastCtx);
       if (!t) return { lit: false, text: 'You strike a match — the little flame flickers and goes out' };
       if (wet(lastCtx) && (t.kind === 'fuel' || t.kind === 'cell') && t.f?.kind !== 'alaav') return { lit: false, text: `${t.name[0].toUpperCase() + t.name.slice(1)} is too wet to catch in this rain` };
+      if ((t.f?.wetT > 0) || (t.c?.wetT > 0)) return { lit: false, text: `${t.name[0].toUpperCase() + t.name.slice(1)} is soaked — it won't catch till it dries` };
       if (t.kind === 'chulha') { tea.lit = true; return { lit: true, text: 'The chulha catches — now you can make the chai (E) ☕' }; }
       if (t.kind === 'lamp') { t.L.lit = 1; t.L.t = 0; t.L.byBoy = true; return { lit: true, text: t.L.where === 'house' ? 'The lamp by the door is lit 🪔' : 'The diya is lit 🪔' }; }
       if (t.kind === 'cell') { igniteCell(t.c); return { lit: true, text: 'The stubble catches — it runs off across the field with the wind 🔥' }; }
@@ -288,6 +291,9 @@ export function buildFire(scene, village, hooks = {}) {
       const lights = [];
       let roar = 0, crackle = 0;
       const heard = (x, z, p) => { const d = Math.hypot(x - player.x, z - player.z); const v = Math.max(0, 1 - d / 70) * p; roar = Math.max(roar, v); crackle += v; };
+      // ---- soaked things dry out ----
+      for (const f of fuels) if (f.wetT > 0) f.wetT -= dt * (rain > 0.3 ? 0 : 1);
+      for (const c of cells) if (c.wetT > 0) c.wetT -= dt * (rain > 0.3 ? 0 : 1);
       // ---- things burning ----
       for (const f of fuels) {
         if (f.state === 1) {
@@ -399,9 +405,49 @@ export function buildFire(scene, village, hooks = {}) {
         g.distance = 10 + L.p * 9;
       });
       hooks.onSound?.(roar, crackle);
-      flame.update(dt); smoke.update(dt); sparks.update(dt);
+      flame.update(dt); smoke.update(dt); sparks.update(dt); steamP.update(dt);
     },
     setRain() {},
+    // Water landing at (x, z) — a drop's worth (from the fire tender's hose). Burning things are put out once
+    // they've had enough of it (in a cloud of steam), lamps and the chulha go out, and anything soaked won't
+    // catch again for a minute and a half. Returns the name of a fire just put out, if one was.
+    // is (x, y, z) inside something that can burn? (so water in flight can strike it)
+    solidAt(x, y, z) {
+      for (const f of fuels) {
+        if (Math.abs(f.x - x) > f.r || Math.abs(f.z - z) > f.r) continue;
+        const top = f.y + (f.kind === 'haystack' ? f.h * f.obj.scale.y / f.s : f.h);
+        if (y < top && y > f.y - 0.2 && Math.hypot(f.x - x, f.z - z) < f.r) return true;
+      }
+      return false;
+    },
+    douse(x, z, w = 0.012) {
+      let out = null;
+      const steam = (px, py, pz, n, r) => { for (let i = 0; i < n; i++) steamP.emit(px + (Math.random() - 0.5) * r, py + Math.random() * 0.5, pz + (Math.random() - 0.5) * r, (Math.random() - 0.5) * 0.6, 1.2 + Math.random() * 1.4, (Math.random() - 0.5) * 0.6, 2.5 + Math.random() * 1.5, 0.5, 2.6, 0.5, 1); };
+      for (const f of fuels) {
+        const d = Math.hypot(f.x - x, f.z - z);
+        if (d > f.r + 0.9) continue;
+        f.wetT = 90; f.heat = 0;
+        if (f.state !== 1) continue;
+        f.water = (f.water ?? 0) + w;
+        if (Math.random() < 0.15) steam(f.x, f.y + f.h * 0.4, f.z, 1, f.r);
+        if (f.water > f.r * 1.8) {
+          f.state = 2; f.t = 0; f.water = 0;
+          if (f.kind !== 'alaav') { if (f.decal < 0) f.decal = newDecal(); setDecal(f.decal, f.x, f.z, f.r * 1.5 + 0.6); }
+          steam(f.x, f.y + f.h * 0.3, f.z, 26, f.r * 1.4);
+          out = f.name;
+        }
+      }
+      if (x > STUBBLE.x0 - 2 && x < STUBBLE.x1 + 2 && z > STUBBLE.z0 - 2 && z < STUBBLE.z1 + 2) {
+        for (const c of cells) {
+          if (Math.abs(c.x - x) > 1.6 || Math.abs(c.z - z) > 1.6) continue;
+          c.wetT = 90; c.heat = 0;
+          if (c.state === 1) { c.state = 2; c.t = 0; if (c.decal < 0) c.decal = newDecal(); setDecal(c.decal, c.x, c.z, 1.45); steam(c.x, c.y, c.z, 4, 1.2); out = out ?? 'the burning stubble'; }
+        }
+      }
+      for (const L of lamps) if (L.lit && Math.abs(L.x - x) < 0.6 && Math.abs(L.z - z) < 0.6) { L.lit = 0; L.byBoy = false; L.t = 0; }
+      if (tea?.lit && chulha && Math.hypot(chulha.x - x, chulha.z - z) < 0.8) { tea.lit = false; steam(chulha.x, chulha.y, chulha.z, 6, 0.3); out = out ?? 'the chulha'; }
+      return out;
+    },
   };
 }
 const _char = new THREE.Color('#1c140e');

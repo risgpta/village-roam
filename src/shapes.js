@@ -7,6 +7,34 @@ export function lathe(profile, segs = 16) {
   return new THREE.LatheGeometry(profile.map(([r, y]) => new THREE.Vector2(Math.max(0, r), y)), segs);
 }
 
+// A lathe's first and last columns of vertices sit on the same seam (at the front, +z). Once its shape is
+// pushed about and its normals worked out again, each side of the seam gets its own and a hard crease runs
+// down the middle of every shirt, sleeve and limb. This gives both sides the same, averaged normal.
+export function fixSeam(g) {
+  const P = g.parameters;
+  // (a sphere: its seam runs down one side, and each pole is a ring of vertices on one point)
+  if (P && P.widthSegments && P.heightSegments) {
+    const N = g.attributes.normal, W = P.widthSegments + 1;
+    const avg = (ids) => { let x = 0, y = 0, z = 0; for (const i of ids) { x += N.getX(i); y += N.getY(i); z += N.getZ(i); } const l = Math.hypot(x, y, z) || 1; for (const i of ids) N.setXYZ(i, x / l, y / l, z / l); };
+    for (let r = 0; r <= P.heightSegments; r++) {
+      const row = Array.from({ length: W }, (_, c) => r * W + c);
+      if (r === 0 || r === P.heightSegments) avg(row); else avg([row[0], row[W - 1]]);
+    }
+    N.needsUpdate = true;
+    return g;
+  }
+  if (!P || !P.points || !P.segments) return g;
+  const np = P.points.length, N = g.attributes.normal, last = P.segments * np;
+  for (let j = 0; j < np; j++) {
+    const a = j, b = last + j;
+    if (b >= N.count) break;
+    const x = N.getX(a) + N.getX(b), y = N.getY(a) + N.getY(b), z = N.getZ(a) + N.getZ(b), l = Math.hypot(x, y, z) || 1;
+    N.setXYZ(a, x / l, y / l, z / l); N.setXYZ(b, x / l, y / l, z / l);
+  }
+  N.needsUpdate = true;
+  return g;
+}
+
 // A tapered capsule hanging down from the origin: radius r0 at y = 0, r1 at y = -len, both ends rounded.
 export function limb(r0, r1, len, segs = 12) {
   const pts = [];
@@ -43,7 +71,7 @@ export function muscle(r0, r1, len, bulges = [], { flat = 0.88, segs = 14 } = {}
     p.setXYZ(i, x * k, y, z * k * flat);
   }
   g.computeVertexNormals();
-  return g;
+  return fixSeam(g);
 }
 
 // soft folds in cloth: ripples running down a lathed garment, stronger toward its hem (lower y)
@@ -57,7 +85,7 @@ export function folds(g, amp, count, yTop, yHem) {
     p.setXYZ(i, x * f, y, z * f);
   }
   g.computeVertexNormals();
-  return g;
+  return fixSeam(g);
 }
 
 // same, but lying along +Z from the origin (snouts, tails, beaks)

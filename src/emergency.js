@@ -209,5 +209,18 @@ export class FireTruck extends EmergencyVehicle {
     add(RB(2.2, 0.06, 0.4, 0.02), white, 0, 0.6, -3.5); // the rear step
     this.cabin(1.35, 2.25, 1.85, 2.72, trim);
     this.exhaust = V(0.55 + 0.9, 0.6, -3.6);
+    // the water cannon on the roof: a turret that swings round, a barrel that lifts, a brass nozzle (K sprays)
+    this.monitor = new THREE.Group(); this.monitor.position.set(0, 2.86, -0.05); this.root.add(this.monitor);
+    add(new THREE.CylinderGeometry(0.16, 0.2, 0.14, 16), alu, 0, 0.07, 0, this.monitor);
+    this.turret = new THREE.Group(); this.turret.position.y = 0.14; this.monitor.add(this.turret);
+    add(RB(0.34, 0.12, 0.3, 0.04), red, 0, 0.06, 0, this.turret);
+    for (const sx of [-1, 1]) add(RB(0.05, 0.3, 0.16, 0.02), red, sx * 0.13, 0.25, 0, this.turret);
+    this.barrel = new THREE.Group(); this.barrel.position.y = 0.3; this.turret.add(this.barrel);
+    add(new THREE.CylinderGeometry(0.075, 0.075, 0.2, 14).rotateZ(Math.PI / 2), alu, 0, 0, 0, this.barrel);
+    add(new THREE.CylinderGeometry(0.05, 0.06, 0.85, 14).rotateX(Math.PI / 2), chrome, 0, 0, 0.42, this.barrel);
+    add(new THREE.CylinderGeometry(0.035, 0.055, 0.2, 14).rotateX(Math.PI / 2), std('#c9952e', { metalness: 0.9, roughness: 0.25 }), 0, 0, 0.94, this.barrel);
+    this.nozzleTip = V(0, 0, 1.06);
   }
+  // point the cannon: yaw round from straight ahead, pitch up from level (radians), eased by the caller
+  aim(yaw, pitch) { this.turret.rotation.y = yaw; this.barrel.rotation.x = -pitch; }
 }

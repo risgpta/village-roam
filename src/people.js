@@ -7,9 +7,10 @@ import { Moped } from './bicycle.js';
 import { Scooter, VillageBus, Jeep, TrafficCar, RowBoat, poseRower, PoliceJeep } from './vehicles.js';
 import { Bicycle, poseRider } from './bicycle.js';
 import { makeCow } from './animals.js';
-import { lathe, limb, limbZ, ellipsoid, muscle, folds } from './shapes.js';
+import { lathe, limb, limbZ, ellipsoid, muscle, folds, fixSeam } from './shapes.js';
 import { Dog, consolidate } from './animals.js';
 import { Gear } from './gear.js';
+import { wheelRig, groundPose, settleWheels } from './suspension.js';
 
 // A material is shared by everyone who looks the same (nothing changes a person's materials once they're made):
 // a few hundred instead of ~15,000, far less memory, and the renderer draws one person after another without
@@ -34,6 +35,24 @@ const cyl = (a, b, h, s = 10) => new THREE.CylinderGeometry(a, b, h, s);
 const ss = (x) => x * x * (3 - 2 * x);
 const _fallAxis = new THREE.Vector3();
 const damp = (dt, r) => 1 - Math.exp(-dt * r);
+// a vehicle in the traffic on its wheels: posed to the ground under all of them (see suspension.js), the body
+// easing over the slope and every tyre on the earth. false if it has no rig (two-wheelers, carts).
+const _tp = { y: 0, pitch: 0, roll: 0 };
+function onWheels(t, x, z, yaw, dt) {
+  if (t.rig === undefined) t.rig = t.veh?.wheels ? wheelRig(t.holder, t.veh.wheels) : null;
+  const rig = t.rig;
+  if (!rig) return false;
+  groundPose(rig, x, z, yaw, (gx, gz) => groundHeight(gx, gz), _tp);
+  // (just back in view, or never placed: straight there)
+  if (t.wy === undefined || Math.abs(t.wy - _tp.y) > 2) { t.wy = _tp.y; t.pitch = _tp.pitch; t.roll = _tp.roll; }
+  t.wy += (_tp.y - t.wy) * damp(dt, 10);
+  t.pitch = (t.pitch ?? 0) + (_tp.pitch - (t.pitch ?? 0)) * damp(dt, 6);
+  t.roll = (t.roll ?? 0) + (_tp.roll - (t.roll ?? 0)) * damp(dt, 6);
+  t.wy += settleWheels(rig, t.wy, t.pitch, t.roll);
+  t.holder.position.set(x, t.wy, z);
+  t.holder.rotation.set(t.pitch, yaw, t.roll, 'YXZ');
+  return true;
+}
 
 // ---------------- human rig ----------------
 // Built in unit (k = 1) space from smooth tapered capsules and lathed shapes; the body group is scaled by k.
@@ -98,7 +117,7 @@ function headGeo(fine) {
     }
     p.setXYZ(i, X, Y, Z);
   }
-  g.computeVertexNormals();
+  g.computeVertexNormals(); fixSeam(g);
   HEADS.set(fine, g);
   return g;
 }
@@ -131,7 +150,7 @@ function hairGeo(style) {
     const k = 0.86 + (s - 0.86) * on;
     p.setXYZ(i, x * 0.092 * k, y * 0.116 * k + 0.008, z * 0.102 * (z < 0 ? 1.08 : 1) * k);
   }
-  g.computeVertexNormals();
+  g.computeVertexNormals(); fixSeam(g);
   HAIRS.set(style, g);
   return g;
 }
@@ -169,12 +188,13 @@ function shapeTorso(g, fem = false) {
   const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
   for (let i = 0; i < p.count; i++) {
     let x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-    const r = Math.hypot(x, z) || 1, cz = z / r, ax = Math.abs(x) / r;
+    const r = Math.hypot(x, z) || 1, cz = z / r;
     // waist in, chest and shoulders out (sideways)
     const wide = 1 - 0.07 * (1 - sm(0.0, 0.2, y)) + 0.06 * sm(0.28, 0.44, y) * (1 - sm(0.47, 0.55, y));
     x *= wide;
     // the chest at the front, the flatter back with the shoulder blades
-    if (cz > 0) z += (fem ? 0.012 : 0.02) * cz * Math.exp(-((y - 0.36) ** 2) / 0.006) * (0.6 + 0.4 * (1 - ax));
+    // (cz² rather than 1 − |x|: the same shape without a ridge running down the middle of the chest)
+    if (cz > 0) z += (fem ? 0.012 : 0.02) * cz * Math.exp(-((y - 0.36) ** 2) / 0.006) * (0.6 + 0.4 * cz * cz);
     else z *= 1 - 0.06 * sm(0.2, 0.4, y) * -cz + 0.0;
     if (cz < 0) z -= 0.008 * Math.exp(-((y - 0.4) ** 2) / 0.004) * Math.exp(-((Math.abs(x) - 0.08) ** 2) / 0.002);
     // the shoulders slope down from the neck
@@ -182,7 +202,7 @@ function shapeTorso(g, fem = false) {
     p.setXYZ(i, x, y, z);
   }
   g.computeVertexNormals();
-  return g;
+  return fixSeam(g);
 }
 // A strip of cloth laid over a body: pts are [angle round the body (0 = front), height] pairs; radius(y) gives
 // the body's radius there; depth squashes front-to-back, as the body is. Used for the saree's pallu.
@@ -208,10 +228,13 @@ function drape(pts, radius, width, depth = 0.7, lift = 0.014) {
 
 // a sleeve: like a limb, but its top is a shallow cap that tucks into the shoulder rather than a round ball
 // standing up above it (which made every shirt look puff-sleeved)
-function sleeve(r0, r1, len, segs = 14) {
-  const pts = [];
+// (rounded enough to read as the round of a shoulder, not a flat-topped block, and fuller at the top the way
+// a sleeve sits over the deltoid, narrowing toward the elbow)
+function sleeve(r0, r1, len, segs = 20) {
+  const pts = [], rt = r0 * 1.08;
   for (let i = 0; i <= 4; i++) { const a = -Math.PI / 2 + (i / 4) * (Math.PI / 2); pts.push([Math.cos(a) * r1, -len + Math.sin(a) * r1]); }
-  for (let i = 1; i <= 5; i++) { const a = (i / 5) * (Math.PI / 2); pts.push([Math.cos(a) * r0, Math.sin(a) * r0 * 0.3 - 0.01]); }
+  pts.push([(rt + r1) / 2, -len * 0.45]);
+  for (let i = 0; i <= 6; i++) { const a = (i / 6) * (Math.PI / 2); pts.push([Math.max(0.0005, Math.cos(a) * rt), Math.sin(a) * rt * 0.8 + 0.006]); } // (high enough to cover the round top of the arm inside)
   return lathe(pts, segs);
 }
 
@@ -243,7 +266,9 @@ export function buildHuman(o) {
     hip.position.set(s * 0.088, hipY, 0);
     body.add(hip);
     if (dress === 'dhoti') part(limb(0.102, 0.088, thigh), bottom, hip);
-    else if (saree) part(muscle(0.068, 0.05, thigh, [[0.35, 0.1, 0.3, 1], [0.85, -0.08, 0.15, 0]]), skin, hip);
+    // (in a sari the legs are wrapped in its cloth from the hip to the ankle: whether she walks, squats or sits,
+    // it's the fabric that shows, never bare legs)
+    else if (saree) part(limb(0.098, 0.084, thigh), bottom, hip);
     else if (dress === 'shorts') { part(limb(0.094, 0.086, thigh * 0.48), bottom, hip); part(muscle(0.064, 0.05, thigh, [[0.4, 0.12, 0.3, 1], [0.86, -0.08, 0.14, 0]]), skin, hip); }
     else part(limb(0.088, 0.07, thigh), bottom, hip);
     const knee = new THREE.Group();
@@ -251,7 +276,8 @@ export function buildHuman(o) {
     hip.add(knee);
     // the shin: a knee, the swell of the calf behind, and a slim ankle
     if (dress === 'dhoti') { part(limb(0.084, 0.074, shin * 0.42), bottom, knee); part(muscle(0.05, 0.03, shin, [[0.08, 0.06, 0.12, 0], [0.3, 0.3, 0.2, -1], [0.3, 0.06, 0.25, 0], [0.88, -0.1, 0.1, 0]]), skin, knee); }
-    else if (saree || dress === 'shorts') part(muscle(0.05, 0.03, shin, [[0.08, 0.06, 0.12, 0], [0.3, 0.3, 0.2, -1], [0.3, 0.06, 0.25, 0], [0.88, -0.1, 0.1, 0]]), skin, knee);
+    else if (saree) { part(limb(0.082, 0.07, shin * 0.93), bottom, knee); part(limb(0.034, 0.03, shin), skin, knee); }
+    else if (dress === 'shorts') part(muscle(0.05, 0.03, shin, [[0.08, 0.06, 0.12, 0], [0.3, 0.3, 0.2, -1], [0.3, 0.06, 0.25, 0], [0.88, -0.1, 0.1, 0]]), skin, knee);
     else { part(limb(0.07, 0.062, shin * 0.92), bottom, knee); part(limb(0.042, 0.036, shin), skin, knee); }
     part(ellipsoid(0.04, 0.028, 0.098, 12, 8), skin, knee, 0, -shin - 0.004, 0.045);
     part(ellipsoid(0.048, 0.011, 0.115, 12, 6), sandal, knee, 0, -shin - 0.03, 0.045);
@@ -270,6 +296,7 @@ export function buildHuman(o) {
       p.setXYZ(i, x * f, y, z * f * 0.84);
     }
     g.computeVertexNormals();
+    fixSeam(g);
     skirt = part(g, bottomDS, body);
     skirt.userData.keep = true;
   } else {
@@ -501,6 +528,7 @@ function makeProp(kind) {
 const LEFT_PROPS = new Set(['cupL']);
 
 // ---------------- animated person ----------------
+const SKIRT_TOP = 1.02; // the top of the sari's skirt, at the waist (in the body's own units)
 const POSE_KEYS = ['hip0', 'hip1', 'knee0', 'knee1', 'sh0', 'sh1', 'shz0', 'shz1', 'el0', 'el1', 'torsoX', 'torsoY', 'headX', 'headY', 'bodyY'];
 const _pose = Object.fromEntries(POSE_KEYS.map((k) => [k, 0]));
 
@@ -769,8 +797,14 @@ export class Person {
     const br = 1 + Math.sin(t * 1.7 + this.k * 9) * 0.007 * (1 - b);
     this.torso.scale.set(br, 1, br);
     if (this.skirt) {
-      this.skirt.visible = c.bodyY > -0.2;
-      this.skirt.rotation.x = c.hip0 * 0.1;
+      // sitting, squatting or crouching, the sari is gathered up round the hips (its top stays at the waist) and
+      // the cloth-wrapped legs come forward out of it; standing or walking it falls to the ankles
+      const bend = Math.min(1, Math.max(0, (-Math.min(c.hip0, c.hip1) - 0.45) / 0.9));
+      const sy = 1 - 0.78 * bend;
+      this.skirt.visible = true;
+      this.skirt.scale.set(1 - 0.26 * bend, sy, 1 - 0.08 * bend);
+      this.skirt.position.y = SKIRT_TOP * (1 - sy);
+      this.skirt.rotation.x = c.hip0 * 0.1 * (1 - bend);
     }
     // hand-held things that should hang or stand upright regardless of the arm
     for (const [kind, p] of Object.entries(this.props)) {
@@ -1025,7 +1059,7 @@ export class Villager {
       }
     }
     this.curSpeed += (speed - this.curSpeed) * damp(dt, 8);
-    const action = this.state === 'walk' ? (this.task.walkAction || 'walk') : this.task.action;
+    let action = this.state === 'walk' ? (this.task.walkAction || 'walk') : this.task.action;
     if (this.state === 'act') {
       const f = this.task.place.face;
       if (f !== undefined) this.facing += ((((f - this.facing + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) - Math.PI) * damp(dt, 3);
@@ -1043,8 +1077,14 @@ export class Villager {
     P.setGear(gear);
     P.root.position.set(this.p.x, this.y, this.p.z);
     P.root.rotation.y = this.facing;
+    // the boy has the pump: she waits a step to the side with her pot till he's done
+    if (action === 'pump' && layout.pump.boyPumping) {
+      const r = layout.pump.rot ?? 0;
+      P.root.position.x += Math.cos(r) * 1.4; P.root.position.z -= Math.sin(r) * 1.4;
+      action = 'idle';
+    }
     P.update(dt, this.curSpeed, action);
-    if (action === 'pump' && layout.pump.handle) layout.pump.handle.rotation.x = 0.1 + (P.pumpW ?? 0) * 0.4;
+    if (action === 'pump' && layout.pump.handle && !layout.pump.boyPumping) layout.pump.handle.rotation.x = 0.1 + (P.pumpW ?? 0) * 0.4;
   }
 }
 
@@ -1917,11 +1957,13 @@ function buildTravellers(scene, hooks) {
         t.holder.rotation.y = t.heading + yawOff;
         if (big) {
           t.veh.update(dt, t.speed, Math.max(-0.45, Math.min(0.45, dh * 6 + (t.latV ?? 0) * 0.5)), false, weather.night ? 1 : 0); // wheels into the bends (and into a pull-over); headlights on after dark
-          // tilt with the road
-          const back = { x: 0, z: 0 }; t.loop.at(t.s - t.veh.len / 2, back);
-          const hf = groundHeight(ahead.x, ahead.z), hb = groundHeight(back.x, back.z);
-          t.pitch += (-Math.atan2(hf - hb, Math.hypot(ahead.x - back.x, ahead.z - back.z) || 1) - t.pitch) * damp(dt, 4);
-          t.holder.rotation.set(t.pitch, t.heading + yawOff, 0, 'YXZ');
+          // tilt with the road: on its wheels, or (no wheels to go by) along its length
+          if (!onWheels(t, tmp.x, tmp.z, t.heading + yawOff, dt)) {
+            const back = { x: 0, z: 0 }; t.loop.at(t.s - t.veh.len / 2, back);
+            const hf = groundHeight(ahead.x, ahead.z), hb = groundHeight(back.x, back.z);
+            t.pitch += (-Math.atan2(hf - hb, Math.hypot(ahead.x - back.x, ahead.z - back.z) || 1) - t.pitch) * damp(dt, 4);
+            t.holder.rotation.set(t.pitch, t.heading + yawOff, 0, 'YXZ');
+          }
           t.person.update(dt, 0, 'drive');
           for (const q of t.riders) q.update(dt, 0, 'sit');
           t.bellCool -= dt;
@@ -1944,7 +1986,7 @@ function buildTravellers(scene, hooks) {
           if (t.motor) hooks.onEngine?.(t, Math.hypot(boy.x - tmp.x, boy.z - tmp.z));
         } else {
           t.veh.update(dt, t.speed);
-          {
+          if (!onWheels(t, tmp.x, tmp.z, t.heading + yawOff, dt)) {
             // tilt with the road under the bullocks and the back of the cart
             const fr = { x: 0, z: 0 }, bk = { x: 0, z: 0 }; t.loop.at(t.s + 3.2, fr); t.loop.at(t.s - 3.2, bk);
             const hf = groundHeight(fr.x, fr.z), hb = groundHeight(bk.x, bk.z);

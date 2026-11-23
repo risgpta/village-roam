@@ -2,7 +2,7 @@
 // and a wolf pack on the far side. They keep away from the villages, but don't get too close.
 import * as THREE from 'three';
 import { heightAt, groundHeight, riverX, RIVER_HALF, WATER_Y, resolveCollisions, WILD, warpR, JUNGLE_HOMES, layout } from './world.js';
-import { quadruped, eyes, consolidate, gaitPolish } from './animals.js';
+import { quadruped, eyes, consolidate, gaitPolish, headShape } from './animals.js';
 import { ellipsoid, limb, limbZ, bodyZ, taperTube, lathe, furMat } from './shapes.js';
 import { rng } from './noise.js';
 
@@ -335,8 +335,9 @@ function hyenaCoat() {
 class Wolf {
   constructor(home, R, leader = null, i = 0, kind = 'wolf') {
     this.kind = kind;
-    const hy = kind === 'hyena';
-    const coat = hy ? furMat('#ffffff', { rough: 0.95, map: hyenaCoat() }) : mat(['#7a746a', '#8a8378', '#5f5a52'][i % 3], 0.95), pale = mat(hy ? '#c4b08a' : '#d8d2c4', 0.95), dark = mat('#2a2622', 0.7);
+    const hy = kind === 'hyena', jk = kind === 'jackal';
+    // (the golden jackal: smaller, sandy gold with a grizzled saddle and a pale throat)
+    const coat = hy ? furMat('#ffffff', { rough: 0.95, map: hyenaCoat() }) : jk ? mat(['#b98a4e', '#a87c46', '#c29458'][i % 3], 0.95) : mat(['#7a746a', '#8a8378', '#5f5a52'][i % 3], 0.95), pale = mat(hy ? '#c4b08a' : jk ? '#e8d6b0' : '#d8d2c4', 0.95), dark = mat('#2a2622', 0.7);
     const q = quadruped({ L: 0.72, r: 0.17, legH: 0.6, legR: 0.035, coat, belly: pale, hoof: 'paw', sock: pale, deep: 1.15, neckLen: 0.2, neckTilt: 0.7, neckR: 0.09 });
     Object.assign(this, q);
     const h = this.head;
@@ -351,7 +352,9 @@ class Wolf {
     h.add(this.jaw);
     part(limbZ(0.04, 0.025, 0.15, 8).scale(1, 0.5, 1), pale, this.jaw);
     part(taperTube([[0, 0, 0], [0, -0.12, -0.12], [0, -0.3, -0.18], [0, -0.42, -0.14]], 0.06, 0.04), coat, this.tail);
+    if (jk) part(ellipsoid(0.035, 0.06, 0.035), dark, this.tail, 0, -0.42, -0.14); // the dark tip of the brush
     consolidate(this.root);
+    if (jk) this.root.scale.setScalar(0.74);
     this.home = home; this.R = R; this.leader = leader; this.i = i;
     this.p = { x: home.x + (R() - 0.5) * 6, z: home.z + (R() - 0.5) * 6 };
     this.y = heightAt(this.p.x, this.p.z);
@@ -746,6 +749,238 @@ class Snake {
   }
 }
 
+
+// ---------------- the jungle's grazers and browsers: spotted deer, zebras and giraffes ----------------
+function coatCanvas(draw, w = 256, h = 512) { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); return tex(c); }
+// (u runs round the body — the belly at both edges, the spine down the middle — and v along it)
+const chitalCoat = () => coatCanvas((g, w, h) => {
+  const grd = g.createLinearGradient(0, 0, w, 0);
+  grd.addColorStop(0, '#efe6d4'); grd.addColorStop(0.2, '#c47a3c'); grd.addColorStop(0.5, '#a65a26'); grd.addColorStop(0.8, '#c47a3c'); grd.addColorStop(1, '#efe6d4');
+  g.fillStyle = grd; g.fillRect(0, 0, w, h);
+  g.fillStyle = 'rgba(60,34,18,0.7)'; g.fillRect(w * 0.485, 0, w * 0.03, h); // the dark line down the back
+  const R = rng(141); g.fillStyle = '#f6eedf';
+  for (let i = 0; i < 300; i++) { const u = 0.17 + R() * 0.66; if (Math.abs(u - 0.5) < 0.035) continue; g.beginPath(); g.ellipse(u * w, R() * h, 2.6 + R() * 2.4, 2.8 + R() * 2.6, R(), 0, 7); g.fill(); }
+});
+const zebraCoat = () => coatCanvas((g, w, h) => {
+  g.fillStyle = '#f3f0e8'; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#131313';
+  const R = rng(151);
+  for (let y = 4; y < h; y += 17 + R() * 9) {
+    const th = 6.5 + R() * 5.5, wob = R() * 6;
+    g.beginPath();
+    // each band goes right round, wavy, thinning out under the belly
+    for (let x = 0; x <= w; x += 6) { const k = 0.25 + 0.75 * Math.sin((x / w) * Math.PI); g.lineTo(x, y + Math.sin(x * 0.045 + wob) * 5 - th * k * 0.5); }
+    for (let x = w; x >= 0; x -= 6) { const k = 0.25 + 0.75 * Math.sin((x / w) * Math.PI); g.lineTo(x, y + Math.sin(x * 0.045 + wob) * 5 + th * k * 0.5); }
+    g.closePath(); g.fill();
+  }
+});
+const giraffeCoat = () => coatCanvas((g, w, h) => {
+  g.fillStyle = '#efe0bc'; g.fillRect(0, 0, w, h);
+  const R = rng(161);
+  // big chestnut patches, each a rounded many-sided shape, with the pale net of lines between them
+  for (let y = -12; y < h + 24; y += 22) for (let x = -12; x < w + 24; x += 22) {
+    const cx = x + ((y / 22) % 2 ? 11 : 0) + (R() - 0.5) * 6, cy = y + (R() - 0.5) * 6, r = 8.2 + R() * 2.2;
+    g.fillStyle = ['#a8622c', '#94501f', '#b06d33'][Math.floor(R() * 3)];
+    g.beginPath();
+    for (let k = 0; k < 7; k++) { const a = (k / 7) * 6.283 + R() * 0.3; g.lineTo(cx + Math.cos(a) * r * (0.82 + R() * 0.25), cy + Math.sin(a) * r * (0.82 + R() * 0.25)); }
+    g.closePath(); g.fill();
+  }
+});
+const SPEC = {
+  deer: { fleeAt: 26, flee: 7.2, walk: 0.9, legH: 0.78, rad: 0.35 },
+  zebra: { fleeAt: 20, flee: 6, walk: 1.0, legH: 0.88, rad: 0.6 },
+  giraffe: { fleeAt: 16, flee: 4.2, walk: 1.1, legH: 1.75, rad: 0.7 },
+};
+class Herbivore {
+  constructor(home, R, kind, leader = null, scale = 1, male = false) {
+    this.kind = kind; this.home = home; this.R = R; this.leader = leader; this.scale = scale; this.spec = SPEC[kind];
+    const dark = mat('#1c1612', 0.55);
+    if (kind === 'deer') {
+      const coat = furMat('#ffffff', { rough: 0.86, map: chitalCoat(), short: true }), pale = mat('#efe6d4', 0.92), hoofM = '#1a1410';
+      Object.assign(this, quadruped({ L: 0.95, r: 0.27, legH: 0.78, legR: 0.036, coat, belly: pale, hoof: hoofM, deep: 1.12, neckLen: 0.42, neckTilt: 0.6, neckR: 0.1 }));
+      const hs = headShape({ len: 0.3, w: 0.075, h: 0.082, muzzleW: 0.034, muzzleH: 0.04, drop: 0.3, coat, noseM: dark }); hs.rotation.x = 0.45; this.head.add(hs);
+      for (const sx of [-1, 1]) { const e = part(new THREE.ConeGeometry(0.045, 0.16, 10).scale(1, 1, 0.35), coat, this.head, sx * 0.07, 0.07, -0.04); e.rotation.set(0.2, 0, -sx * 0.9); }
+      eyes(this.head, 0.055, 0.035, 0.05, 0.012);
+      if (male) for (const sx of [-1, 1]) {
+        // the stag's antlers: a long beam sweeping up and back, a brow tine forward and one more near the top
+        const b = [[0, 0, 0], [sx * 0.06, 0.18, -0.05], [sx * 0.12, 0.38, -0.12], [sx * 0.14, 0.58, -0.1]];
+        part(taperTube(b, 0.018, 0.008), mat('#d8c7a4', 0.6), this.head, sx * 0.04, 0.1, -0.02);
+        part(taperTube([[0, 0, 0], [sx * 0.02, 0.05, 0.09], [sx * 0.03, 0.08, 0.17]], 0.011, 0.005), mat('#d8c7a4', 0.6), this.head, sx * 0.05, 0.16, -0.03);
+        part(taperTube([[0, 0, 0], [sx * 0.05, 0.1, 0.03], [sx * 0.07, 0.17, 0.04]], 0.009, 0.004), mat('#d8c7a4', 0.6), this.head, sx * 0.15, 0.46, -0.13);
+      }
+      part(taperTube([[0, 0, 0], [0, -0.06, -0.03], [0, -0.14, -0.02]], 0.03, 0.018), coat, this.tail);
+    } else if (kind === 'zebra') {
+      const coat = furMat('#ffffff', { rough: 0.8, map: zebraCoat(), short: true });
+      Object.assign(this, quadruped({ L: 1.3, r: 0.4, legH: 0.88, legR: 0.055, coat, belly: coat, hoof: '#141414', solid: true, deep: 1.12, neckLen: 0.62, neckTilt: 0.78, neckR: 0.17 }));
+      const hs = headShape({ len: 0.56, w: 0.115, h: 0.13, muzzleW: 0.075, muzzleH: 0.08, drop: 0.3, coat, noseM: dark }); hs.rotation.x = 0.6; this.head.add(hs);
+      for (const sx of [-1, 1]) { const e = part(new THREE.ConeGeometry(0.05, 0.17, 10).scale(1, 1, 0.5), coat, this.head, sx * 0.07, 0.13, -0.08); e.rotation.z = -sx * 0.25; }
+      eyes(this.head, 0.09, 0.05, 0.06, 0.015);
+      // the stiff upright mane along the top of the neck, striped like the rest
+      const nt = 0.78, nl = 0.62;
+      part(taperTube([[0, 0.14, -0.06], [0, Math.cos(nt) * nl * 0.5 + 0.13, Math.sin(nt) * nl * 0.5 - 0.06], [0, Math.cos(nt) * nl + 0.12, Math.sin(nt) * nl - 0.1]], 0.05, 0.035).scale(0.35, 1, 1), coat, this.neck);
+      part(taperTube([[0, 0, 0], [0, -0.3, -0.06], [0, -0.55, -0.04]], 0.03, 0.02), coat, this.tail);
+      part(ellipsoid(0.04, 0.12, 0.04), dark, this.tail, 0, -0.62, -0.04);
+    } else {
+      const coat = furMat('#ffffff', { rough: 0.85, map: giraffeCoat(), short: true }), pale = mat('#ece0c2', 0.9);
+      Object.assign(this, quadruped({ L: 1.35, r: 0.42, legH: 1.75, legR: 0.058, coat, belly: pale, hoof: '#2a2018', solid: true, deep: 1.05, neckLen: 1.9, neckTilt: 0.36, neckR: 0.13 }));
+      const hs = headShape({ len: 0.52, w: 0.1, h: 0.11, muzzleW: 0.065, muzzleH: 0.07, drop: 0.18, coat, noseM: dark }); hs.rotation.x = 1.0; this.head.add(hs);
+      for (const sx of [-1, 1]) {
+        part(new THREE.CylinderGeometry(0.018, 0.024, 0.14, 8), coat, this.head, sx * 0.045, 0.13, -0.08); // the ossicones, with their dark tufted tops
+        part(new THREE.SphereGeometry(0.026, 8, 6), dark, this.head, sx * 0.045, 0.21, -0.08);
+        const e = part(new THREE.ConeGeometry(0.035, 0.15, 8).scale(1, 1, 0.5), coat, this.head, sx * 0.09, 0.08, -0.07); e.rotation.z = -sx * 1.3;
+      }
+      eyes(this.head, 0.075, 0.05, 0.04, 0.016);
+      part(taperTube([[0, 0.12, -0.04], [0, 0.95, 0.34], [0, 1.82, 0.62]], 0.035, 0.02).scale(0.4, 1, 1), mat('#6e4020', 0.9), this.neck); // the short dark mane
+      part(taperTube([[0, 0, 0], [0, -0.4, -0.05], [0, -0.85, -0.03]], 0.025, 0.012), coat, this.tail);
+      part(ellipsoid(0.045, 0.14, 0.045), dark, this.tail, 0, -0.93, -0.03);
+    }
+    consolidate(this.root);
+    this.root.scale.setScalar(scale);
+    this.legH = this.spec.legH;
+    this.p = { x: home.x + (R() - 0.5) * 16, z: home.z + (R() - 0.5) * 16 };
+    this.y = heightAt(this.p.x, this.p.z);
+    this.facing = R() * 6; this.speed = 0; this.phase = R() * 6; this.t = R() * 10;
+    this.state = 'graze'; this.timer = 3 + R() * 10; this.restB = 0; this.target = null; this.cool = 0;
+  }
+  update(dt, boy, ev) {
+    this.t += dt; this.timer -= dt; this.cool -= dt;
+    const S = this.spec, bx = boy.x - this.p.x, bz = boy.z - this.p.z, bd = Math.hypot(bx, bz);
+    let want = 0;
+    // they all keep an eye out: too close and the whole herd is off
+    const herdFled = this.leader && this.leader.state === 'flee';
+    if (this.state !== 'flee' && (bd < S.fleeAt || herdFled)) {
+      this.state = 'flee'; this.timer = 5 + this.R() * 2;
+      if (this.cool < 0 && this.kind !== 'giraffe') { ev.snort?.(bd); this.cool = 6; }
+    }
+    if (this.state === 'flee') {
+      const ax = this.p.x - boy.x, az = this.p.z - boy.z, ad = Math.hypot(ax, az) || 1;
+      this.target = { x: this.p.x + (ax / ad) * 12 + (this.home.x - this.p.x) * 0.15, z: this.p.z + (az / ad) * 12 + (this.home.z - this.p.z) * 0.15 };
+      want = S.flee;
+      if (this.timer < 0 && bd > S.fleeAt * 1.4) { this.state = 'graze'; this.timer = 5; }
+    } else if (this.state === 'graze') {
+      if (this.leader && this.leader.state === 'walk' && this.timer < 0) { this.state = 'walk'; const a = this.R() * 6.28; this.target = { x: this.leader.p.x + Math.cos(a) * 5, z: this.leader.p.z + Math.sin(a) * 5 }; this.timer = 25; }
+      else if (this.timer < 0) {
+        this.state = 'walk'; this.timer = 30;
+        const a = this.R() * 6.28, d = this.R() * this.home.r;
+        this.target = this.leader ? { x: this.leader.p.x + Math.cos(a) * 6, z: this.leader.p.z + Math.sin(a) * 6 } : { x: this.home.x + Math.cos(a) * d, z: this.home.z + Math.sin(a) * d };
+      }
+    } else if (this.state === 'walk') {
+      want = S.walk;
+      if (!this.target || Math.hypot(this.target.x - this.p.x, this.target.z - this.p.z) < 1.5 || this.timer < 0) { this.state = 'graze'; this.timer = 6 + this.R() * 16; }
+    }
+    if (Math.hypot(this.p.x - this.home.x, this.p.z - this.home.z) > this.home.r * 2 && this.state === 'graze') { this.state = 'walk'; this.target = { x: this.home.x, z: this.home.z }; this.timer = 40; }
+    this.speed += (want - this.speed) * damp(dt, this.state === 'flee' ? 3 : 2);
+    if (this.speed > 0.05 && this.target) {
+      const dx = this.target.x - this.p.x, dz = this.target.z - this.p.z, d = Math.hypot(dx, dz) || 1;
+      this.p.x += (dx / d) * this.speed * dt; this.p.z += (dz / d) * this.speed * dt;
+      resolveCollisions(this.p, S.rad * this.scale, undefined, true);
+      this.facing += wrap(Math.atan2(dx, dz) - this.facing) * damp(dt, 3);
+    }
+    animateCat(this, dt, 0, 0, this.legH);
+    if (this.kind === 'deer' && this.speed > 3) this.body.position.y += Math.abs(Math.sin(this.phase)) * 0.16; // the chital's bounding run
+    if (this.kind === 'giraffe') {
+      // the long neck sways as it walks; at rest it reaches up into the trees to browse
+      this.body.rotation.x -= 0.16;
+      this.neck.rotation.x = (this.state === 'graze' ? -0.12 + Math.sin(this.t * 0.4 + this.phase) * 0.1 : 0.05) + Math.sin(this.phase) * 0.05 * Math.min(1, this.speed);
+    } else {
+      const graze = this.state === 'graze' ? Math.max(0, Math.sin(this.t * 0.45 + this.phase)) : 0;
+      this.neck.rotation.x = graze * (this.kind === 'deer' ? 1.15 : 1.0) + (this.state === 'flee' ? -0.2 : 0.02);
+    }
+    this.tail.rotation.z = Math.sin(this.t * 2.1) * 0.3;
+  }
+}
+
+// ---------------- owls up in the big trees: heads turning, eyes catching the light at night ----------------
+class Owl {
+  constructor(perch, R) {
+    this.perch = perch; this.R = R;
+    const plume = furMat('#7a5c3e', { rough: 0.95 }), pale = mat('#d8c8a6', 0.95), dark = mat('#2a2018', 0.6);
+    this.eyeM = new THREE.MeshStandardMaterial({ color: '#f2b51c', emissive: '#f2a51c', emissiveIntensity: 0.05, roughness: 0.2 });
+    this.root = new THREE.Group();
+    part(ellipsoid(0.13, 0.19, 0.12, 14, 10), plume, this.root, 0, 0.18, 0);
+    part(ellipsoid(0.1, 0.14, 0.06, 12, 8), pale, this.root, 0, 0.15, 0.07); // the pale barred breast
+    for (const sx of [-1, 1]) { const w = part(ellipsoid(0.05, 0.15, 0.1, 10, 8), plume, this.root, sx * 0.11, 0.18, -0.01); w.rotation.z = sx * 0.12; }
+    part(taperTube([[0, 0, 0], [0, -0.06, -0.06], [0, -0.1, -0.09]], 0.05, 0.025), plume, this.root, 0, 0.04, -0.06);
+    for (const sx of [-1, 1]) part(new THREE.CylinderGeometry(0.012, 0.012, 0.05, 6), mat('#b8a070', 0.7), this.root, sx * 0.04, 0.0, 0.03);
+    this.head = new THREE.Group(); this.head.position.y = 0.36; this.root.add(this.head);
+    part(ellipsoid(0.12, 0.11, 0.11, 14, 10), plume, this.head);
+    part(new THREE.CircleGeometry(0.1, 20).scale(1.15, 0.85, 1), pale, this.head, 0, -0.005, 0.098); // the facial disc
+    for (const sx of [-1, 1]) {
+      part(new THREE.SphereGeometry(0.03, 12, 8), this.eyeM, this.head, sx * 0.045, 0.01, 0.095);
+      part(new THREE.SphereGeometry(0.016, 8, 6), dark, this.head, sx * 0.045, 0.01, 0.118);
+      const tuft = part(new THREE.ConeGeometry(0.025, 0.09, 6), plume, this.head, sx * 0.07, 0.1, 0); tuft.rotation.z = -sx * 0.35; // ear tufts
+    }
+    part(new THREE.ConeGeometry(0.016, 0.045, 6).rotateX(Math.PI / 2 + 0.6), mat('#3a3028', 0.4), this.head, 0, -0.03, 0.11);
+    this.blink = this.head.children.filter((c) => c.material === this.eyeM);
+    this.root.position.set(perch.x, perch.y, perch.z);
+    this.root.rotation.y = perch.face ?? R() * 6.28;
+    this.root.scale.setScalar(1.25);
+    this.p = { x: perch.x, z: perch.z };
+    this.t = R() * 10; this.look = 0; this.lookT = 0; this.hootT = 5 + R() * 20; this.blinkT = 2 + R() * 4;
+  }
+  update(dt, boy, ev, night) {
+    this.t += dt; this.lookT -= dt; this.hootT -= dt; this.blinkT -= dt;
+    // the head swivels round in jerks, sometimes right round over the shoulder; it turns to watch the boy if he's near
+    const bd = Math.hypot(boy.x - this.p.x, boy.z - this.p.z);
+    if (this.lookT < 0) { this.lookT = 1.5 + this.R() * 4; this.look = bd < 25 ? wrap(Math.atan2(boy.x - this.p.x, boy.z - this.p.z) - this.root.rotation.y) : (this.R() - 0.5) * 4.2; }
+    this.head.rotation.y += (this.look - this.head.rotation.y) * damp(dt, 9);
+    this.head.rotation.z = Math.sin(this.t * 0.7) * 0.08;
+    if (this.blinkT < 0) { this.blinkT = 2.5 + this.R() * 5; this._b = 0.15; }
+    this._b = Math.max(0, (this._b ?? 0) - dt);
+    for (const e of this.blink) e.scale.y = this._b > 0 ? 0.15 : 1;
+    this.eyeM.emissiveIntensity = night ? 0.9 : 0.05;
+    if (night && this.hootT < 0 && bd < 90) { this.hootT = 9 + this.R() * 18; ev.hoot?.(bd); }
+  }
+}
+
+// ---------------- birds over the jungle: a flock of parakeets wheeling round, and a pair of hornbills ----------------
+class JungleBirds {
+  constructor(home, R) {
+    this.home = home; this.R = R; this.root = new THREE.Group(); this.p = { x: home.x, z: home.z }; this.t = 0;
+    const green = new THREE.MeshStandardMaterial({ color: '#3fae3a', roughness: 0.6 }), red = new THREE.MeshStandardMaterial({ color: '#d8282a', roughness: 0.4 });
+    const black = new THREE.MeshStandardMaterial({ color: '#1a1a1c', roughness: 0.6 }), white = new THREE.MeshStandardMaterial({ color: '#ecebe4', roughness: 0.7 }), casque = new THREE.MeshStandardMaterial({ color: '#e8b21c', roughness: 0.4 });
+    const wingG = (w, l) => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, -l * 0.35, 0, 0, l * 0.5, w, 0.02, -l * 0.15, w, 0.02, -l * 0.15, 0, 0, l * 0.5, w * 0.8, 0.02, l * 0.25], 3)); g.computeVertexNormals(); return g; };
+    this.birds = [];
+    const make = (hornbill) => {
+      const g = new THREE.Group(), s = hornbill ? 2.4 : 1;
+      const bodyM = hornbill ? black : green;
+      g.add(new THREE.Mesh(new THREE.SphereGeometry(0.07 * s, 10, 8).scale(0.8, 0.8, 1.6), bodyM));
+      const tail = new THREE.Mesh(new THREE.ConeGeometry(0.03 * s, 0.32 * s, 6).rotateX(-Math.PI / 2).translate(0, 0, -0.24 * s), hornbill ? white : green); g.add(tail);
+      g.add(new THREE.Mesh(new THREE.SphereGeometry(0.05 * s, 8, 6), bodyM).translateZ(0.1 * s).translateY(0.02 * s));
+      const beak = new THREE.Mesh(new THREE.ConeGeometry(hornbill ? 0.03 * s : 0.02, hornbill ? 0.22 * s : 0.05, 6).rotateX(Math.PI / 2).translate(0, 0, hornbill ? 0.22 * s : 0.15), hornbill ? casque : red); g.add(beak);
+      const mat2 = new THREE.MeshStandardMaterial({ color: hornbill ? '#1a1a1c' : '#2e9a32', roughness: 0.7, side: THREE.DoubleSide });
+      const wl = new THREE.Mesh(wingG(0.22 * s, 0.2 * s), mat2), wr = new THREE.Mesh(wingG(0.22 * s, 0.2 * s), mat2); wr.scale.x = -1;
+      g.add(wl, wr);
+      g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+      this.root.add(g);
+      return { g, wl, wr, hornbill };
+    };
+    for (let i = 0; i < 14; i++) { const b = make(false); b.ph = R() * 6.28; b.off = { x: (R() - 0.5) * 6, y: (R() - 0.5) * 3, z: (R() - 0.5) * 6 }; this.birds.push(b); }
+    for (let i = 0; i < 2; i++) { const b = make(true); b.ph = i * 0.8; b.off = { x: i * 3, y: 0, z: i * 2 }; this.birds.push(b); }
+  }
+  update(dt, boy, ev) {
+    this.t += dt;
+    const t = this.t, H = this.home, gy = heightAt(H.x, H.z);
+    for (const b of this.birds) {
+      // the parakeets swing round in a wide figure of eight above the treetops; the hornbills glide slow loops
+      const k = b.hornbill ? 0.08 : 0.17, a = t * k + (b.hornbill ? 2 : 0);
+      const rx = b.hornbill ? 70 : 55, rz = b.hornbill ? 50 : 38;
+      const x = H.x + Math.sin(a) * rx + b.off.x + Math.sin(t * 1.3 + b.ph) * 0.8;
+      const z = H.z + Math.sin(a * 2) * rz + b.off.z + Math.cos(t * 1.1 + b.ph) * 0.8;
+      const y = gy + (b.hornbill ? 30 : 24) + b.off.y + Math.sin(t * 0.6 + b.ph) * 1.5;
+      const dxv = Math.cos(a) * rx * k, dzv = Math.cos(a * 2) * 2 * rz * k;
+      b.g.position.set(x, y, z);
+      b.g.rotation.set(0, Math.atan2(dxv, dzv), -Math.sin(a) * 0.3);
+      const flap = b.hornbill ? (Math.sin(t * 4 + b.ph) > 0.2 ? Math.sin(t * 9 + b.ph) * 0.7 : 0.1) : Math.sin(t * 22 + b.ph * 3) * 0.8;
+      b.wl.rotation.z = flap; b.wr.rotation.z = -flap;
+    }
+    // a screech from the flock now and then when the boy is about
+    const d = Math.hypot(boy.x - H.x, boy.z - H.z);
+    this.callT = (this.callT ?? 2) - dt;
+    if (this.callT < 0 && d < 140) { this.callT = 3 + this.R() * 6; ev.screech?.(d); }
+  }
+}
+
 export function buildWildlife(scene) {
   const R = rng(31337);
   const crocs = [[460, 1], [372, -1], [420, 1], [-340, -1], [-395, 1], [-450, -1]].map(([z, sd]) => [Math.sign(z) * warpR(Math.abs(z)), sd]).map(([z, side]) => new Crocodile(z, side, R));
@@ -774,24 +1009,48 @@ export function buildWildlife(scene) {
     monkeys.push(new Monkey({ ...J.monkeys }, R, i, t ? { x: t.x + 0.6, z: t.z + 0.3, y: heightAt(t.x, t.z) + 3.4 * t.s } : null));
   }
   const snakes = J.snakes.map((h, i) => new Snake({ ...h }, R, i === 0));
-  const all = [...crocs, tiger, ...leopards, ...wolves, ...elephants, ...lions, ...hyenas, ...buffalo, ...rhinos, ...monkeys, ...snakes];
+  // deeper in the jungle
+  const stag = new Herbivore({ ...J.deer }, R, 'deer', null, 1.08, true);
+  const deer = [stag, ...[0.95, 0.92, 1, 0.62].map((sc) => new Herbivore({ ...J.deer }, R, 'deer', stag, sc))];
+  const zLead = new Herbivore({ ...J.zebras }, R, 'zebra', null, 1.05);
+  const zebras = [zLead, ...[1, 0.97, 0.7, 1.02].map((sc) => new Herbivore({ ...J.zebras }, R, 'zebra', zLead, sc))];
+  const gLead = new Herbivore({ ...J.giraffes }, R, 'giraffe', null, 1.05);
+  const giraffes = [gLead, ...[0.95, 0.7].map((sc) => new Herbivore({ ...J.giraffes }, R, 'giraffe', gLead, sc))];
+  const jkLead = new Wolf({ ...J.jackals }, R, null, 0, 'jackal');
+  const jackals = [jkLead, new Wolf({ ...J.jackals }, R, jkLead, 1, 'jackal'), new Wolf({ ...J.jackals }, R, jkLead, 2, 'jackal')];
+  const jTiger = new Tiger({ ...J.tiger }, R);
+  const jMatriarch = new Elephant({ ...J.elephants }, R, 1.02, null, false);
+  const jElephants = [jMatriarch, new Elephant({ ...J.elephants }, R, 0.95, jMatriarch), new Elephant({ ...J.elephants }, R, 0.55, jMatriarch)];
+  const rhinos2 = [new Grazer({ ...J.rhinos2 }, R, 'rhino', null, 1.05), new Grazer({ ...J.rhinos2 }, R, 'rhino', null, 0.9)];
+  const nearTrees2 = layout.trees.filter((t) => Math.hypot(t.x - J.monkeys2.x, t.z - J.monkeys2.z) < 30).slice(0, 3);
+  for (let i = 0; i < 6; i++) { const t = i >= 3 ? nearTrees2[i - 3] : null; monkeys.push(new Monkey({ ...J.monkeys2 }, R, i + 10, t ? { x: t.x + 0.6, z: t.z + 0.3, y: heightAt(t.x, t.z) + 3.4 * t.s } : null)); }
+  for (const h of J.snakes2) snakes.push(new Snake({ ...h }, R, false));
+  // owls up in the giants nearest the middle of the jungle, on a limb high under the crown
+  const owls = layout.jungleGiants
+    .map((g) => ({ g, d: Math.hypot(g.x - J.birds.x, g.z - J.birds.z) })).sort((a, b) => a.d - b.d).filter((_, i) => i % 7 === 0).slice(0, 5)
+    .map(({ g }) => { const a = R() * 6.28, h = (g.h ?? 17 * g.s) * 0.8; return new Owl({ x: g.x + Math.cos(a) * 1.6, z: g.z + Math.sin(a) * 1.6, y: heightAt(g.x, g.z) + h, face: a }, R); });
+  const jBirds = new JungleBirds({ ...J.birds }, R);
+  const all = [...crocs, tiger, ...leopards, ...wolves, ...elephants, ...lions, ...hyenas, ...buffalo, ...rhinos, ...monkeys, ...snakes,
+    ...deer, ...zebras, ...giraffes, ...jackals, jTiger, ...jElephants, ...rhinos2, ...owls, jBirds];
   for (const a of all) scene.add(a.root);
   let night = false;
   return {
-    crocs, tiger, leopards, wolves, elephants, lions, hyenas, buffalo, rhinos, monkeys, snakes,
+    crocs, tiger, leopards, wolves, elephants, lions, hyenas, buffalo, rhinos, monkeys, snakes, deer, zebras, giraffes, jackals, owls, jBirds,
     setNight(v) { night = v; },
     update(dt, boy, ev) {
       for (const a of all) {
         const p = a.p ?? a;
         const far = Math.abs(p.x - boy.x) > 160 || Math.abs(p.z - boy.z) > 160;
         a.root.visible = !far;
-        if (far && a !== leader && a !== matriarch && a !== hyLead && a !== bull) continue;
+        if (far && a !== leader && a !== matriarch && a !== hyLead && a !== bull && a !== stag && a !== zLead && a !== gLead && a !== jkLead && a !== jMatriarch) continue;
         a.update(dt, boy, ev, night);
       }
     },
     colliders() {
       return [...leopards.map((l) => ({ kind: 'c', x: l.p.x, z: l.p.z, r: 0.35 })), ...elephants.map((e) => ({ kind: 'c', x: e.p.x, z: e.p.z, r: 1.3 * e.scale })), ...crocs.map((c) => ({ kind: 'c', x: c.x, z: c.z, r: 0.5 })), { kind: 'c', x: tiger.p.x, z: tiger.p.z, r: 0.5 }, ...wolves.map((w) => ({ kind: 'c', x: w.p.x, z: w.p.z, r: 0.3 })),
-        ...lions.map((l) => ({ kind: 'c', x: l.p.x, z: l.p.z, r: 0.5 })), ...[...buffalo, ...rhinos].map((g) => ({ kind: 'c', x: g.p.x, z: g.p.z, r: 0.8 * g.scale }))];
+        ...lions.map((l) => ({ kind: 'c', x: l.p.x, z: l.p.z, r: 0.5 })), ...[...buffalo, ...rhinos, ...rhinos2].map((g) => ({ kind: 'c', x: g.p.x, z: g.p.z, r: 0.8 * g.scale })),
+        ...jElephants.map((e) => ({ kind: 'c', x: e.p.x, z: e.p.z, r: 1.3 * e.scale })), { kind: 'c', x: jTiger.p.x, z: jTiger.p.z, r: 0.5 },
+        ...[...zebras, ...giraffes].map((g) => ({ kind: 'c', x: g.p.x, z: g.p.z, r: g.spec.rad * g.scale }))];
     },
     nearest(x, z) {
       let m = Infinity, kind = null;

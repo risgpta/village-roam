@@ -366,6 +366,22 @@ P.matchStrike = function () {
   fg.gain.setValueAtTime(0, t + 0.08); fg.gain.linearRampToValueAtTime(0.09, t + 0.13); fg.gain.exponentialRampToValueAtTime(0.002, t + 0.75);
   fl.connect(ff).connect(fg).connect(this.master);
 };
+// the fire tender's hose: the hiss of the spray over the low gush of water through the pump (0..1)
+P.setHose = function (level = 0) {
+  if (!this.ctx) return;
+  const t = this.ctx.currentTime;
+  if (!this._hoseG) {
+    if (level <= 0.01) return;
+    const s = this.ctx.createBufferSource(); s.buffer = this.white; s.loop = true; s.start(t, Math.random());
+    this._hoseG = this._g(0);
+    const hiss = this._bp(2600, 0.7), hg = this._g(0.55);
+    const gush = this._bp(380, 0.8, 'lowpass'), gg = this._g(1.1);
+    s.connect(hiss).connect(hg).connect(this._hoseG);
+    s.connect(gush).connect(gg).connect(this._hoseG);
+    this._hoseG.connect(this.master);
+  }
+  this._hoseG.gain.setTargetAtTime(Math.min(0.2, level * 0.2), t, level > 0.02 ? 0.08 : 0.15);
+};
 // a fire's voice: a low roar that grows with the blaze, and the snap and pop of burning straw and wood
 P.setFire = function (roar = 0, crackle = 0) {
   if (!this.ctx) return;
@@ -385,5 +401,68 @@ P.setFire = function (roar = 0, crackle = 0) {
     const v = Math.min(0.2, 0.05 + crackle * 0.06) * (0.4 + Math.random() * 0.6);
     g.gain.setValueAtTime(v, at); g.gain.exponentialRampToValueAtTime(0.0005, at + 0.02 + Math.random() * 0.04);
     n.connect(f).connect(g).connect(this.master);
+  }
+};
+
+// ---------- the jungle ----------
+// an owl's call: a soft low hoo… hoo-hoo, each note sliding down a little
+P.hoot = function (d = 20) {
+  if (!this.ctx) return;
+  const v = Math.max(0, 1 - d / 90) * 0.09;
+  if (v <= 0.002) return;
+  const t0 = this.ctx.currentTime + 0.02;
+  for (const [st, len] of [[0, 0.42], [0.75, 0.22], [1.05, 0.5]]) {
+    const o = this.ctx.createOscillator(), g = this._g(0), t = t0 + st;
+    o.type = 'sine'; o.frequency.setValueAtTime(410, t); o.frequency.exponentialRampToValueAtTime(355, t + len);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v, t + 0.06); g.gain.setValueAtTime(v, t + len - 0.1); g.gain.linearRampToValueAtTime(0, t + len);
+    o.connect(this._bp(900, 0.7, 'lowpass')).connect(g).connect(this.master); o.start(t); o.stop(t + len + 0.05);
+  }
+};
+// a parakeet flock going over: a scatter of sharp, scratchy shrieks
+P.screech = function (d = 40) {
+  if (!this.ctx) return;
+  const v = Math.max(0, 1 - d / 150) * 0.05;
+  if (v <= 0.002) return;
+  const t0 = this.ctx.currentTime + 0.02, n = 3 + Math.floor(Math.random() * 4);
+  for (let i = 0; i < n; i++) {
+    const t = t0 + i * (0.09 + Math.random() * 0.12), f = 2400 + Math.random() * 1400, len = 0.07 + Math.random() * 0.06;
+    const o = this.ctx.createOscillator(), g = this._g(0);
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(f * 1.15, t); o.frequency.exponentialRampToValueAtTime(f * 0.8, t + len);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0005, t + len);
+    o.connect(this._bp(f, 3)).connect(g).connect(this.master); o.start(t); o.stop(t + len + 0.02);
+  }
+};
+// the jungle all round (0..1, how deep in you are): cicadas shrilling in pulses, a lower bed of crickets,
+// and now and then a call from the trees — a koel, a bulbul's trill, a far-off whoop
+P.setJungle = function (level = 0, night = false) {
+  if (!this.ctx) return;
+  const t = this.ctx.currentTime;
+  if (!this._jg) {
+    if (level < 0.02) return;
+    const g = this._g(0); g.connect(this.master);
+    // cicadas: a high band of noise, chopped up by a fast tremolo, swelling and fading slowly
+    const cic = this.ctx.createBufferSource(); cic.buffer = this.white; cic.loop = true; cic.start(t, Math.random() * 3);
+    const cg = this._g(0.0); const trem = this.ctx.createOscillator(); trem.frequency.value = 34; trem.connect(this._g(0.5)).connect(cg.gain); trem.start();
+    const swell = this.ctx.createOscillator(); swell.frequency.value = 0.09; const sw = this._g(0.25); swell.connect(sw).connect(cg.gain); swell.start();
+    cg.gain.value = 0.5;
+    cic.connect(this._bp(5200, 6)).connect(cg).connect(g);
+    // crickets: lower, softer, steadier
+    const cr = this.ctx.createBufferSource(); cr.buffer = this.white; cr.loop = true; cr.start(t, Math.random() * 3);
+    const crg = this._g(0.35); const ct = this.ctx.createOscillator(); ct.frequency.value = 17; ct.connect(this._g(0.3)).connect(crg.gain); ct.start();
+    cr.connect(this._bp(3400, 10)).connect(crg).connect(g);
+    this._jg = g; this._jcall = 3;
+  }
+  this._jg.gain.setTargetAtTime(Math.min(0.06, level * (night ? 0.06 : 0.045)), t, 0.8);
+  // calls from the trees (this is called four times a second)
+  this._jcall -= 0.25;
+  if (level > 0.25 && this._jcall <= 0) {
+    this._jcall = 2.5 + Math.random() * 6;
+    const v = level * 0.05, k = Math.random(), at = t + 0.05;
+    const tone = (f0, f1, st, len, type = 'sine', vol = v) => { const o = this.ctx.createOscillator(), g = this._g(0); o.type = type; o.frequency.setValueAtTime(f0, at + st); o.frequency.exponentialRampToValueAtTime(f1, at + st + len); g.gain.setValueAtTime(0, at + st); g.gain.linearRampToValueAtTime(vol, at + st + 0.03); g.gain.exponentialRampToValueAtTime(0.0005, at + st + len); o.connect(g).connect(this.master); o.start(at + st); o.stop(at + st + len + 0.05); };
+    if (night) { if (k < 0.5) tone(620, 540, 0, 0.5, 'sine', v * 0.6); }
+    else if (k < 0.35) { tone(700, 1050, 0, 0.32); tone(760, 1150, 0.45, 0.38); } // the koel: ku-OO, ku-OO
+    else if (k < 0.65) { for (let i = 0; i < 5; i++) tone(1800 + Math.random() * 600, 2600 + Math.random() * 500, i * 0.09, 0.08); } // a bulbul's bubbling trill
+    else if (k < 0.85) { tone(300, 520, 0, 0.35, 'triangle', v * 0.8); tone(320, 560, 0.4, 0.3, 'triangle', v * 0.7); tone(340, 600, 0.75, 0.4, 'triangle', v * 0.6); } // a langur's whoop, far off
+    else { tone(1300, 900, 0, 0.5, 'triangle', v * 0.7); tone(1350, 950, 0.65, 0.5, 'triangle', v * 0.7); } // a peacock somewhere
   }
 };

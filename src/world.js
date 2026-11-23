@@ -420,6 +420,18 @@ export const JUNGLE_HOMES = {
   monkeys: { ...polar(-0.8, ringR(-0.8) + 165), r: 22 },
   snakes: [polar(-0.95, ringR(-0.95) + 175), polar(-0.7, ringR(-0.7) + 300), polar(-0.42, ringR(-0.42) + 200)].map((p) => ({ ...p, r: 9 })),
   rhinos: { ...polar(1.12, ringR(1.12) - 200), r: 45 },
+  // and deeper in: a herd of chital in a clearing, zebras and giraffes on its open edge, jackals, a tiger of its
+  // own, a family of elephants, rhinos in the wet ground, a second langur troop, more snakes, and the birds
+  deer: { ...polar(-0.88, ringR(-0.88) + 150), r: 45 },
+  zebras: { ...polar(-0.52, ringR(-0.52) + 150), r: 45 },
+  giraffes: { ...polar(-0.72, ringR(-0.72) + 125), r: 40 },
+  jackals: { ...polar(-0.57, ringR(-0.57) + 400), r: 55 },
+  tiger: { ...polar(-0.86, ringR(-0.86) + 430), r: 40, area: 80 },
+  elephants: { ...polar(-0.64, ringR(-0.64) + 190), r: 50 },
+  rhinos2: { ...polar(-1.04, ringR(-1.04) + 330), r: 40 },
+  monkeys2: { ...polar(-0.46, ringR(-0.46) + 270), r: 22 },
+  snakes2: [polar(-0.6, ringR(-0.6) + 140), polar(-1.0, ringR(-1.0) + 260)].map((p) => ({ ...p, r: 9 })),
+  birds: { ...polar(-0.74, ringR(-0.74) + 230) },
 };
 // tunnels: inside, the bore is about 8.8 m wide; the hill above is carved out a little wider and a strip of
 // hillside (the lid, see terrain.js) laid back over the top so it looks untouched from outside
@@ -1121,6 +1133,7 @@ export function squareCrossings(pts, k = 16) {
 
 export const layout = {
   houses: [], trees: [], palms: [], bushes: [], rocks: [], haystacks: [], cows: [],
+  jungleGiants: [], ferns: [], bigLeaf: [], // (the jungle's tall trees and its undergrowth)
   pots: [], charpais: [], tulsis: [], woodpiles: [], banyan: null, temple: null, well: null, cart: null,
   nv: NV, school: SCHOOL, garden: GARDEN, postOffice: null, hospital: null,
   ghat: GHAT, foot: FOOT, hilltop: HILLTOP, crossing: CROSSING,
@@ -2265,6 +2278,40 @@ export const layout = {
     }
     // keep the animals' own spots clear of trunks
     void nt;
+    // the giants: tall straight trunks on buttress roots, their crowns spread high above everything else; and
+    // underneath, ferns and big-leaved plants crowding every gap
+    let ng = 0, nf = 0, nl = 0, nb2 = 0;
+    const clearings = [JUNGLE_HOMES.deer, JUNGLE_HOMES.zebras, JUNGLE_HOMES.giraffes].map((h) => ({ x: h.x, z: h.z, r: h.r * 0.8 }));
+    const inClearing = (x, z) => clearings.some((c) => Math.hypot(x - c.x, z - c.z) < c.r);
+    for (let i = 0; i < 260000 && (ng < 650 || nf < 7000 || nl < 2800 || nb2 < 1800); i++) {
+      const th = J.th0 + R() * (J.th1 - J.th0), r = ringR(th) + J.gap + R() * (J.r1 - ringR(th) - J.gap);
+      const x = Math.cos(th) * r, z = Math.sin(th) * r;
+      const m = jungleMask(x, z);
+      if (R() > m || dipMask(x, z) > 0.2 || riverDist(x, z) < RIVER_HALF + 5) continue;
+      const open = inClearing(x, z), k = R();
+      if (k < 0.08 && ng < 650 && !open) {
+        if (!isFree(x, z, 3.2)) continue;
+        const s2 = 0.85 + R() * 0.45;
+        layout.jungleGiants.push({ x, z, s: s2, rot: R() * 6.28, v: Math.floor(R() * 3) });
+        occupy(x, z, 3);
+        colliders.push({ kind: 'c', x, z, r: 0.75 * s2 });
+        ng++;
+      } else if (k < 0.66 && nf < 7000) {
+        if (!isFree(x, z, 0.35)) continue;
+        layout.ferns.push({ x, z, s: (open ? 0.6 : 0.8) + R() * 0.7, rot: R() * 6.28, v: Math.floor(R() * 3) });
+        nf++;
+      } else if (k < 0.88 && nl < 2800 && !open) {
+        if (!isFree(x, z, 0.6)) continue;
+        layout.bigLeaf.push({ x, z, s: 0.8 + R() * 0.7, rot: R() * 6.28, v: Math.floor(R() * 3) });
+        occupy(x, z, 0.5);
+        nl++;
+      } else if (nb2 < 1800 && !open) {
+        if (!isFree(x, z, 0.9)) continue;
+        layout.bushes.push({ x, z, s: 0.9 + R() * 1.0, rot: R() * 6.28, v: Math.floor(R() * 3) });
+        occupy(x, z, 0.7);
+        nb2++;
+      }
+    }
   }
   buildDirtGrid();
 })();

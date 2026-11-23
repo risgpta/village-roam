@@ -6,6 +6,9 @@
     <title>Gaon — a village walk</title>
     <meta name="description" content="A peaceful Indian village you can explore in your browser: ride the trains, drive the village bus, play gully cricket with the kids, find hidden postcards. No download, no sign-up." />
     <meta name="theme-color" content="#1d1a16" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="./favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
     <link rel="canonical" href="https://risgpta.github.io/village-roam/" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Gaon" />
@@ -35,6 +38,20 @@
       }
       body:not(.ready) #overlay { background: #1d1a16; }
       body.started #overlay { opacity: 0; visibility: hidden; }
+      /* the loading bar: a dirt road filling with marigold, and a bullock cart trundling along at its edge */
+      #loadbar { position: relative; width: min(360px, 80vw); margin: 18px auto 0; transition: opacity .6s .5s; }
+      body.ready #loadbar { opacity: 0; }
+      .lb-road { height: 6px; border-radius: 99px; background: linear-gradient(180deg, rgba(120, 86, 54, 0.55), rgba(84, 60, 38, 0.55)); box-shadow: inset 0 1px 2px rgba(0,0,0,0.4); overflow: hidden; }
+      .lb-fill { height: 100%; width: 100%; border-radius: 99px; transform-origin: 0 50%; transform: scaleX(0.01); background: linear-gradient(90deg, #e08a2a, #f2b544 70%, #ffd77a); box-shadow: 0 0 10px rgba(242, 181, 68, 0.55); animation: lb-boot 2s cubic-bezier(.2,.7,.4,1) forwards; will-change: transform; }
+      .lb-rider { position: absolute; left: 0; right: 0; top: -21px; height: 18px; transform: translateX(1%); animation: lb-boot-r 2s cubic-bezier(.2,.7,.4,1) forwards; will-change: transform; pointer-events: none; }
+      .lb-rider svg { position: absolute; left: -26px; bottom: 0; width: 34px; height: 18px; animation: lb-bob .5s ease-in-out infinite alternate; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); }
+      .lb-wheel { transform-origin: 14px 21px; animation: lb-spin 1.1s linear infinite; }
+      .lb-meta { display: flex; justify-content: space-between; margin-top: 9px; font-size: 11.5px; letter-spacing: .04em; color: var(--muted); }
+      .lb-pct { font-variant-numeric: tabular-nums; color: #f2b544; }
+      @keyframes lb-boot { from { transform: scaleX(0.01); } to { transform: scaleX(0.105); } }
+      @keyframes lb-boot-r { from { transform: translateX(1%); } to { transform: translateX(10.5%); } }
+      @keyframes lb-bob { from { transform: translateY(0); } to { transform: translateY(-1.2px); } }
+      @keyframes lb-spin { to { transform: rotate(360deg); } }
       .card { text-align: center; max-width: 520px; padding: 0 20px; }
       .hi { font-family: 'Tiro Devanagari Hindi', serif; font-size: 64px; line-height: 1; color: var(--accent); }
       h1 { font-family: 'Cormorant Garamond', serif; font-weight: 500; font-size: 44px; margin: 6px 0 10px; letter-spacing: 0.04em; }
@@ -67,7 +84,8 @@
       #prompt { position: absolute; bottom: 64px; left: 50%; transform: translateX(-50%); font-size: 14px; padding: 7px 16px; border-radius: 999px; background: rgba(20, 16, 12, 0.45); backdrop-filter: blur(6px); color: var(--ink); opacity: 0; transition: opacity .4s; white-space: nowrap; }
       #prompt.show { opacity: 1; }
       #prompt { display: flex; gap: 8px; background: none; backdrop-filter: none; padding: 0; }
-      #prompt .chip { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; padding: 6px 12px 6px 6px; border-radius: 999px; background: rgba(18, 14, 10, 0.55); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.12); }
+      #prompt { bottom: 74px; flex-wrap: wrap; justify-content: center; max-width: min(760px, calc(100vw - 480px)); white-space: normal; row-gap: 6px; }
+      #prompt .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 4px 11px 4px 4px; white-space: nowrap; border-radius: 999px; background: rgba(18, 14, 10, 0.55); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.12); }
       #prompt kbd { background: rgba(255,255,255,0.92); color: #1d1a16; border: 0; border-radius: 6px; padding: 2px 7px; min-width: 22px; text-align: center; font-weight: 600; }
       #minimap { position: absolute; top: 16px; right: 16px; width: 196px; pointer-events: auto; border-radius: 16px; padding: 8px 8px 10px; background: rgba(18, 14, 10, 0.45); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.12); transition: width .3s; }
       #minimap .mm-head { display: flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); padding: 0 4px 6px; }
@@ -107,7 +125,7 @@
       .bm-tools button { background: rgba(255,255,255,0.1); border: 0; color: var(--ink); min-width: 28px; height: 28px; border-radius: 8px; cursor: pointer; font: 600 15px Inter, sans-serif; }
       .bm-tools button:hover, #bm-close:hover { background: rgba(255,255,255,0.2); }
       @media (max-width: 700px) { .bm-hint { display: none; } .bm-tools { margin-left: auto; } }
-      #ridehud { position: absolute; right: 18px; bottom: 60px; width: 190px; padding: 12px 16px 14px; border-radius: 16px; background: rgba(18, 14, 10, 0.5); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.12); opacity: 0; transform: translateY(8px); transition: opacity .35s, transform .35s; }
+      #ridehud { position: absolute; right: 18px; bottom: 66px; width: 200px; padding: 12px 16px 14px; border-radius: 20px; background: linear-gradient(165deg, rgba(34, 27, 20, 0.62), rgba(14, 11, 8, 0.56)); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.13); box-shadow: 0 10px 30px rgba(0,0,0,0.28); opacity: 0; transform: translateY(8px); transition: opacity .35s, transform .35s; }
       #ridehud.show { opacity: 1; transform: none; }
       #boathud { position: absolute; right: 18px; bottom: 60px; width: 230px; padding: 12px 16px 13px; border-radius: 16px; background: rgba(36, 26, 16, 0.55); backdrop-filter: blur(10px); border: 1px solid rgba(255, 228, 180, 0.18); color: var(--ink); opacity: 0; transform: translateY(8px); transition: opacity .35s, transform .35s; pointer-events: none; }
       #boathud.show { opacity: 1; transform: none; }
@@ -264,6 +282,9 @@
       #help .place p { margin: 3px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
       #help .tip { font-size: 12.5px; color: var(--muted); margin: 10px 0 0; line-height: 1.55; }
       @media (max-width: 600px) { #help .row { grid-template-columns: 1fr; gap: 2px; } }
+      .btns { transition: opacity .6s; }
+      body.driving .btns { opacity: 0.28; }
+      body.driving .btns:hover { opacity: 1; }
       .btns { gap: 6px; padding: 5px; border-radius: 999px; background: rgba(18, 14, 10, 0.4); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
       .btns label { display: flex; align-items: center; gap: 4px; padding-left: 8px; font-size: 13px; }
       .btns select, .btns button { background: rgba(255,255,255,0.08); border-color: transparent; }
@@ -281,6 +302,19 @@
       #rh-pax .px-next { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       #ridehud.bus { width: 230px; }
       .rh-speed { display: flex; align-items: center; }
+      /* the speedometer: an arc filling toward the vehicle's top speed, the speed big in the middle */
+      .rh-dial { position: relative; width: 150px; margin: 2px auto 4px; }
+      .rh-dial svg { display: block; width: 100%; height: auto; overflow: visible; }
+      .rh-track, #rh-arc { fill: none; stroke-width: 7; stroke-linecap: round; }
+      .rh-track { stroke: rgba(255,255,255,0.12); }
+      #rh-arc { stroke: url(#rh-grad); stroke-dasharray: 100 100; stroke-dashoffset: 100; transition: stroke-dashoffset .12s linear; filter: drop-shadow(0 0 4px rgba(242,181,68,0.35)); }
+      #rh-ticks line { stroke: rgba(255,255,255,0.35); stroke-width: 1.4; stroke-linecap: round; }
+      .rh-dial .rh-speed { position: absolute; left: 0; right: 0; top: 34%; flex-direction: column; margin: 0; line-height: 1; }
+      .rh-dial .rh-speed span { font: 600 38px/1 Inter, sans-serif; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+      .rh-dial .rh-speed small { margin: 4px 0 0; font-size: 11px; letter-spacing: .08em; }
+      .rh-old { position: absolute; top: 140px; left: 50%; transform: translateX(-50%); margin: 0; }
+      .rh-old #rh-wheel { width: 24px; height: 24px; margin: 0; }
+      #ridehud.boost #rh-arc { filter: drop-shadow(0 0 8px rgba(255,140,60,0.8)); }
       #rh-wheel { display: none; width: 34px; height: 34px; margin-left: auto; color: rgba(251,243,228,0.85); transition: transform .05s linear; }
       #ridehud.four #rh-wheel { display: block; }
       #toast { font-size: 28px; }
@@ -300,6 +334,11 @@
         <h1>Gaon</h1>
         <p>A quiet walk through an Indian village — wind in the neem trees, a river slipping past, a train far off in the hills, nowhere to be.</p>
         <button id="start" disabled>Preparing the village…</button>
+        <div id="loadbar" aria-hidden="true">
+          <div class="lb-road"><div class="lb-fill"></div></div>
+          <div class="lb-rider"><svg viewBox="0 0 56 30"><g fill="#f7ead2" stroke="#f7ead2" stroke-linecap="round"><g class="lb-wheel"><circle cx="14" cy="21" r="7.5" fill="none" stroke-width="2"/><path d="M14 13.5V28.5M6.5 21H21.5M8.7 15.7L19.3 26.3M19.3 15.7L8.7 26.3" stroke-width="1.1"/></g><rect x="3" y="10" width="23" height="4" rx="1.2" stroke="none"/><path d="M4 10V6M25 10V6" stroke-width="1.6"/><path d="M26 13.5L37 15" stroke-width="1.6" fill="none"/><ellipse cx="43.5" cy="15.5" rx="8" ry="5" stroke="none"/><circle cx="39.5" cy="10.8" r="2.6" stroke="none"/><ellipse cx="51.5" cy="13.5" rx="3.2" ry="2.4" stroke="none"/><path d="M50.5 11.5C50 9 51 8 52.5 8.2M52.6 11.4C53.5 9.3 55 9 55.6 9.8" stroke-width="1.1" fill="none"/><path d="M38 19.5V27M41 20V27M46.5 20V27M49.5 19.5V27" stroke-width="1.8"/></g></svg></div>
+          <div class="lb-meta"><span class="lb-step">The village is waking…</span><span class="lb-pct">0%</span></div>
+        </div>
         <div class="keys">
           <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk &nbsp;·&nbsp; mouse to look &nbsp;·&nbsp; <kbd>E</kbd> ride, or do the small thing at hand &nbsp;·&nbsp; <kbd>Q</kbd> sit a while<br />
           <kbd>Tab</kbd> map &nbsp;·&nbsp; <kbd>T</kbd> time of day &nbsp;·&nbsp; <kbd>J</kbd> weather &nbsp;·&nbsp; <kbd>Y</kbd> season &nbsp;·&nbsp; <kbd>H</kbd> everything else
@@ -353,7 +392,9 @@
       </div>
       <div id="ridehud">
         <div class="rh-top" style="display:flex;align-items:center"><span id="rh-name">Bicycle</span><span class="rh-gear" id="rh-gears"><b id="g-r" class="r">R</b><b id="g-n">N</b><b id="g-d">D</b></span></div>
-        <div class="rh-speed"><span id="rh-speed">0</span><small>km/h</small><svg id="rh-wheel" viewBox="-12 -12 24 24" aria-hidden="true"><circle r="10" fill="none" stroke="currentColor" stroke-width="2.4"/><circle r="2.6" fill="currentColor"/><path d="M-9.6 1.5 L-2.4 0.6 M9.6 1.5 L2.4 0.6 M0 2.6 L0 9.8" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="0" cy="-10" r="1.4" fill="#f2b544"/></svg></div>
+        <div class="rh-dial"><svg viewBox="0 0 120 104" aria-hidden="true"><defs><linearGradient id="rh-grad" x1="0" x2="1"><stop offset="0" stop-color="#8fd3a0"/><stop offset=".6" stop-color="#f2b544"/><stop offset="1" stop-color="#ff6a3d"/></linearGradient></defs><path class="rh-track" pathLength="100" d="M 22.6 91.4 A 46 46 0 1 1 97.4 91.4"/><path id="rh-arc" pathLength="100" d="M 22.6 91.4 A 46 46 0 1 1 97.4 91.4"/><g id="rh-ticks"></g></svg>
+          <div class="rh-speed"><span id="rh-speed">0</span><small>km/h</small></div></div>
+        <div class="rh-speed rh-old"><svg id="rh-wheel" viewBox="-12 -12 24 24" aria-hidden="true"><circle r="10" fill="none" stroke="currentColor" stroke-width="2.4"/><circle r="2.6" fill="currentColor"/><path d="M-9.6 1.5 L-2.4 0.6 M9.6 1.5 L2.4 0.6 M0 2.6 L0 9.8" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="0" cy="-10" r="1.4" fill="#f2b544"/></svg></div>
         <div class="rh-nitro"><span class="rh-label" id="rh-label">NITRO</span><div class="rh-bar"><div id="rh-nitro"></div></div><kbd id="rh-key">N</kbd></div>
         <div class="rh-row" id="rh-pax"><div class="px-top"><span id="px-count">🧍 0 / 10 aboard</span><span id="px-fare">₹0</span></div><div class="px-next" id="px-next">Stop at a 🚏 bus stop to pick people up</div></div>
       </div>

@@ -241,13 +241,82 @@ function bush(R, lod = 1) {
   return leaves.length ? mergeGeometries([cards, ...leaves]) : cards;
 }
 
+// ---------------- the jungle ----------------
+const JGREENS = ['#2c5a20', '#356526', '#2a4e1d', '#3f6e2a', '#47782e', '#30602a'];
+// a jungle giant: a tall straight trunk on buttress roots, a few great limbs near the top, a broad flat-topped
+// crown high above everything, and lianas hanging down from it
+function jungleGiant(R, lod = 1) {
+  const trunk = [], lumps = [];
+  const h = 14 + R() * 7, r0 = 0.55 + R() * 0.2;
+  trunk.push(paint(new THREE.CylinderGeometry(r0 * 0.55, r0, h, lod ? 10 : 5).translate(0, h / 2, 0), '#6b5a46', R, 0.6));
+  // buttresses: thin flaring fins of root running out from the foot of the trunk
+  // (the light version draws the same random numbers and skips some of the parts, so near and far match)
+  const nbt = 5;
+  for (let i = 0; i < nbt; i++) {
+    const a = (i / nbt) * Math.PI * 2 + R() * 0.5, len = 1.4 + R() * 0.8, ht = 1.6 + R() * 1.2;
+    // a fin: flat along the ground, curving up to meet the trunk
+    const sh = new THREE.Shape();
+    sh.moveTo(r0 * 0.6, 0); sh.lineTo(len, 0); sh.quadraticCurveTo(r0 * 0.9, ht * 0.12, r0 * 0.6, ht); sh.closePath();
+    const fin = paint(new THREE.ExtrudeGeometry(sh, { depth: 0.11, bevelEnabled: false, curveSegments: lod ? 6 : 2 }).translate(0, 0, -0.055).rotateY(a), '#5e4e3c', R, 0.5);
+    if (lod || i < 3) trunk.push(fin);
+  }
+  // the great limbs, and the crown spread out wide and flat on top of them
+  const nl = 4 + Math.floor(R() * 3);
+  for (let i = 0; i < nl; i++) {
+    const a = (i / nl) * Math.PI * 2 + R() * 0.6, len = 3 + R() * 2.5, tilt = 0.9 + R() * 0.35, by = h * (0.82 + R() * 0.12);
+    trunk.push(paint(new THREE.CylinderGeometry(0.1, 0.24, len, lod ? 6 : 3).translate(0, len / 2, 0).rotateZ(-tilt).rotateY(a).translate(0, by, 0), '#665643', R, 0.6));
+    const ex = Math.sin(tilt) * len, ey = Math.cos(tilt) * len, end = new V3(ex * Math.cos(a), by + ey, -ex * Math.sin(a));
+    for (let k = 0; k < 3; k++) lumps.push({ r: 1.5 + R() * 1.1, sy: 0.5, c: new V3(end.x + (R() - 0.5) * 2.2, end.y + R() * 0.8, end.z + (R() - 0.5) * 2.2), color: JGREENS[Math.floor(R() * JGREENS.length)] });
+    // lianas: long thin vines hanging from the limb
+    for (let v = 0; v < 2; v++) {
+      const vl = 5 + R() * 7, f = 0.4 + R() * 0.55, vx = ex * f * Math.cos(a), vz = -ex * f * Math.sin(a), vy = by + ey * f;
+      const vine = paint(new THREE.CylinderGeometry(0.025, 0.035, vl, 4).translate(0, -vl / 2, 0).rotateZ((R() - 0.5) * 0.12).translate(vx, vy, vz), '#4a4a2a', R, 0.4);
+      if (lod) trunk.push(vine);
+    }
+  }
+  for (let k = 0; k < 3; k++) lumps.push({ r: 2.2 + R() * 0.8, sy: 0.48, c: new V3((R() - 0.5) * 2.5, h + 1.0 + R() * 1.0, (R() - 0.5) * 2.5), color: JGREENS[Math.floor(R() * JGREENS.length)] });
+  return { trunk: mergeGeometries(trunk.map((g) => (g.index ? g.toNonIndexed() : g))), leaves: shadeCanopy(leafCards(lumps, lod ? { per: 16, size: 1.05, seed: 11 } : { per: 6, size: 1.45, seed: 11 })), h };
+}
+// a fern: a rosette of arching fronds, each a long tapering leaf cut into little leaflets
+function fern(R, lod = 1) {
+  const fronds = [];
+  const n = 9 + Math.floor(R() * 5);
+  for (let f = 0; f < n; f++) {
+    const a = (f / n) * Math.PI * 2 + R() * 0.4, e0 = 0.75 + R() * 0.5, L = 0.7 + R() * 0.6;
+    const g = frond(a, e0, L, lod ? 8 : 3);
+    // narrower than a palm frond, and saw-edged: a fern
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) p.setY(i, p.getY(i) * 0.9);
+    const fg = paint(g, ['#4f8a2e', '#5c9a34', '#447a28', '#6aa23c'][f % 4], R);
+    if (lod || f % 2 === 0) fronds.push(fg); // (far away, every other frond)
+  }
+  return mergeGeometries(fronds);
+}
+// a big-leaved plant (elephant ear / wild banana): a few broad leaves held out on long stalks
+function bigLeaf(R, lod = 1) {
+  const parts = [];
+  const n = 4 + Math.floor(R() * 3);
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + R() * 0.5, stalk = 0.6 + R() * 0.7, lean = 0.35 + R() * 0.4;
+    parts.push(paint(new THREE.CylinderGeometry(0.018, 0.028, stalk, lod ? 5 : 3).translate(0, stalk / 2, 0).rotateZ(-lean).rotateY(a), '#4f7a2a', R));
+    const tip = new V3(Math.sin(lean) * stalk * Math.cos(a), Math.cos(lean) * stalk, -Math.sin(lean) * stalk * Math.sin(a));
+    // the blade: a long heart-shaped leaf, cupped a little, drooping out from the stalk
+    const blade = new THREE.CircleGeometry(0.5, lod ? 14 : 6).scale(0.55, 1, 1).translate(0, 0.45, 0);
+    const bp = blade.attributes.position;
+    for (let k = 0; k < bp.count; k++) { const x = bp.getX(k), y = bp.getY(k); bp.setZ(k, -Math.abs(x) * 0.35 + y * y * 0.12); }
+    blade.computeVertexNormals();
+    parts.push(paint(blade.rotateX(-Math.PI / 2 + 0.5).rotateY(-a + Math.PI / 2).translate(tip.x, tip.y, tip.z), ['#2f6a24', '#3a7a2a', '#2a5e20'][i % 3], R));
+  }
+  return mergeGeometries(parts.map((g) => (g.index ? g.toNonIndexed() : g)));
+}
+
 const dummy = new THREE.Object3D();
 // All the trees of one material go into a single BatchedMesh: one draw for the whole forest, each tree culled
 // on its own against the view (and the sun's shadow box), and each switching between its full and its light
 // version by distance. sets: [{ near, far, items, sink }] — one per variant of the tree.
 const NEAR = 240;
 const batches = [];
-function batched(mat, sets, { cast = true } = {}) {
+function batched(mat, sets, { cast = true, maxD = Infinity } = {}) {
   let verts = 0, count = 0;
   const geos = [];
   for (const st of sets) for (const g of [st.near, st.far]) { verts += g.attributes.position.count; geos.push(g); }
@@ -272,7 +341,7 @@ function batched(mat, sets, { cast = true } = {}) {
       ids.push(id); items.push({ x: it.x, z: it.z, nearId, farId, lod: 0, on: true });
     }
   }
-  batches.push({ m, ids, items, cursor: 0 });
+  batches.push({ m, ids, items, cursor: 0, maxD2: maxD * maxD });
   return m;
 }
 // a slice of every forest each frame: which trees draw in full, which in the light version, which not at all
@@ -280,11 +349,11 @@ function batched(mat, sets, { cast = true } = {}) {
 export function updateVegetation(camPos, fogDensity) {
   const maxD2 = (2.4 / Math.max(fogDensity, 0.0012)) ** 2, near2 = NEAR * NEAR;
   for (const B of batches) {
-    const n = B.items.length, per = Math.min(n, 6000);
+    const n = B.items.length, per = Math.min(n, 6000), lim = Math.min(maxD2, B.maxD2);
     for (let k = 0; k < per; k++) {
       const i = B.cursor; B.cursor = (B.cursor + 1) % n;
       const it = B.items[i], dx = it.x - camPos.x, dz = it.z - camPos.z, d2 = dx * dx + dz * dz;
-      const on = d2 < maxD2, lod = d2 < near2 ? 1 : 0;
+      const on = d2 < lim, lod = d2 < near2 ? 1 : 0;
       if (on !== it.on) { it.on = on; B.m.setVisibleAt(B.ids[i], on); }
       if (on && lod !== it.lod) { it.lod = lod; B.m.setGeometryIdAt(B.ids[i], lod ? it.nearId : it.farId); }
     }
@@ -336,6 +405,24 @@ export function buildVegetation() {
   group.add(batched(palmTrunkMat, T.map((o) => ({ near: o.p.trunk, far: o.pf.trunk, items: of(layout.palms, o.v), sink: 0.15 }))));
   group.add(batched(palmLeafMat, T.map((o) => ({ near: o.p.leaves, far: o.pf.leaves, items: of(layout.palms, o.v), sink: 0.15 }))));
   group.add(batched(bushMat, T.map((o) => ({ near: o.b, far: o.bf, items: of(layout.bushes, o.v), sink: 0.1 })), { cast: false }));
+  // the jungle: its giants (in one batch for the wood, one for the leaves), the ferns and the big-leaved plants
+  if (layout.jungleGiants.length) {
+    const JG = [0, 1, 2].map((v) => ({ v, near: jungleGiant(rng(830 + v)), far: jungleGiant(rng(830 + v), 0) }));
+    const gTrunk = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }), { height: 20, amp: 0.25, flutter: 0 });
+    const gLeaf = leafMaterial({ height: 20, amp: 0.25, flutter: 0.05, backlight: 0.45 });
+    glowMats.push(gLeaf); leafMats.push(gLeaf);
+    group.add(batched(gTrunk, JG.map((o) => ({ near: o.near.trunk, far: o.far.trunk, items: of(layout.jungleGiants, o.v), sink: 0.3 }))));
+    const gl = batched(gLeaf, JG.map((o) => ({ near: o.near.leaves, far: o.far.leaves, items: of(layout.jungleGiants, o.v), sink: 0.3 })));
+    leafMeshes.push(gl); group.add(gl);
+    // (each giant's height, for whatever perches up there)
+    for (const it of layout.jungleGiants) it.h = JG[it.v].near.h * it.s;
+  }
+  if (layout.ferns.length) {
+    const fMat = applyFoliageWind(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, emissive: '#1c3014' }), { height: 1.2, amp: 0.12, flutter: 0.08, backlight: 0.5 });
+    glowMats.push(fMat);
+    group.add(batched(fMat, [0, 1, 2].map((v) => ({ near: fern(rng(850 + v)), far: fern(rng(850 + v), 0), items: of(layout.ferns, v), sink: 0.05 })), { cast: false, maxD: 150 }));
+    group.add(batched(fMat, [0, 1, 2].map((v) => ({ near: bigLeaf(rng(860 + v)), far: bigLeaf(rng(860 + v), 0), items: of(layout.bigLeaf, v), sink: 0.05 })), { cast: false, maxD: 190 }));
+  }
 
   // rocks
   const rockGeo = new THREE.DodecahedronGeometry(1, 0);

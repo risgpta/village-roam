@@ -706,6 +706,10 @@ export function buildMela(scene, site, hooks = {}) {
   // ---------------- state & update ----------------
   let mode = 'day', clock = 0, callT = 4, screamT = 0, chaseT = 0, chase = 0, popT = 3;
   let wheelA = 0, wheelV = 0.2, caroA = 0, caroV = 0.55, boatT = 0, boatAmp = 0, swingT = 0;
+  // the boy on a ride: the wheel stops a few seconds for him to climb in (and to let him out)
+  let wheelHold = 0, boyGondola = null, boyStartA = 0, wheelSeek = null;
+  const wheelGate = W(FW.x + 2.4, FW.z + 1.2), boatGate = W(BS.x + 2.9, BS.z);
+  const bottomness = (gd) => { const a = (((gd.a + wheelA) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2); return Math.abs(a - Math.PI * 1.5); };
   const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _e = new THREE.Euler(), _m = new THREE.Matrix4(), _c = new THREE.Color(), _v = new THREE.Vector3();
   const walk = (p, st, tx, tz, v, dt) => {
     const dx = tx - st.x, dz = tz - st.z, d = Math.hypot(dx, dz);
@@ -721,6 +725,38 @@ export function buildMela(scene, site, hooks = {}) {
     group: G,
     people,
     get wheel() { return wheel; },
+    // the big rides the boy can go on: which gate he's standing at, climbing aboard, and how the ride is going
+    rideAt(x, z) {
+      if (Math.hypot(x - wheelGate.x, z - wheelGate.z) < 4.2) return 'wheel';
+      if (Math.hypot(x - boatGate.x, z - boatGate.z) < 4.6) return 'boat';
+      return null;
+    },
+    board(kind) {
+      if (kind === 'wheel') {
+        // the empty gondola nearest the ground; the wheel stops while he gets in
+        const free = gondolas.filter((g) => !g.riders.length).sort((a, b) => bottomness(a) - bottomness(b))[0];
+        if (!free) return null;
+        boyGondola = free; boyStartA = wheelA; wheelHold = 4;
+        // (the wheel eases round the last bit so that gondola is at the bottom, then holds)
+        let off = Math.PI * 1.5 - (((free.a + wheelA) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+        off = Math.atan2(Math.sin(off), Math.cos(off));
+        wheelSeek = wheelA + off; boyStartA = wheelSeek;
+        return { anchor: free.cab, pos: new THREE.Vector3(-0.2, 0.41, 0), face: Math.PI / 2, exit: W(FW.x + 2.6, FW.z + 1.6) };
+      }
+      if (kind === 'boat') return { anchor: boat.hull, pos: new THREE.Vector3(0, 0.49, 0.9), face: Math.PI, exit: W(BS.x + 3.0, BS.z + 0.6) };
+      return null;
+    },
+    rideState(kind) {
+      if (kind === 'wheel') return { laps: (wheelA - boyStartA) / (Math.PI * 2), bottom: boyGondola ? bottomness(boyGondola) < 0.22 : true, height: boyGondola ? boyGondola.g.position.y : 0 };
+      return { amp: boatAmp, swing: Math.abs(boat.rotation.x) };
+    },
+    // let the wheel stop with his gondola at the bottom (true once it has), or carry on
+    wheelStopForBoy(on) {
+      if (!on) { boyGondola = null; wheelHold = 2.5; return true; }
+      if (!boyGondola) return true;
+      if (bottomness(boyGondola) < 0.05) { wheelHold = Math.max(wheelHold, 0.3); return true; }
+      return false;
+    },
     distTo(x, z) { return Math.max(0, Math.hypot(x - site.x, z - site.z) - 18); },
     setWeather(w) {
       mode = w.night ? 'night' : w.rain ? 'rain' : 'day';
@@ -737,8 +773,9 @@ export function buildMela(scene, site, hooks = {}) {
       flagUni.uTime.value = clock;
       const rain = mode === 'rain', night = mode === 'night';
       // ----- rides (they keep turning even from a distance: the giant wheel is a landmark)
-      wheelV += ((rain ? 0 : 0.2) - wheelV) * damp(dt, 0.4);
-      wheelA += wheelV * dt;
+      wheelHold = Math.max(0, wheelHold - dt);
+      if (wheelSeek !== null) { wheelA += (wheelSeek - wheelA) * damp(dt, 2.5); wheelV = 0; if (Math.abs(wheelSeek - wheelA) < 0.002) wheelSeek = null; }
+      else { wheelV += ((rain || wheelHold > 0 ? 0 : 0.2) - wheelV) * damp(dt, wheelHold > 0 ? 3 : 0.4); wheelA += wheelV * dt; }
       wheel.rotation.x = wheelA;
       for (const gd of gondolas) {
         const a = gd.a + wheelA;

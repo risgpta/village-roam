@@ -7,6 +7,7 @@ import { DATA_HALF } from './world.js';
 
 const TILE = 80;
 const COUNT = 300000;
+export const PRESS = 8;
 
 function bladeGeometry() {
   const rows = [0, 0.3, 0.55, 0.8];
@@ -63,6 +64,10 @@ export function buildGrass(dataTex) {
     uCropOn: { value: 1 },
     uFlowers: { value: 0.025 },
     uStubble: { value: new THREE.Color('#b89a5a') },
+    // up to eight vehicles pressing the grass flat under and round them: (x, z, cos, sin) and (half width,
+    // half length) of each, in the same frame as the colliders' boxes; unused ones far away
+    uPressA: { value: Array.from({ length: PRESS }, () => new THREE.Vector4(1e6, 1e6, 1, 0)) },
+    uPressB: { value: Array.from({ length: PRESS }, () => new THREE.Vector2(0, 0)) },
   };
 
   const mat = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
@@ -79,6 +84,7 @@ export function buildGrass(dataTex) {
         uniform vec2 uCenter; uniform float uTile; uniform sampler2D uData; uniform float uDataHalf;
         uniform vec3 uBase, uTip, uDry, uMustard, uCrop, uStubble;
         uniform float uCropOn, uFlowers;
+        uniform vec4 uPressA[${PRESS}]; uniform vec2 uPressB[${PRESS}];
         varying vec3 vGrassCol;`
       )
       .replace(
@@ -105,6 +111,15 @@ export function buildGrass(dataTex) {
         hgt *= 1.0 - (1.0 - uCropOn) * 0.78 * (isMustard + isCrop);
         float wid = 1.0 + isMustard * 0.7 + isCrop * 0.2;
         hgt *= keep * gfade;
+        // flattened under a vehicle and for a hand's width round it (so its tyres stand clear of the grass)
+        float press = 1.0;
+        for (int i = 0; i < ${PRESS}; i++) {
+          vec2 dq = gp - uPressA[i].xy;
+          vec2 lq = vec2(dq.x * uPressA[i].z - dq.y * uPressA[i].w, dq.x * uPressA[i].w + dq.y * uPressA[i].z);
+          vec2 out2 = max(abs(lq) - uPressB[i], 0.0);
+          press = min(press, smoothstep(0.05, 0.55, length(out2)));
+        }
+        hgt *= mix(0.16, 1.0, press);
         vec3 lp = position;
         lp.x *= wid; lp.y *= hgt; lp.z *= hgt;
         float ca = cos(aOffset.z), sa = sin(aOffset.z);
@@ -134,12 +149,19 @@ export function buildGrass(dataTex) {
       )
       .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n' + backlightGLSL(0.4));
   };
-  mat.customProgramCacheKey = () => 'grass2';
+  mat.customProgramCacheKey = () => 'grass3';
 
   const mesh = new THREE.Mesh(geo, mat);
   mesh.frustumCulled = false;
   mesh.receiveShadow = true;
   mesh.userData.setCenter = (x, z) => uniforms.uCenter.value.set(x, z);
   mesh.userData.uniforms = uniforms;
+  // boxes: [{ x, z, rot, hw, hd }] (nearest first; the rest are cleared)
+  mesh.userData.setPress = (boxes) => {
+    for (let i = 0; i < PRESS; i++) {
+      const b = boxes[i], A = uniforms.uPressA.value[i], B = uniforms.uPressB.value[i];
+      if (b) { A.set(b.x, b.z, Math.cos(b.rot), Math.sin(b.rot)); B.set(b.hw, b.hd); } else A.set(1e6, 1e6, 1, 0);
+    }
+  };
   return mesh;
 }
