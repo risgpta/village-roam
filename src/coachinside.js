@@ -107,9 +107,11 @@ export function buildCoachInside() {
   }
   // nothing in here throws a shadow or sits in one: it's lit evenly, like a coach with its windows open
   g.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
-  const lamp = new THREE.PointLight('#fff1d6', 2.2, 9, 1.6);
+  // the lamp is handed back, not put in here: the game keeps it in the scene all the time (dark when nobody's
+  // aboard), because a light coming or going makes every material rebuild its shader
+  const lamp = new THREE.PointLight('#fff1d6', 0, 9, 1.6);
   lamp.position.set(0, CEIL - 0.3, 0);
-  g.add(lamp);
+  lamp.userData.on = 2.2;
 
   // ---- fellow passengers on the benches
   const folk = [];
@@ -128,7 +130,7 @@ export function buildCoachInside() {
   });
 
   return {
-    group: g, fans, folk, seats,
+    group: g, fans, folk, seats, lamp,
     // put the passengers on seats, leaving the bay the boy sits in for him (and maybe one across from him)
     seat(boyZ, boySx) {
       const free = seats.filter((s) => !(s.sx === boySx && Math.abs(s.zw - boyZ) < 0.1 && s.x * boySx > WALL_X - 0.4));

@@ -938,9 +938,13 @@ export function groundHeight(x, z, fromY) {
   let h = heightAt(x, z);
   { const td = trackDist(x, z); if (td < 2.4) h = Math.max(h, TRACK_Y + 0.37 - Math.max(0, td - 1.5) * 0.5); }
   { const st = stairAt(x, z); if (st && st.d < STAIRS.W) h = Math.max(h, stepTop(st.s)); }
-  for (const s of surfaces) {
+  // only the surfaces filed in this spot's cell (everyone on foot asks this every frame)
+  if (surfIndexed !== surfaces.length) indexSurfaces();
+  const cell = surfGrid.get(colKey(Math.floor(x / SURF_CELL), Math.floor(z / SURF_CELL)));
+  if (cell) for (let i = 0; i < cell.length; i++) {
+    const s = cell[i];
     if (s.kind === 'arch') {
-      const [lx, lz] = toLocal(x, z, s);
+      const dx = x - s.x, dz = z - s.z, c = Math.cos(s.rot), sn = Math.sin(s.rot), lx = dx * c - dz * sn, lz = dx * sn + dz * c;
       if (Math.abs(lx) < s.hw && Math.abs(lz) < s.hd) {
         const top = archTop(s.B, lx);
         // in the water (swimming / rowing underneath) the deck doesn't count
@@ -954,11 +958,28 @@ export function groundHeight(x, z, fromY) {
       const dx = x - s.x, dz = z - s.z;
       if (dx * dx + dz * dz < s.r * s.r) h = Math.max(h, s.top);
     } else {
-      const [lx, lz] = toLocal(x, z, s);
-      if (Math.abs(lx) < s.hw && Math.abs(lz) < s.hd) h = Math.max(h, s.top);
+      const dx = x - s.x, dz = z - s.z, c = Math.cos(s.rot), sn = Math.sin(s.rot);
+      if (Math.abs(dx * c - dz * sn) < s.hw && Math.abs(dx * sn + dz * c) < s.hd) h = Math.max(h, s.top);
     }
   }
   return h;
+}
+// The walkable surfaces filed in a grid of 8 m cells, like the colliders below (they never move; new ones are
+// filed the next time anyone asks, and the grid is rebuilt if the list ever shrinks)
+const SURF_CELL = 8, surfGrid = new Map();
+let surfIndexed = 0;
+function indexSurfaces() {
+  if (surfaces.length < surfIndexed) { surfGrid.clear(); surfIndexed = 0; }
+  for (; surfIndexed < surfaces.length; surfIndexed++) {
+    const o = surfaces[surfIndexed], r = o.kind === 'c' ? o.r : Math.hypot(o.hw, o.hd);
+    for (let i = Math.floor((o.x - r) / SURF_CELL); i <= Math.floor((o.x + r) / SURF_CELL); i++)
+      for (let j = Math.floor((o.z - r) / SURF_CELL); j <= Math.floor((o.z + r) / SURF_CELL); j++) {
+        const k = colKey(i, j);
+        let c = surfGrid.get(k);
+        if (!c) surfGrid.set(k, (c = []));
+        c.push(o);
+      }
+  }
 }
 
 export function pushOut(p, radius, o) {

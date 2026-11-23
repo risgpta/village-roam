@@ -28,6 +28,12 @@ export function createEnvironment(renderer, scene) {
         gl_FragColor = vec4(col, 1.0);
       }`,
   })));
+  // the sky drawn into one cube, and pre-filtered into one target, kept and reused every time: a fresh target
+  // each time would be a new environment texture, and every material in sight would go and look up its shader
+  // again (a stutter every few seconds)
+  const cubeRT = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType, generateMipmaps: false, depthBuffer: false });
+  const cubeCam = new THREE.CubeCamera(0.1, 50, cubeRT);
+  envScene.add(cubeCam);
   let target = null;
   return {
     // p: the time-of-day preset; sunDir: toward the sun (or the moon)
@@ -38,11 +44,10 @@ export function createEnvironment(renderer, scene) {
       uniforms.uSun.value.set(p.sun);
       uniforms.uSunDir.value.copy(sunDir);
       uniforms.uSunK.value = p.dark ? 0 : p.night ? 0.2 : Math.max(0.1, 1 - Math.max(0, p.clouds - 0.4) * 1.8);
-      const next = pmrem.fromScene(envScene, 0, 0.1, 50);
-      scene.environment = next.texture;
+      cubeCam.update(renderer, envScene);
+      target = pmrem.fromCubemap(cubeRT.texture, target);
+      if (scene.environment !== target.texture) scene.environment = target.texture;
       scene.environmentIntensity = p.dark ? 0.12 : p.night ? 0.22 : 0.36 + Math.max(0, p.clouds - 0.5) * 0.14;
-      target?.dispose();
-      target = next;
     },
   };
 }

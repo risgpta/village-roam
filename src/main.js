@@ -56,7 +56,7 @@ import { Ambulance, FireTruck } from './emergency.js'; // lifelike horns, whistl
 import { windUniforms } from './wind.js';
 import { createEnvironment, addSurfaceGrain } from './realism.js';
 import { sampleAtmo, WEATHERS, TIMES, clockText } from './daycycle.js';
-import { updateCull, streamGroup, updateStream } from './perf.js';
+import { updateCull, streamGroup, updateStream, setupTinyCull, updateTinyCull } from './perf.js';
 import { buildBuffaloes } from './buffalo.js';
 import { buildShops } from './shops.js';
 
@@ -67,7 +67,9 @@ const loadTimes = [['page start → modules loaded (incl. layout generation)', M
 const status = (s) => { const t = performance.now(); loadTimes.push([s, Math.round(t - loadMark)]); loadMark = t; $('start').textContent = s; };
 const lap = (name) => { const t = performance.now(); loadTimes.push(['  · ' + name, Math.round(t - loadMark)]); loadMark = t; };
 const profAcc = new Map(); let profT = 0, profFrames = 0;
-const mark = PROF ? (name) => { const t = performance.now(); profAcc.set(name, (profAcc.get(name) ?? 0) + (t - profT)); profT = t; } : () => {};
+// (and the slowest frames, part by part: __gaon.prof().long)
+const profCur = {}, profLong = [];
+const mark = PROF ? (name) => { const t = performance.now(); profAcc.set(name, (profAcc.get(name) ?? 0) + (t - profT)); profCur[name] = +(t - profT).toFixed(1); profT = t; } : () => {};
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 
 // ---------------- renderer ----------------
@@ -106,7 +108,9 @@ const sunDir = new THREE.Vector3();
 const sun = new THREE.DirectionalLight('#ffffff', 3);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-const SH = 55;
+// the shadowed square: 96 m across, its centre 12 m ahead of the boy toward where the camera looks — 60 m of
+// shadows ahead (a bit more than the old 110 m square round him gave), sharper, and a quarter fewer things to draw
+const SH = 48, SH_AHEAD = 12;
 Object.assign(sun.shadow.camera, { left: -SH, right: SH, top: SH, bottom: -SH, near: 1, far: 320 });
 sun.shadow.bias = -0.0004;
 sun.shadow.normalBias = 0.04;
@@ -1532,6 +1536,7 @@ function boardTrain(pc) {
   pc.tr.occupied = true;
   coachIn ??= buildCoachInside();
   pc.car.g.add(coachIn.group);
+  pc.car.g.add(coachIn.lamp); coachIn.lamp.intensity = coachIn.lamp.userData.on;
   coachIn.seat(PAX_WIN, pc.sx);
   coachIn.group.visible = true;
   pc.car.g.add(boy.root);
@@ -1553,7 +1558,7 @@ function leaveTrain() {
     if (!best || g > best.g + 0.2) best = { x: q.x, z: q.z, g };
   }
   pax = null;
-  if (coachIn) { coachIn.group.visible = false; coachIn.group.removeFromParent(); }
+  if (coachIn) { coachIn.group.visible = false; coachIn.group.removeFromParent(); scene.add(coachIn.lamp); coachIn.lamp.intensity = 0; }
   scene.add(boy.root);
   player.x = best.x; player.z = best.z; player.y = best.g + 0.05; player.vy = 0; player.grounded = true; player.speed = 0;
   player.facing = car.g.rotation.y;
@@ -1748,13 +1753,18 @@ async function build() {
   await nextFrame();
   terrainObj = buildTerrain(await bakes.height, await bakes.color, { a: await bakes.ringA, b: await bakes.ringB });
   scene.add(terrainObj);
+  lap('terrain (and waiting for its bakes)');
   // the grass comes in when its bake is done: the walk can start without waiting for it (it's usually there
   // before anyone has clicked Begin)
   bakes.grass.then((data) => {
     grass = buildGrass(buildGrassData(data));
     grass?.userData.setCenter(player.x, player.z);
-    scene.add(grass);
-    applySeason(true);
+    // its shader built in the background first (for the composer's target, like everything else), so it
+    // never stalls a frame when it appears
+    renderer.setRenderTarget(composer.readBuffer);
+    const ready = grass ? renderer.compileAsync(grass, camera, scene) : Promise.resolve();
+    renderer.setRenderTarget(null);
+    ready.catch(() => {}).then(() => { if (grass) scene.add(grass); applySeason(true); });
   });
   map = new MapUI(bakes.map); // the map fills in by itself once its bake is done
   applySeason(true);
@@ -1764,6 +1774,7 @@ async function build() {
     if (REAL) addSurfaceGrain(scene);
   }
   tickClock(0);
+  lap('season, grain');
   // ---- performance ----
   // things that never move: work out their matrices once and stop updating them every frame
   for (const o of [terrainObj, vegGroup]) { o.updateMatrixWorld(true); o.matrixWorldAutoUpdate = false; o.userData.frozen = true; }
@@ -1779,12 +1790,33 @@ async function build() {
   }
   // the big static clusters (the village's props, the railway, the stations, the mela) stream by distance
   for (const c of scene.children) if (c.userData.stream || c === village.group) streamGroup(c);
-  renderer.compile(scene, camera);
+  // the coach you can ride in, made now (its lamp waits in the scene, dark) so boarding a train never stalls
+  coachIn = buildCoachInside();
+  scene.add(coachIn.lamp);
+  // Every shader made now, before the walk begins — into the same kind of target the frame is drawn into
+  // (the composer's: linear colour, tone mapping left to the last pass), or these would be the wrong ones and
+  // each would be built again, mid-game, the first time its thing came into view
+  lap('freeze, shadows, streams, coach');
+  // (and waited for: the GPU builds them in the background, and the first frame would otherwise sit frozen
+  // until they're all done, just as the Begin button appears)
+  renderer.setRenderTarget(composer.readBuffer);
+  const shadersReady = Promise.all([renderer.compileAsync(scene, camera), renderer.compileAsync(coachIn.group, camera, scene)]);
+  renderer.setRenderTarget(null);
+  // meshes too small to see left out of each frame (see perf.js)
+  setupTinyCull(scene, { skip: [terrainObj, vegGroup], streamed: scene.children.filter((c) => c.userData.stream || c === village.group) });
+  lap('tiny-mesh culling');
+  await shadersReady.catch(() => {});
+  lap('shaders');
+  // the first frames send everything in sight to the GPU (a long one): drawn before the button is ready, not
+  // just after it appears
+  status('Almost there…');
+  last = performance.now();
+  requestAnimationFrame(loop);
+  await nextFrame(); await nextFrame();
+  lap('first frames');
   status('Begin the walk');
   $('start').disabled = false;
   document.body.classList.add('ready');
-  last = performance.now();
-  requestAnimationFrame(loop);
 }
 
 // ---------------- input ----------------
@@ -2967,11 +2999,17 @@ function updateCamera(dt) {
   }
 }
 
+const _shF = new THREE.Vector3();
 function updateShadows() {
   const texel = (SH * 2) / sun.shadow.mapSize.x;
   lx.crossVectors(THREE.Object3D.DEFAULT_UP, sunDir).normalize();
   ly.crossVectors(sunDir, lx).normalize();
   tmp.set(player.x, ride && ride.fly ? Math.min(player.y, groundHeight(player.x, player.z) + 30) : player.y, player.z);
+  // the shadowed square sits a little ahead, over the ground the camera sees, rather than half of it behind the
+  // camera where nothing shows (anything whose shadow falls on that ground is inside it, wherever it stands)
+  camera.getWorldDirection(_shF); _shF.y = 0;
+  const fl = _shF.length();
+  if (fl > 0.2) tmp.addScaledVector(_shF, SH_AHEAD / fl);
   const px = Math.round(tmp.dot(lx) / texel) * texel;
   const py = Math.round(tmp.dot(ly) / texel) * texel;
   const pz = tmp.dot(sunDir);
@@ -3202,7 +3240,8 @@ function frame(now) {
     headlight.position.z = ride?.probes ? Math.max(...ride.probes) + 0.7 : 0.9; // just ahead of the nose
     headlight.target.position.x = headlight.position.x;
     headlight.target.position.z = headlight.position.z + 15;
-    headlight.visible = headlight.intensity > 0.5 || !started;
+    // (it stays in the scene even when off, at no brightness: switching a light in or out makes every
+    // material in sight rebuild its shader — a long freeze)
   }
   if (!started) yaw += dt * 0.04;
   mark('pre');
@@ -3368,21 +3407,27 @@ function frame(now) {
     hemi.intensity *= 0.35 + 0.65 * tunnelK; // (the storm code sets it afresh every frame)
   }
   mark('rest');
-  // whatever is hidden this frame needs no matrix update (it picks up again the frame it shows)
-  for (const c of scene.children) if (!c.userData.frozen) c.matrixWorldAutoUpdate = c.visible;
   EYE.x = camera.position.x; EYE.z = camera.position.z;
   // people more than 260 m off are a few pixels tall: leave them out of this frame's drawing (and its shadows).
   // Done just around the render, so every system's own showing and hiding of its people is left untouched.
+  // (One standing straight in the scene is measured by its own position — its world matrix isn't kept up
+  // while it's out of sight; one riding in something by its world matrix.)
   const farFolk = [];
   for (const q of ALL_PEOPLE) {
     const r = q.root;
     if (!r.visible) continue;
-    const e = r.matrixWorld.elements, dx = e[12] - camera.position.x, dz = e[14] - camera.position.z;
+    let x, z;
+    if (r.parent === scene) { x = r.position.x; z = r.position.z; } else { const e = r.matrixWorld.elements; x = e[12]; z = e[14]; }
+    const dx = x - camera.position.x, dz = z - camera.position.z;
     if (dx * dx + dz * dz > 67600) { r.visible = false; farFolk.push(r); }
   }
+  // whatever is hidden this frame needs no matrix update (it picks up again the frame it shows)
+  for (const c of scene.children) if (!c.userData.frozen) c.matrixWorldAutoUpdate = c.visible;
+  updateTinyCull(camera, renderer.domElement.height);
   composer.render();
   for (const r of farFolk) r.visible = true;
   mark('render');
+  if (PROF) { const ms = performance.now() - cpu0; if (ms > 50) { profLong.push({ t: +time.toFixed(1), ms: +ms.toFixed(0), ...profCur }); if (profLong.length > 60) profLong.shift(); } }
   dyn.cpu += (performance.now() - cpu0 - dyn.cpu) * 0.05;
   if (wantShot) { wantShot = false; postcard(); }
   if (postcards?.wantGrab) postcards.grab(renderer.domElement);
@@ -3438,7 +3483,7 @@ function busEvents(evs) {
 
 // small debug hook for screenshots / tinkering from the console
 window.__gaon = {
-  prof: () => ({ load: loadTimes, bakes: globalThis.__bakeTimes, frames: profFrames, ms: Object.fromEntries([...profAcc].map(([k, v]) => [k, +(v / Math.max(1, profFrames)).toFixed(2)])), calls: renderer.info.render.calls, tris: renderer.info.render.triangles, objects: (() => { let n = 0; scene.traverse(() => n++); return n; })() }),
+  prof: () => ({ long: profLong, load: loadTimes, bakes: globalThis.__bakeTimes, frames: profFrames, ms: Object.fromEntries([...profAcc].map(([k, v]) => [k, +(v / Math.max(1, profFrames)).toFixed(2)])), calls: renderer.info.render.calls, tris: renderer.info.render.triangles, objects: (() => { let n = 0; scene.traverse(() => n++); return n; })() }),
   profReset: () => { profAcc.clear(); profFrames = 0; },
   player,
   view(y, p, d) { yaw = y; pitch = p; targetDist = dist = d; },

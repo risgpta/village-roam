@@ -11,7 +11,18 @@ import { lathe, limb, limbZ, ellipsoid, muscle, folds } from './shapes.js';
 import { Dog, consolidate } from './animals.js';
 import { Gear } from './gear.js';
 
-const mat = (c, r = 0.85) => new THREE.MeshStandardMaterial({ color: c, roughness: r });
+// A material is shared by everyone who looks the same (nothing changes a person's materials once they're made):
+// a few hundred instead of ~15,000, far less memory, and the renderer draws one person after another without
+// switching between them
+const MATS = new Map();
+const hex = (c) => (typeof c === 'string' ? c.toLowerCase() : '#' + new THREE.Color(c).getHexString());
+function sharedMat(tag, Kind, p) {
+  const key = tag + JSON.stringify(p);
+  let m = MATS.get(key);
+  if (!m) MATS.set(key, (m = new Kind(p)));
+  return m;
+}
+const mat = (c, r = 0.85) => sharedMat('std', THREE.MeshStandardMaterial, { color: hex(c), roughness: r });
 function part(geo, m, parent, x = 0, y = 0, z = 0) {
   const o = new THREE.Mesh(geo, m);
   o.position.set(x, y, z);
@@ -208,12 +219,12 @@ export function buildHuman(o) {
   const k = o.k ?? 1, hs = o.headScale ?? 1;
   const skinC = o.skin ?? '#8a5a3c';
   // skin: soft, with a warm glow at glancing angles rather than a plastic highlight
-  const skin = new THREE.MeshPhysicalMaterial({ color: skinC, roughness: 0.58, sheen: 0.45, sheenRoughness: 0.5, sheenColor: new THREE.Color(skinC).lerp(new THREE.Color('#ff9c78'), 0.55) });
+  const skin = sharedMat('skin', THREE.MeshPhysicalMaterial, { color: hex(skinC), roughness: 0.58, sheen: 0.45, sheenRoughness: 0.5, sheenColor: '#' + new THREE.Color(skinC).lerp(new THREE.Color('#ff9c78'), 0.55).getHexString() });
   const lip = mat('#' + new THREE.Color(skinC).lerp(new THREE.Color('#a4524c'), 0.42).multiplyScalar(0.92).getHexString(), 0.42);
   const top = mat(o.top ?? '#efe9dc', 0.9);
-  const topDS = new THREE.MeshStandardMaterial({ color: o.top ?? '#efe9dc', roughness: 0.9, side: THREE.DoubleSide });
+  const topDS = sharedMat('std', THREE.MeshStandardMaterial, { color: hex(o.top ?? '#efe9dc'), roughness: 0.9, side: THREE.DoubleSide });
   const bottom = mat(o.bottom ?? '#eeeae0', 0.9);
-  const bottomDS = new THREE.MeshStandardMaterial({ color: o.bottom ?? '#eeeae0', roughness: 0.85, side: THREE.DoubleSide });
+  const bottomDS = sharedMat('std', THREE.MeshStandardMaterial, { color: hex(o.bottom ?? '#eeeae0'), roughness: 0.85, side: THREE.DoubleSide });
   const sandal = mat('#3b2a1e', 0.8);
   const dark = mat('#17110d', 0.35);
   const white = mat('#efe9df', 0.3);
@@ -300,7 +311,7 @@ export function buildHuman(o) {
   part(headGeo(saree || (o.k ?? 1) < 0.8), skin, head);
   const lidM = mat('#' + new THREE.Color(skinC).multiplyScalar(0.86).getHexString(), 0.6);
   const sclera = mat('#ece6da', 0.25), iris = mat(o.eyes ?? '#3a2414', 0.3), pupil = mat('#060403', 0.2);
-  const shine = new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#ffffff', emissiveIntensity: 0.6, roughness: 0.1 });
+  const shine = sharedMat('std', THREE.MeshStandardMaterial, { color: '#ffffff', emissive: '#ffffff', emissiveIntensity: 0.6, roughness: 0.1 });
   const fem = saree;
   for (const s of [-1, 1]) {
     // eyes set into their sockets: the white, a brown iris, the pupil and a glint; lids over and under
@@ -366,7 +377,7 @@ export function buildHuman(o) {
     else part(new THREE.SphereGeometry(0.048, 12, 10), hairCol, head, 0, -0.02, -0.105);
     if (o.hijab) {
       // a headscarf wrapped round the head, under the chin, and falling over the shoulders
-      const hm = mat(o.hijab, 0.9), hds = new THREE.MeshStandardMaterial({ color: o.hijab, roughness: 0.9, side: THREE.DoubleSide });
+      const hm = mat(o.hijab, 0.9), hds = sharedMat('std', THREE.MeshStandardMaterial, { color: hex(o.hijab), roughness: 0.9, side: THREE.DoubleSide });
       part(cap(0.122, Math.PI * 0.62), hds, head, 0, 0.012, -0.012).rotation.x = -0.35;
       part(new THREE.TorusGeometry(0.095, 0.03, 8, 22).rotateX(Math.PI / 2).scale(1, 1, 1.05), hm, head, 0, -0.08, -0.005).rotation.x = -0.35;
       part(ellipsoid(0.2, 0.09, 0.15), hm, head, 0, -0.17, -0.02);
@@ -491,6 +502,7 @@ const LEFT_PROPS = new Set(['cupL']);
 
 // ---------------- animated person ----------------
 const POSE_KEYS = ['hip0', 'hip1', 'knee0', 'knee1', 'sh0', 'sh1', 'shz0', 'shz1', 'el0', 'el1', 'torsoX', 'torsoY', 'headX', 'headY', 'bodyY'];
+const _pose = Object.fromEntries(POSE_KEYS.map((k) => [k, 0]));
 
 // where the camera is (set each frame by the game): people far from it animate at a lower rate
 export const EYE = { x: 0, z: 0 };
@@ -601,7 +613,8 @@ export class Person {
     if (this.fallT > 0) { this.fallStep(dt); return; }
     this.t += dt;
     const t = this.t;
-    const P = Object.fromEntries(POSE_KEYS.map((k) => [k, 0]));
+    const P = _pose; // (one, reused: this runs for hundreds of people every frame)
+    for (let i = 0; i < POSE_KEYS.length; i++) P[POSE_KEYS[i]] = 0;
     // at rest the arms hang relaxed: a little out from the body, a little forward, the elbows soft
     P.shz0 = -0.11; P.shz1 = 0.11; P.el0 = P.el1 = -0.22; P.sh0 = P.sh1 = -0.04;
     this.walkB += ((speed > 0.1 ? 1 : 0) - this.walkB) * damp(dt, 6);
