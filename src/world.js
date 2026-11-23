@@ -414,24 +414,25 @@ export function jungleMask(x, z) {
 const polar = (th, r) => ({ x: Math.cos(th) * r, z: Math.sin(th) * r });
 // where the jungle's animals keep, and the rhinos out on the open hills inside the ring
 export const JUNGLE_HOMES = {
-  lions: { ...polar(-1.0, ringR(-1.0) + 230), r: 40 },
-  hyenas: { ...polar(-0.62, ringR(-0.62) + 250), r: 45 },
+  // the jungle's life gathered in one core a little way in from its edge (it's a big place, and animals spread
+  // all over it were never met): a shared clearing where the deer, zebras and giraffes graze, and round it the
+  // elephants, rhinos, monkeys, lions, hyenas, jackals and a tiger in the deeper shade
+  lions: { ...polar(-0.6, ringR(-0.6) + 250), r: 35 },
+  hyenas: { ...polar(-0.53, ringR(-0.53) + 270), r: 40 },
   buffalo: { ...(() => { const v = 150; return { x: DIP.x + DIP.tz * v, z: DIP.z - DIP.tx * v }; })(), r: 35 }, // grazing the valley meadow
   monkeys: { ...polar(-0.8, ringR(-0.8) + 165), r: 22 },
-  snakes: [polar(-0.95, ringR(-0.95) + 175), polar(-0.7, ringR(-0.7) + 300), polar(-0.42, ringR(-0.42) + 200)].map((p) => ({ ...p, r: 9 })),
+  snakes: [polar(-0.76, ringR(-0.76) + 120), polar(-0.66, ringR(-0.66) + 205), polar(-0.84, ringR(-0.84) + 200)].map((p) => ({ ...p, r: 9 })),
   rhinos: { ...polar(1.12, ringR(1.12) - 200), r: 45 },
-  // and deeper in: a herd of chital in a clearing, zebras and giraffes on its open edge, jackals, a tiger of its
-  // own, a family of elephants, rhinos in the wet ground, a second langur troop, more snakes, and the birds
-  deer: { ...polar(-0.88, ringR(-0.88) + 150), r: 45 },
-  zebras: { ...polar(-0.52, ringR(-0.52) + 150), r: 45 },
-  giraffes: { ...polar(-0.72, ringR(-0.72) + 125), r: 40 },
-  jackals: { ...polar(-0.57, ringR(-0.57) + 400), r: 55 },
-  tiger: { ...polar(-0.86, ringR(-0.86) + 430), r: 40, area: 80 },
-  elephants: { ...polar(-0.64, ringR(-0.64) + 190), r: 50 },
-  rhinos2: { ...polar(-1.04, ringR(-1.04) + 330), r: 40 },
-  monkeys2: { ...polar(-0.46, ringR(-0.46) + 270), r: 22 },
-  snakes2: [polar(-0.6, ringR(-0.6) + 140), polar(-1.0, ringR(-1.0) + 260)].map((p) => ({ ...p, r: 9 })),
-  birds: { ...polar(-0.74, ringR(-0.74) + 230) },
+  deer: { ...polar(-0.74, ringR(-0.74) + 130), r: 35 },
+  zebras: { ...polar(-0.65, ringR(-0.65) + 140), r: 35 },
+  giraffes: { ...polar(-0.69, ringR(-0.69) + 118), r: 35 },
+  jackals: { ...polar(-0.58, ringR(-0.58) + 200), r: 40 },
+  tiger: { ...polar(-0.78, ringR(-0.78) + 260), r: 35, area: 70 },
+  elephants: { ...polar(-0.81, ringR(-0.81) + 170), r: 40 },
+  rhinos2: { ...polar(-0.88, ringR(-0.88) + 150), r: 35 },
+  monkeys2: { ...polar(-0.7, ringR(-0.7) + 195), r: 20 },
+  snakes2: [polar(-0.6, ringR(-0.6) + 150), polar(-0.72, ringR(-0.72) + 230)].map((p) => ({ ...p, r: 9 })),
+  birds: { ...polar(-0.7, ringR(-0.7) + 170) },
 };
 // tunnels: inside, the bore is about 8.8 m wide; the hill above is carved out a little wider and a strip of
 // hillside (the lid, see terrain.js) laid back over the top so it looks untouched from outside

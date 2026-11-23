@@ -787,9 +787,9 @@ const giraffeCoat = () => coatCanvas((g, w, h) => {
   }
 });
 const SPEC = {
-  deer: { fleeAt: 26, flee: 7.2, walk: 0.9, legH: 0.78, rad: 0.35 },
-  zebra: { fleeAt: 20, flee: 6, walk: 1.0, legH: 0.88, rad: 0.6 },
-  giraffe: { fleeAt: 16, flee: 4.2, walk: 1.1, legH: 1.75, rad: 0.7 },
+  deer: { fleeAt: 13, flee: 6.5, walk: 0.9, legH: 0.78, rad: 0.35 },
+  zebra: { fleeAt: 11, flee: 5.5, walk: 1.0, legH: 0.88, rad: 0.6 },
+  giraffe: { fleeAt: 9, flee: 4.0, walk: 1.1, legH: 1.75, rad: 0.7 },
 };
 class Herbivore {
   constructor(home, R, kind, leader = null, scale = 1, male = false) {
@@ -849,14 +849,14 @@ class Herbivore {
     // they all keep an eye out: too close and the whole herd is off
     const herdFled = this.leader && this.leader.state === 'flee';
     if (this.state !== 'flee' && (bd < S.fleeAt || herdFled)) {
-      this.state = 'flee'; this.timer = 5 + this.R() * 2;
+      this.state = 'flee'; this.timer = 2.5 + this.R() * 1.5;
       if (this.cool < 0 && this.kind !== 'giraffe') { ev.snort?.(bd); this.cool = 6; }
     }
     if (this.state === 'flee') {
       const ax = this.p.x - boy.x, az = this.p.z - boy.z, ad = Math.hypot(ax, az) || 1;
       this.target = { x: this.p.x + (ax / ad) * 12 + (this.home.x - this.p.x) * 0.15, z: this.p.z + (az / ad) * 12 + (this.home.z - this.p.z) * 0.15 };
       want = S.flee;
-      if (this.timer < 0 && bd > S.fleeAt * 1.4) { this.state = 'graze'; this.timer = 5; }
+      if (this.timer < 0 && bd > S.fleeAt * 1.3) { this.state = 'graze'; this.timer = 5; }
     } else if (this.state === 'graze') {
       if (this.leader && this.leader.state === 'walk' && this.timer < 0) { this.state = 'walk'; const a = this.R() * 6.28; this.target = { x: this.leader.p.x + Math.cos(a) * 5, z: this.leader.p.z + Math.sin(a) * 5 }; this.timer = 25; }
       else if (this.timer < 0) {
@@ -1040,9 +1040,14 @@ export function buildWildlife(scene) {
     update(dt, boy, ev) {
       for (const a of all) {
         const p = a.p ?? a;
-        const far = Math.abs(p.x - boy.x) > 160 || Math.abs(p.z - boy.z) > 160;
+        // seen from a good way off (an elephant or a giraffe stands out across a clearing); animated in full
+        // close by, and a few times a second further out — so the jungle is alive wherever you look from
+        const dx = Math.abs(p.x - boy.x), dz = Math.abs(p.z - boy.z), far = dx > 330 || dz > 330, mid = dx > 140 || dz > 140;
         a.root.visible = !far;
-        if (far && a !== leader && a !== matriarch && a !== hyLead && a !== bull && a !== stag && a !== zLead && a !== gLead && a !== jkLead && a !== jMatriarch) continue;
+        const lead = a === leader || a === matriarch || a === hyLead || a === bull || a === stag || a === zLead || a === gLead || a === jkLead || a === jMatriarch;
+        if (far && !lead) continue;
+        if (mid) { a._skip = ((a._skip ?? 0) + 1) % 4; a._acc = (a._acc ?? 0) + dt; if (a._skip) continue; a.update(a._acc, boy, ev, night); a._acc = 0; continue; }
+        a._acc = 0;
         a.update(dt, boy, ev, night);
       }
     },
