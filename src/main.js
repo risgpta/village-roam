@@ -3793,7 +3793,7 @@ window.__gaon = {
   get herds() { return herds; },
   get hamlets() { return hamlets; },
   heightAt, groundHeight, // (testing: the ground)
-  get hose() { return hose; }, get joy() { return joy; }, layout, pumpS, TRACK_PONDS,
+  get hose() { return hose; }, get joy() { return joy; }, layout, pumpS, TRACK_PONDS, jungleMask,
   get shrineLife() { return shrineLife; },
   get trackside() { return trackside; },
   allPeople: ALL_PEOPLE,

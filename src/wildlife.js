@@ -2,7 +2,7 @@
 // and a wolf pack on the far side. They keep away from the villages, but don't get too close.
 import * as THREE from 'three';
 import { heightAt, groundHeight, riverX, RIVER_HALF, WATER_Y, resolveCollisions, WILD, warpR, JUNGLE_HOMES, layout } from './world.js';
-import { quadruped, eyes, consolidate, gaitPolish, headShape, Peacock, Rabbit } from './animals.js';
+import { quadruped, eyes, consolidate, gaitPolish, headShape, Peacock, Rabbit, Goat } from './animals.js';
 import { ellipsoid, limb, limbZ, bodyZ, taperTube, lathe, furMat } from './shapes.js';
 import { rng } from './noise.js';
 
@@ -522,6 +522,7 @@ export class Elephant {
 class Grazer {
   constructor(home, R, kind, leader = null, scale = 1) {
     this.kind = kind; this.home = home; this.R = R; this.leader = leader; this.scale = scale;
+    if (kind === 'bear') { this.buildBear(R, scale); return; }
     const rh = kind === 'rhino';
     const coat = mat(rh ? '#7c7570' : ['#26221f', '#2e2925', '#211d1b'][Math.floor(R() * 3)], 0.95);
     const dark = mat(rh ? '#5e5853' : '#151312', 0.9), horn = mat(rh ? '#4a443e' : '#3a342e', 0.5), pink = mat(rh ? '#8a7068' : '#3a2f2a', 0.8);
@@ -562,10 +563,30 @@ class Grazer {
     this.facing = R() * 6; this.speed = 0; this.phase = R() * 6; this.t = R() * 10;
     this.state = 'graze'; this.timer = 4 + R() * 10; this.restB = 0; this.target = null; this.cool = 0;
   }
+  // the sloth bear: a shaggy black coat, a long pale snout, a white V on the chest, big curved claws
+  buildBear(R, scale) {
+    const coat = furMat('#16120f', { rough: 1 }), pale = mat('#cdbb9c', 0.9), dark = mat('#0c0a08', 0.5), claw = mat('#d8ccb4', 0.5);
+    Object.assign(this, quadruped({ L: 1.0, r: 0.42, legH: 0.55, legR: 0.085, coat, belly: coat, hoof: 'paw', sock: coat, deep: 1.18, wide: 1.0, neckLen: 0.2, neckTilt: 1.25, neckR: 0.26 }));
+    part(ellipsoid(0.5, 0.42, 0.55), coat, this.body, 0, 0.08, 0.25); // the shaggy mane over the shoulders
+    const hs = headShape({ len: 0.36, w: 0.15, h: 0.14, muzzleW: 0.07, muzzleH: 0.07, drop: 0.22, coat, noseM: dark }); hs.rotation.x = 0.35; this.head.add(hs);
+    part(ellipsoid(0.075, 0.06, 0.12), pale, this.head, 0, -0.08, 0.26); // the pale muzzle
+    for (const sx of [-1, 1]) part(new THREE.SphereGeometry(0.06, 10, 8).scale(1, 1, 0.5), coat, this.head, sx * 0.12, 0.12, -0.04);
+    eyes(this.head, 0.07, 0.04, 0.12, 0.012);
+    part(new THREE.TorusGeometry(0.13, 0.025, 6, 16, Math.PI * 0.8).rotateZ(Math.PI * 1.1), pale, this.neck, 0, 0.05, 0.25); // the white V on the chest
+    for (const l of this.legs) for (let k = 0; k < 3; k++) part(new THREE.ConeGeometry(0.012, 0.07, 4).rotateX(1.9), claw, l.ankle, (k - 1) * 0.03, -0.36, 0.07);
+    consolidate(this.root);
+    this.root.scale.setScalar(scale);
+    this.legH = 0.55;
+    const home = this.home;
+    this.p = { x: home.x + (R() - 0.5) * 10, z: home.z + (R() - 0.5) * 10 };
+    this.y = heightAt(this.p.x, this.p.z);
+    this.facing = R() * 6; this.speed = 0; this.phase = R() * 6; this.t = R() * 10;
+    this.state = 'graze'; this.timer = 4 + R() * 10; this.restB = 0; this.target = null; this.cool = 0;
+  }
   update(dt, boy, ev) {
     this.t += dt; this.timer -= dt; this.cool -= dt;
     const bx = boy.x - this.p.x, bz = boy.z - this.p.z, bd = Math.hypot(bx, bz);
-    const bold = this.kind === 'rhino' || !this.leader; // rhinos and the herd bull stand their ground
+    const bold = this.kind === 'rhino' || this.kind === 'bear' || !this.leader; // rhinos and the herd bull stand their ground
     let want = 0;
     if (this.state !== 'charge' && this.state !== 'flee' && bd < (bold ? 20 : 14)) {
       if (this.state !== 'warn') { this.state = 'warn'; this.timer = 3 + this.R() * 2; if (this.cool < 0) { ev.snort?.(bd); this.cool = 4; } }
@@ -576,7 +597,7 @@ class Grazer {
       else if (bd < 9 && this.timer < 0) { this.state = 'charge'; this.timer = 2.2; ev.snort?.(bd); }
       else if (bd > 26) { this.state = 'graze'; this.timer = 5; }
     } else if (this.state === 'charge') {
-      this.target = { x: boy.x, z: boy.z }; want = this.kind === 'rhino' ? 6.5 : 6;
+      this.target = { x: boy.x, z: boy.z }; want = this.kind === 'rhino' ? 6.5 : this.kind === 'bear' ? 5 : 6;
       if (bd < 2.4 * this.scale) { ev.snap?.(this.p.x, this.p.z, this.kind); this.state = 'flee'; this.timer = 4; }
       if (this.timer < 0) { this.state = 'flee'; this.timer = 4; }
     } else if (this.state === 'flee') {
@@ -609,6 +630,7 @@ class Grazer {
     // grazing: head down to the grass now and then, a flick of the tail
     const graze = this.state === 'graze' ? Math.max(0, Math.sin(this.t * 0.5 + this.phase)) : 0;
     this.neck.rotation.x = graze * 0.9 + (this.state === 'warn' || this.state === 'charge' ? -0.15 : 0.05);
+    if (this.home.water && this.state === 'graze') { const W = this.home.water; this.facing += wrap(Math.atan2(W.x - this.p.x, W.z - this.p.z) - this.facing) * damp(dt, 1.5); }
     this.tail.rotation.z = Math.sin(this.t * 1.7) * 0.35;
   }
 }
@@ -886,6 +908,11 @@ class Herbivore {
       const graze = this.state === 'graze' ? Math.max(0, Math.sin(this.t * 0.45 + this.phase)) : 0;
       this.neck.rotation.x = graze * (this.kind === 'deer' ? 1.15 : 1.0) + (this.state === 'flee' ? -0.2 : 0.02);
     }
+    // at the watering hole they stand facing the water, heads going down to drink
+    if (this.home.water && this.state === 'graze') {
+      const W = this.home.water;
+      this.facing += wrap(Math.atan2(W.x - this.p.x, W.z - this.p.z) - this.facing) * damp(dt, 1.5);
+    }
     this.tail.rotation.z = Math.sin(this.t * 2.1) * 0.3;
   }
 }
@@ -1047,13 +1074,35 @@ export function buildWildlife(scene) {
   const nearTrees3 = layout.trees.filter((t) => Math.hypot(t.x - J.monkeys3.x, t.z - J.monkeys3.z) < 30).slice(0, 3);
   for (let i = 0; i < 7; i++) { const t = i >= 4 ? nearTrees3[i - 4] : null; monkeys.push(new Monkey({ ...J.monkeys3 }, R, i + 20, t ? { x: t.x + 0.6, z: t.z + 0.3, y: heightAt(t.x, t.z) + 3.4 * t.s } : null)); }
   const jBirds2 = new JungleBirds({ ...J.birds2 }, R);
+  // at the watering hole: a third band of zebras, a flock of sheep; sloth bears in the shade further in
+  const zLead3 = new Herbivore({ ...J.zebras3 }, R, 'zebra', null, 1.03);
+  zebras.push(zLead3, ...[0.98, 1, 0.7].map((sc) => new Herbivore({ ...J.zebras3 }, R, 'zebra', zLead3, sc)));
+  const SHEEP = [['#ece6d8', '#2a2420'], ['#e4dccb', '#3a2e26'], ['#f2ede2', '#1e1a17'], ['#d8cdb8', '#2e2620']];
+  const sheep = [];
+  for (let i = 0; i < 9; i++) { const sh = new Goat(SHEEP[i % 4], 0.95 + R() * 0.12, { ...J.sheep }, R, null, 'sheep'); sheep.push(sh); if (i % 3 === 0) sheep.push(new Goat(SHEEP[(i + 1) % 4], 0.6, { ...J.sheep }, R, sh, 'sheep')); }
+  const bears = [new Grazer({ ...J.bears }, R, 'bear', null, 1.05), new Grazer({ ...J.bears }, R, 'bear', null, 0.95), new Grazer({ ...J.bears }, R, 'bear', null, 0.55)];
+  // and out on their own all through the forest: a small group every hundred metres or so
+  const roamers = [];
+  for (const h of J.roamers) {
+    const home = { x: h.x, z: h.z, r: h.r }, k = h.kind;
+    if (k === 'deer') { const lead = new Herbivore(home, R, 'deer', null, 1.05, R() < 0.5); roamers.push(lead, new Herbivore({ ...home }, R, 'deer', lead, 0.92), new Herbivore({ ...home }, R, 'deer', lead, 0.6)); }
+    else if (k === 'zebra') { const lead = new Herbivore(home, R, 'zebra', null, 1); roamers.push(lead, new Herbivore({ ...home }, R, 'zebra', lead, 0.95)); }
+    else if (k === 'sheep') for (let i = 0; i < 4; i++) roamers.push(new Goat(SHEEP[i % 4], i === 3 ? 0.6 : 1, { ...home }, R, null, 'sheep'));
+    else if (k === 'bear') roamers.push(new Grazer(home, R, 'bear', null, 1));
+    else if (k === 'peacock') for (let i = 0; i < 3; i++) roamers.push(new Peacock({ ...home, r: 10 }, R));
+    else if (k === 'rabbit') for (let i = 0; i < 4; i++) roamers.push(new Rabbit({ ...home, r: 10 }, R));
+    else if (k === 'monkey') for (let i = 0; i < 4; i++) roamers.push(new Monkey({ ...home, r: 15 }, R, i + 40, null));
+    else if (k === 'jackal') { const lead = new Wolf(home, R, null, 0, 'jackal'); roamers.push(lead, new Wolf(home, R, lead, 1, 'jackal')); }
+    else if (k === 'buffalo') { const lead = new Grazer(home, R, 'buffalo', null, 1.1); roamers.push(lead, new Grazer({ ...home }, R, 'buffalo', lead, 0.95), new Grazer({ ...home }, R, 'buffalo', lead, 0.62)); }
+    else if (k === 'leopard') roamers.push(new Tiger({ ...home, area: 40 }, R, 'leopard'));
+  }
   const all = [...crocs, tiger, ...leopards, ...wolves, ...elephants, ...lions, ...hyenas, ...buffalo, ...rhinos, ...monkeys, ...snakes,
     ...deer, ...zebras, ...giraffes, ...jackals, jTiger, ...jElephants, ...rhinos2, ...owls, jBirds,
-    ...lions2, ...jLeopards, ...buffaloJ, ...jPeacocks, ...jRabbits, jBirds2];
+    ...lions2, ...jLeopards, ...buffaloJ, ...jPeacocks, ...jRabbits, jBirds2, ...sheep, ...bears, ...roamers];
   for (const a of all) scene.add(a.root);
   let night = false;
   return {
-    crocs, tiger, leopards, wolves, elephants, lions, hyenas, buffalo, rhinos, monkeys, snakes, deer, zebras, giraffes, jackals, owls, jBirds,
+    crocs, tiger, leopards, wolves, elephants, lions, hyenas, buffalo, rhinos, monkeys, snakes, deer, zebras, giraffes, jackals, owls, jBirds, all,
     setNight(v) { night = v; },
     update(dt, boy, ev) {
       for (const a of all) {
@@ -1062,7 +1111,7 @@ export function buildWildlife(scene) {
         // close by, and a few times a second further out — so the jungle is alive wherever you look from
         const dx = Math.abs(p.x - boy.x), dz = Math.abs(p.z - boy.z), far = dx > 330 || dz > 330, mid = dx > 140 || dz > 140;
         a.root.visible = !far;
-        const lead = a === leader || a === matriarch || a === hyLead || a === bull || a === stag || a === zLead || a === gLead || a === jkLead || a === jMatriarch || a === stag2 || a === zLead2 || a === gLead2 || a === bullJ;
+        const lead = a === leader || a === matriarch || a === hyLead || a === bull || a === stag || a === zLead || a === gLead || a === jkLead || a === jMatriarch || a === stag2 || a === zLead2 || a === gLead2 || a === bullJ || a === zLead3;
         if (far && !lead) continue;
         if (mid) { a._skip = ((a._skip ?? 0) + 1) % 4; a._acc = (a._acc ?? 0) + dt; if (a._skip) continue; a.update(a._acc, boy, ev, night); a._acc = 0; continue; }
         a._acc = 0;

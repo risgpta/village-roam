@@ -468,6 +468,28 @@ export const JUNGLE_HOMES = {
   monkeys3: { ...polar(-0.93, ringR(-0.93) + 250), r: 20 },
   birds2: { ...polar(-0.85, ringR(-0.85) + 420) },
 };
+// The watering hole in the jungle's clearing: everything comes down to drink. Its herds live round its banks
+// (their homes moved onto the shore, each facing the water), the lions lie up in the shade not far off.
+export const WATERHOLE = { ...polar(-0.7, ringR(-0.7) + 150), r: 19 };
+{
+  const W = WATERHOLE, J = JUNGLE_HOMES, bank = (a, extra = 5, r = 9) => ({ x: W.x + Math.cos(a) * (W.r + extra), z: W.z + Math.sin(a) * (W.r + extra), r, water: { x: W.x, z: W.z } });
+  Object.assign(J.deer, bank(0.3)); Object.assign(J.zebras, bank(1.5)); Object.assign(J.giraffes, bank(2.6, 7));
+  Object.assign(J.elephants, bank(3.8, 9, 12)); Object.assign(J.buffaloJ, bank(5.0, 6)); J.zebras3 = bank(4.4, 6, 8);
+  J.sheep = bank(5.7, 14, 10); J.peacocks = bank(0.9, 16, 10); J.rabbits = bank(2.0, 18, 8);
+  J.lions = { x: W.x + Math.cos(0.95) * 62, z: W.z + Math.sin(0.95) * 62, r: 12 };
+  J.bears = { ...polar(-0.83, ringR(-0.83) + 230), r: 25 };
+  // and scattered through the whole forest, small groups out on their own — so wherever you walk in, there's
+  // something about every hundred metres or so
+  const R = rng(6061), kinds = ['deer', 'deer', 'zebra', 'sheep', 'bear', 'peacock', 'rabbit', 'monkey', 'jackal', 'buffalo', 'deer', 'leopard', 'zebra', 'peacock'];
+  J.roamers = [];
+  for (let i = 0; i < 900 && J.roamers.length < 60; i++) {
+    const th = JUNGLE.th0 + 0.06 + R() * (JUNGLE.th1 - JUNGLE.th0 - 0.12), rr = ringR(th) + JUNGLE.gap + 30 + R() * (JUNGLE.r1 - ringR(th) - JUNGLE.gap - 60);
+    const x = Math.cos(th) * rr, z = Math.sin(th) * rr;
+    if (jungleMask(x, z) < 0.6 || dipMask(x, z) > 0.1 || Math.hypot(x - W.x, z - W.z) < 90) continue;
+    if (J.roamers.some((q) => Math.hypot(q.x - x, q.z - z) < 85)) continue;
+    J.roamers.push({ x, z, r: 25, kind: kinds[J.roamers.length % kinds.length] });
+  }
+}
 // tunnels: inside, the bore is about 8.8 m wide; the hill above is carved out a little wider and a strip of
 // hillside (the lid, see terrain.js) laid back over the top so it looks untouched from outside
 export const BORE_HALF = 4.4, BORE_RAMP = 7.5, LID_W = 11.5;
@@ -1204,6 +1226,7 @@ export const layout = {
   ghat: GHAT, foot: FOOT, hilltop: HILLTOP, crossing: CROSSING,
 };
 
+TRACK_PONDS.push({ x: WATERHOLE.x, z: WATERHOLE.z, r: WATERHOLE.r, level: baseHeight(WATERHOLE.x, WATERHOLE.z) - 0.9, depth: 1.6, bridge: false, hole: true });
 (function generate() {
   const R = rng(20251103);
   // the railway's ponds: nothing built or planted in them, and nobody walks in (a train on the bridge above,
@@ -2349,7 +2372,7 @@ export const layout = {
     // the giants: tall straight trunks on buttress roots, their crowns spread high above everything else; and
     // underneath, ferns and big-leaved plants crowding every gap
     let ng = 0, nf = 0, nl = 0, nb2 = 0;
-    const clearings = [JUNGLE_HOMES.deer, JUNGLE_HOMES.zebras, JUNGLE_HOMES.giraffes].map((h) => ({ x: h.x, z: h.z, r: h.r * 0.8 }));
+    const clearings = [{ x: WATERHOLE.x, z: WATERHOLE.z, r: WATERHOLE.r + 55 }];
     const inClearing = (x, z) => clearings.some((c) => Math.hypot(x - c.x, z - c.z) < c.r);
     for (let i = 0; i < 520000 && (ng < 1300 || nf < 12000 || nl < 5000 || nb2 < 3000); i++) {
       const th = J.th0 + R() * (J.th1 - J.th0), r = ringR(th) + J.gap + R() * (J.r1 - ringR(th) - J.gap);
@@ -2406,6 +2429,29 @@ export const layout = {
         }
       }
     }
+  }
+  // a pond by three of the villages: still water, lotus and reeds, egrets at the edge (see trackponds.js) —
+  // chosen last, once every lane, house and tree is in place, so it lies clear of all of them
+  {
+    const R3 = rng(7171), made = [];
+    const nearLane = (x, z, r) => lanes.some((L) => { const dx = L.bx - L.ax, dz = L.bz - L.az, l2 = dx * dx + dz * dz || 1, t = Math.max(0, Math.min(1, ((x - L.ax) * dx + (z - L.az) * dz) / l2)); return Math.hypot(x - L.ax - dx * t, z - L.az - dz * t) < r + L.w + 3; });
+    const spots = [{ x: 0, z: 10 }, NV, MH, TV, NE, PG].filter((v) => v && Number.isFinite(v.x));
+    for (const V of spots) {
+      if (made.length >= 3) break;
+      for (let k = 0; k < 40; k++) {
+        const a = (k / 40) * Math.PI * 2 * 3 + R3() * 0.3, d = 70 + (k % 3) * 22 + R3() * 10, x = V.x + Math.cos(a) * d, z = V.z + Math.sin(a) * d, r = 10 + R3() * 3;
+        const g0 = baseHeight(x, z), flat = [[r, 0], [-r, 0], [0, r], [0, -r]].every(([u, v]) => Math.abs(baseHeight(x + u, z + v) - g0) < 2.2);
+        if (!flat || riverDist(x, z) < RIVER_HALF + 25 || trackDist(x, z) < 45 || canalDist(x, z) < 30 || (Math.abs(z) < 900 && Math.abs(x - roadX(z)) < 28)) continue;
+        if (!isFree(x, z, r + 9) || nearLane(x, z, r + 9) || TRACK_PONDS.some((P) => Math.hypot(P.x - x, P.z - z) < r + P.r + 40) || fieldType(x, z)) continue;
+        const P = { x, z, r, level: g0 - 0.9, depth: 1.7, bridge: false, village: true };
+        TRACK_PONDS.push(P);
+        occupy(x, z, r + 3);
+        colliders.push({ kind: 'c', x, z, r: r * 0.92, height: P.level + 0.6 });
+        made.push(P);
+        break;
+      }
+    }
+    layout.villagePonds = made;
   }
   buildDirtGrid();
 })();
