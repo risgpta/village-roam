@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { noise2, clamp } from './noise.js';
 import {
-  isFree, fieldType, trackDist, TANK, TRACKS, CANAL, canalDist, roadX, groundHeight, resolveCollisions, pushOut, colliders, forColliders, NP, MP, heightAt, riverDist, WATER_Y, WATER, PLAY_RADIUS, layout, jungleMask, regionName, WF, RIVER_HALF, MARKET, TEA, tunnelAt, LID_W, TRACK_Y, CRICKET, localToWorld, lanes,
+  isFree, fieldType, trackDist, TANK, TRACKS, CANAL, canalDist, roadX, groundHeight, resolveCollisions, pushOut, colliders, forColliders, NP, MP, heightAt, riverDist, WATER_Y, WATER, PLAY_RADIUS, layout, jungleMask, TRACK_PONDS, regionName, WF, RIVER_HALF, MARKET, TEA, tunnelAt, LID_W, TRACK_Y, CRICKET, localToWorld, lanes,
 } from './world.js';
 import { buildTerrain, buildGrassData } from './terrain.js';
 import { startBakes } from './bakepool.js';
@@ -59,6 +59,7 @@ import { sampleAtmo, WEATHERS, TIMES, clockText } from './daycycle.js';
 import { updateCull, streamGroup, updateStream, setupTinyCull, updateTinyCull } from './perf.js';
 import { wheelRig, groundPose, settleWheels } from './suspension.js';
 import { WaterJet } from './waterjet.js';
+import { buildTrackPonds } from './trackponds.js';
 import { buildBuffaloes } from './buffalo.js';
 import { buildShops } from './shops.js';
 
@@ -1899,6 +1900,7 @@ async function build() {
   lap('shops');
   shrineLife = buildShrineLife(scene);
   trackside = buildTrackside(scene, train, { moo: (v) => audio.moo(v) });
+  buildTrackPonds(scene); // (ponds along the line, some of them crossed on a bridge)
   trackScene = buildTrackScenery(scene, train, { peacock: (d) => audio.peacock(clamp(1 - d / 140, 0, 1)), bark: (d) => audio.bark(clamp(1.1 - d / 45, 0, 1)) });
   lap('shrine/trackside');
   motes = buildMotes();
@@ -3791,7 +3793,7 @@ window.__gaon = {
   get herds() { return herds; },
   get hamlets() { return hamlets; },
   heightAt, groundHeight, // (testing: the ground)
-  get hose() { return hose; }, get joy() { return joy; }, layout, pumpS,
+  get hose() { return hose; }, get joy() { return joy; }, layout, pumpS, TRACK_PONDS,
   get shrineLife() { return shrineLife; },
   get trackside() { return trackside; },
   allPeople: ALL_PEOPLE,

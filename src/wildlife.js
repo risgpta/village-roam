@@ -2,7 +2,7 @@
 // and a wolf pack on the far side. They keep away from the villages, but don't get too close.
 import * as THREE from 'three';
 import { heightAt, groundHeight, riverX, RIVER_HALF, WATER_Y, resolveCollisions, WILD, warpR, JUNGLE_HOMES, layout } from './world.js';
-import { quadruped, eyes, consolidate, gaitPolish, headShape } from './animals.js';
+import { quadruped, eyes, consolidate, gaitPolish, headShape, Peacock, Rabbit } from './animals.js';
 import { ellipsoid, limb, limbZ, bodyZ, taperTube, lathe, furMat } from './shapes.js';
 import { rng } from './noise.js';
 
@@ -1030,8 +1030,26 @@ export function buildWildlife(scene) {
     .map((g) => ({ g, d: Math.hypot(g.x - J.birds.x, g.z - J.birds.z) })).sort((a, b) => a.d - b.d).filter((_, i) => i % 7 === 0).slice(0, 5)
     .map(({ g }) => { const a = R() * 6.28, h = (g.h ?? 17 * g.s) * 0.8; return new Owl({ x: g.x + Math.cos(a) * 1.6, z: g.z + Math.sin(a) * 1.6, y: heightAt(g.x, g.z) + h, face: a }, R); });
   const jBirds = new JungleBirds({ ...J.birds }, R);
+  // the second herds and the rest, further in
+  const stag2 = new Herbivore({ ...J.deer2 }, R, 'deer', null, 1.1, true);
+  deer.push(stag2, ...[0.95, 1, 0.9, 0.6, 0.98].map((sc, i) => new Herbivore({ ...J.deer2 }, R, 'deer', stag2, sc, i === 4)));
+  const zLead2 = new Herbivore({ ...J.zebras2 }, R, 'zebra', null, 1.04);
+  zebras.push(zLead2, ...[1, 0.95, 0.68, 1].map((sc) => new Herbivore({ ...J.zebras2 }, R, 'zebra', zLead2, sc)));
+  const gLead2 = new Herbivore({ ...J.giraffes2 }, R, 'giraffe', null, 1.08);
+  giraffes.push(gLead2, ...[0.92, 0.66].map((sc) => new Herbivore({ ...J.giraffes2 }, R, 'giraffe', gLead2, sc)));
+  const lions2 = [new Tiger({ ...J.lions2 }, R, 'lion'), new Tiger({ ...J.lions2 }, R, 'lioness'), new Tiger({ ...J.lions2 }, R, 'lioness')];
+  for (const l of lions2) { l.p.x += (R() - 0.5) * 10; l.p.z += (R() - 0.5) * 10; }
+  const jLeopards = J.leopardsJ.map((h) => new Tiger({ ...h }, R, 'leopard'));
+  const bullJ = new Grazer({ ...J.buffaloJ }, R, 'buffalo', null, 1.15);
+  const buffaloJ = [bullJ, ...[0.95, 1, 0.92, 0.6].map((sc) => new Grazer({ ...J.buffaloJ }, R, 'buffalo', bullJ, sc))];
+  const jPeacocks = Array.from({ length: 6 }, () => new Peacock({ ...J.peacocks }, R));
+  const jRabbits = Array.from({ length: 8 }, () => new Rabbit({ ...J.rabbits }, R));
+  const nearTrees3 = layout.trees.filter((t) => Math.hypot(t.x - J.monkeys3.x, t.z - J.monkeys3.z) < 30).slice(0, 3);
+  for (let i = 0; i < 7; i++) { const t = i >= 4 ? nearTrees3[i - 4] : null; monkeys.push(new Monkey({ ...J.monkeys3 }, R, i + 20, t ? { x: t.x + 0.6, z: t.z + 0.3, y: heightAt(t.x, t.z) + 3.4 * t.s } : null)); }
+  const jBirds2 = new JungleBirds({ ...J.birds2 }, R);
   const all = [...crocs, tiger, ...leopards, ...wolves, ...elephants, ...lions, ...hyenas, ...buffalo, ...rhinos, ...monkeys, ...snakes,
-    ...deer, ...zebras, ...giraffes, ...jackals, jTiger, ...jElephants, ...rhinos2, ...owls, jBirds];
+    ...deer, ...zebras, ...giraffes, ...jackals, jTiger, ...jElephants, ...rhinos2, ...owls, jBirds,
+    ...lions2, ...jLeopards, ...buffaloJ, ...jPeacocks, ...jRabbits, jBirds2];
   for (const a of all) scene.add(a.root);
   let night = false;
   return {
@@ -1044,7 +1062,7 @@ export function buildWildlife(scene) {
         // close by, and a few times a second further out — so the jungle is alive wherever you look from
         const dx = Math.abs(p.x - boy.x), dz = Math.abs(p.z - boy.z), far = dx > 330 || dz > 330, mid = dx > 140 || dz > 140;
         a.root.visible = !far;
-        const lead = a === leader || a === matriarch || a === hyLead || a === bull || a === stag || a === zLead || a === gLead || a === jkLead || a === jMatriarch;
+        const lead = a === leader || a === matriarch || a === hyLead || a === bull || a === stag || a === zLead || a === gLead || a === jkLead || a === jMatriarch || a === stag2 || a === zLead2 || a === gLead2 || a === bullJ;
         if (far && !lead) continue;
         if (mid) { a._skip = ((a._skip ?? 0) + 1) % 4; a._acc = (a._acc ?? 0) + dt; if (a._skip) continue; a.update(a._acc, boy, ev, night); a._acc = 0; continue; }
         a._acc = 0;
@@ -1053,7 +1071,7 @@ export function buildWildlife(scene) {
     },
     colliders() {
       return [...leopards.map((l) => ({ kind: 'c', x: l.p.x, z: l.p.z, r: 0.35 })), ...elephants.map((e) => ({ kind: 'c', x: e.p.x, z: e.p.z, r: 1.3 * e.scale })), ...crocs.map((c) => ({ kind: 'c', x: c.x, z: c.z, r: 0.5 })), { kind: 'c', x: tiger.p.x, z: tiger.p.z, r: 0.5 }, ...wolves.map((w) => ({ kind: 'c', x: w.p.x, z: w.p.z, r: 0.3 })),
-        ...lions.map((l) => ({ kind: 'c', x: l.p.x, z: l.p.z, r: 0.5 })), ...[...buffalo, ...rhinos, ...rhinos2].map((g) => ({ kind: 'c', x: g.p.x, z: g.p.z, r: 0.8 * g.scale })),
+        ...[...lions, ...lions2].map((l) => ({ kind: 'c', x: l.p.x, z: l.p.z, r: 0.5 })), ...buffaloJ.map((g) => ({ kind: 'c', x: g.p.x, z: g.p.z, r: 0.8 * g.scale })), ...[...buffalo, ...rhinos, ...rhinos2].map((g) => ({ kind: 'c', x: g.p.x, z: g.p.z, r: 0.8 * g.scale })),
         ...jElephants.map((e) => ({ kind: 'c', x: e.p.x, z: e.p.z, r: 1.3 * e.scale })), { kind: 'c', x: jTiger.p.x, z: jTiger.p.z, r: 0.5 },
         ...[...zebras, ...giraffes].map((g) => ({ kind: 'c', x: g.p.x, z: g.p.z, r: g.spec.rad * g.scale }))];
     },

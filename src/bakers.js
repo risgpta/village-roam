@@ -5,7 +5,7 @@
 import { smoothstep, fbm } from './noise.js';
 import {
   INNER_HALF, DATA_HALF, RIVER_HALF, PLAY_RADIUS, heightAt, riverX, riverDist, dirtMask, fieldType, isBund, trackDist, waterfallMask, fallsRock, GARDEN,
-  desertMask, tunnelMask, jungleMask, tribDist, TRIB, layout, canalDist, CANAL, MID_HALF, OUTER_HALF,
+  desertMask, tunnelMask, jungleMask, pondDist, TRACK_PONDS, tribDist, TRIB, layout, canalDist, CANAL, MID_HALF, OUTER_HALF,
 } from './world.js';
 import { terrainColor } from './terrain.js';
 
@@ -87,6 +87,7 @@ function grassRows(j0, j1) {
       if (dens > 0) { const cd = canalDist(x, z); if (cd < CANAL.half + 8) dens *= smoothstep(CANAL.half + 6.0, CANAL.half + 7.4, cd); }
       if (dens > 0 && PAD) { const dp = Math.hypot(x - PAD.x, z - PAD.z); if (dp < 9) dens *= smoothstep(7.4, 8.6, dp); } // nothing grows through the helipad
       if (dens > 0 && tunnelMask(x, z)) dens = 0;
+      if (dens > 0 && TRACK_PONDS.length) { const pd = pondDist(x, z); if (pd < 2) dens *= smoothstep(0.3, 2, pd); } // (none in the ponds)
       if (dens > 0) { const jm = jungleMask(x, z); if (jm > 0) dens *= 1 - jm * 0.7; } // under the jungle canopy the grass grows thin
       if (dens > 0) dens *= (1 - waterfallMask(x, z)) * (1 - fallsRock(x, z));
       if (Math.abs(x - GARDEN.x) < GARDEN.hw && Math.abs(z - GARDEN.z) < GARDEN.hd) dens *= 0.08;

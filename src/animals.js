@@ -960,7 +960,7 @@ export class Peacock {
 }
 
 // ---------------- hare / rabbit ----------------
-class Rabbit {
+export class Rabbit {
   constructor(home, R) {
     const fur = mat(['#9a7a5a', '#a88a68', '#8a7058'][Math.floor(R() * 3)], 0.95), pale = mat('#e6dccb', 0.95), pink = mat('#d8a09a', 0.8), dark = mat('#2a2220', 0.7);
     this.root = new THREE.Group();

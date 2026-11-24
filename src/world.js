@@ -10,6 +10,28 @@ export const WATER_Y = -0.4;
 export const WATER = { off: 0 };
 export const RIVER_HALF = 10;
 export const SQUARE = { x: -2, z: 2, r: 12 };
+// Ponds by the railway (found when each line is laid, see makeTrack): some right under the line, which then
+// crosses them on a bridge; some just beside it. { x, z, r, level (the water), depth, bridge }
+export const TRACK_PONDS = [];
+// how far (x, z) is inside the nearest pond's edge (negative: inside), or a big number
+export function pondDist(x, z) {
+  let m = 1e9;
+  for (const P of TRACK_PONDS) { const dx = x - P.x, dz = z - P.z; if (dx > P.r + 40 || dx < -P.r - 40 || dz > P.r + 40 || dz < -P.r - 40) continue; m = Math.min(m, Math.hypot(dx, dz) - P.r); }
+  return m;
+}
+// the pond's bowl dug into the ground, its bank easing back up to the land round it
+function pondCarve(x, z, h) {
+  for (const P of TRACK_PONDS) {
+    const dx = x - P.x, dz = z - P.z, R2 = P.r + 9;
+    if (dx > R2 || dx < -R2 || dz > R2 || dz < -R2) continue;
+    const d = Math.hypot(dx, dz);
+    if (d >= R2) continue;
+    const t = d / P.r, bowl = d < P.r ? P.level - 0.15 - P.depth * (1 - t * t) : P.level + 0.25;
+    const w = 1 - smoothstep(P.r, R2, d);
+    h = lerp(h, Math.min(h, bowl), w);
+  }
+  return h;
+}
 export const PLAY_RADIUS = 3300; // a wide belt of country outside the ring line, the land rising into the far mountains near the edge
 export const TRACK_Y = 1.3;
 
@@ -403,7 +425,7 @@ export function dipMask(x, z) {
 }
 export const RING_SIGHTS = { hill: RING_HILL, dip: DIP };
 // the jungle: dense forest out beyond the ring line in the south-east, a good way off the track
-export const JUNGLE = { th0: -1.15, th1: -0.3, gap: 95, r1: 1880 };
+export const JUNGLE = { th0: -1.15, th1: -0.3, gap: 95, r1: 2240 }; // (out to 2.24 km: twice the forest it was)
 export function jungleMask(x, z) {
   const th = Math.atan2(z, x);
   if (th < JUNGLE.th0 || th > JUNGLE.th1) return 0;
@@ -433,6 +455,18 @@ export const JUNGLE_HOMES = {
   monkeys2: { ...polar(-0.7, ringR(-0.7) + 195), r: 20 },
   snakes2: [polar(-0.6, ringR(-0.6) + 150), polar(-0.72, ringR(-0.72) + 230)].map((p) => ({ ...p, r: 9 })),
   birds: { ...polar(-0.7, ringR(-0.7) + 170) },
+  // further in, where the forest goes on now: a second herd of each, a second pride, leopards, wild buffalo,
+  // peacocks and rabbits round the clearing, and another troop of langurs
+  deer2: { ...polar(-0.95, ringR(-0.95) + 330), r: 35 },
+  zebras2: { ...polar(-0.5, ringR(-0.5) + 330), r: 35 },
+  giraffes2: { ...polar(-0.62, ringR(-0.62) + 360), r: 35 },
+  lions2: { ...polar(-0.9, ringR(-0.9) + 430), r: 35 },
+  leopardsJ: [polar(-0.68, ringR(-0.68) + 300), polar(-0.45, ringR(-0.45) + 430)].map((p) => ({ ...p, r: 30, area: 50 })),
+  buffaloJ: { ...polar(-0.78, ringR(-0.78) + 390), r: 40 },
+  peacocks: { ...polar(-0.71, ringR(-0.71) + 128), r: 22 },
+  rabbits: { ...polar(-0.67, ringR(-0.67) + 135), r: 18 },
+  monkeys3: { ...polar(-0.93, ringR(-0.93) + 250), r: 20 },
+  birds2: { ...polar(-0.85, ringR(-0.85) + 420) },
 };
 // tunnels: inside, the bore is about 8.8 m wide; the hill above is carved out a little wider and a strip of
 // hillside (the lid, see terrain.js) laid back over the top so it looks untouched from outside
@@ -482,6 +516,7 @@ export function baseHeight(x, z) {
   if (dt < 14) h = lerp(HILLTOP_H, h, smoothstep(6, 14, dt));
   const dp = Math.hypot(x - PEAK.x, z - PEAK.z);
   if (dp < 20) h = lerp(PEAK_H, h, smoothstep(11, 20, dp));
+  if (TRACK_PONDS.length) h = pondCarve(x, z, h);
   return h;
 }
 const PEAK_H = rawHeight(PEAK.x, PEAK.z) + 0.5;
@@ -597,7 +632,8 @@ function shrineRoadAt(x, z) {
 
 // Each line's open stretches: the station lines and the ring are open all the way (their valleys are carved);
 // the Mail line goes into a tunnel wherever the hills rise over it.
-function makeTrack(path, forced = false) {
+const TRACKS_SO_FAR = [];
+function makeTrack(path, forced = false, pondsWanted = true) {
   const lim = TRACK_Y + 8;
   let segs = [];
   if (forced) segs = [[0, path.L]];
@@ -613,17 +649,45 @@ function makeTrack(path, forced = false) {
     for (const g of raw) { const last = segs[segs.length - 1]; if (last && g[0] - last[1] < 14) last[1] = g[1]; else segs.push([...g]); }
     segs = segs.filter((g) => g[1] - g[0] > 30);
   }
+  // ponds along the open line, every half kilometre or so on the flat lowland: one under the line (it gets a
+  // bridge, below), the next beside it, and so on — something to look out at from the train
+  if (pondsWanted) {
+    const R = rng(Math.round(path.L) * 7 + 13), q = {}, n2 = {};
+    let under = R() < 0.5;
+    const towns = [NV, RV, BV, TV, MH, NE, PG, STATION, ...NEWV, ...Object.values(CV)].filter((v) => v && Number.isFinite(v.x));
+    const isOpen = (t) => segs.some((g) => t > g[0] + 30 && t < g[1] - 30);
+    for (let t = 220 + R() * 200; t < path.L - 200; t += 560 + R() * 260) {
+      if (!isOpen(t)) continue;
+      path.at(t, q);
+      const nx = -q.tz, nz = q.tx, side = R() < 0.5 ? -1 : 1, off = under ? 0 : side * (27 + R() * 8);
+      const x = q.x + nx * off, z = q.z + nz * off, r = under ? 15 + R() * 6 : 10 + R() * 5;
+      const g0 = baseHeight(x, z);
+      if (g0 < TRACK_Y - 1.6 || g0 > TRACK_Y + 2.6) continue;
+      if (Math.hypot(x, z) < 330 || towns.some((v) => Math.hypot(x - v.x, z - v.z) < 170)) continue;
+      if (riverDist(x, z) < RIVER_HALF + 45 || tribDist(x, z) < TRIB.half + 30 || canalDist(x, z) < 40) continue;
+      if (jungleMask(x, z) > 0 || dipMask(x, z) > 0.02 || desertMask(x, z) > 0.1) continue;
+      if (Math.abs(z) < 900 && Math.abs(x - roadX(z)) < 40) continue;
+      if (TRACK_PONDS.some((P) => Math.hypot(P.x - x, P.z - z) < 160)) continue;
+      // (a pond beside the line mustn't reach under another one)
+      if (!under && TRACKS_SO_FAR.some((T) => { const m = T.path.near(x, z, n2); return m && m.d < r + 10; })) continue;
+      const level = g0 - 0.9;
+      TRACK_PONDS.push({ x, z, r, level, depth: under ? Math.max(2.2, level - (TRACK_Y - 4.2)) : 1.8, bridge: under });
+      under = !under;
+    }
+  }
   // where it crosses the river: bridges
   const bridges = []; { let b0 = null; const q = {};
     for (let t = 0; t <= path.L; t += 1) { path.at(t, q); const w = riverDist(q.x, q.z) < RIVER_HALF + 9 || tribDist(q.x, q.z) < TRIB.half + 8 || baseHeight(q.x, q.z) < TRACK_Y - 3; if (w && b0 === null) b0 = t; else if (!w && b0 !== null) { bridges.push([b0 - 2, t + 1]); b0 = null; } } }
   // the stretches between the open ones run through hills: real tunnels you can go through
   const tunnels = []; { let c = 0; for (const g of segs) { if (g[0] - c > 20) tunnels.push([c, g[0]]); c = g[1]; } if (path.L - c > 20) tunnels.push([c, path.L]); }
-  return {
+  const T = {
     path, segs, bridges, tunnels, L: path.L, closed: path.closed,
     openS: (t, m = 0) => { t = path.wrap(t); return segs.some((g) => t > g[0] - m && t < g[1] + m); },
     tunnelS: (t) => { t = path.wrap(t); return tunnels.some((g) => t >= g[0] && t <= g[1]); },
     bridgeS: (t) => { t = path.wrap(t); return bridges.some((g) => t > g[0] && t < g[1]); },
   };
+  TRACKS_SO_FAR.push(T);
+  return T;
 }
 export const TRACK = Object.assign(makeTrack(P_MAIN, true), { z: trackZ, slope: trackSlope, termini: true, name: 'main' });
 export const TRACK2 = Object.assign(makeTrack(P_MAIL, false), { z: trackZ2, slope: trackSlope2, termini: true, name: 'mail' });
@@ -1142,6 +1206,9 @@ export const layout = {
 
 (function generate() {
   const R = rng(20251103);
+  // the railway's ponds: nothing built or planted in them, and nobody walks in (a train on the bridge above,
+  // or the boy up on its deck, passes over)
+  for (const P of TRACK_PONDS) { occupy(P.x, P.z, P.r + 3); colliders.push({ kind: 'c', x: P.x, z: P.z, r: P.r * 0.92, height: P.level + 0.6 }); }
   const addLane = (ax, az, bx, bz, w = 1.7) => {
     lanes.push({ ax, az, bx, bz, w });
     const n = Math.ceil(Math.hypot(bx - ax, bz - az) / 4);
@@ -2258,19 +2325,19 @@ export const layout = {
   {
     let nt = 0, nb = 0;
     const J = JUNGLE;
-    for (let i = 0; i < 120000 && (nt < 2200 || nb < 3200); i++) {
+    for (let i = 0; i < 240000 && (nt < 4200 || nb < 6000); i++) {
       const th = J.th0 + R() * (J.th1 - J.th0), r = ringR(th) + J.gap + R() * (J.r1 - ringR(th) - J.gap);
       const x = Math.cos(th) * r, z = Math.sin(th) * r;
       const m = jungleMask(x, z);
       if (R() > m || dipMask(x, z) > 0.2 || riverDist(x, z) < RIVER_HALF + 6) continue;
-      if (nt < 2200 && R() < 0.5) {
+      if (nt < 4200 && R() < 0.5) {
         if (!isFree(x, z, 2.3)) continue;
         const s2 = 1.05 + R() * 0.85;
         layout.trees.push({ x, z, s: s2, rot: R() * 6.28, v: Math.floor(R() * 3) });
         occupy(x, z, 2.1);
         colliders.push({ kind: 'c', x, z, r: 0.35 * s2 });
         nt++;
-      } else if (nb < 3200) {
+      } else if (nb < 6000) {
         if (!isFree(x, z, 0.9)) continue;
         layout.bushes.push({ x, z, s: 0.8 + R() * 0.9, rot: R() * 6.28, v: Math.floor(R() * 3) });
         occupy(x, z, 0.7);
@@ -2284,33 +2351,59 @@ export const layout = {
     let ng = 0, nf = 0, nl = 0, nb2 = 0;
     const clearings = [JUNGLE_HOMES.deer, JUNGLE_HOMES.zebras, JUNGLE_HOMES.giraffes].map((h) => ({ x: h.x, z: h.z, r: h.r * 0.8 }));
     const inClearing = (x, z) => clearings.some((c) => Math.hypot(x - c.x, z - c.z) < c.r);
-    for (let i = 0; i < 260000 && (ng < 650 || nf < 7000 || nl < 2800 || nb2 < 1800); i++) {
+    for (let i = 0; i < 520000 && (ng < 1300 || nf < 12000 || nl < 5000 || nb2 < 3000); i++) {
       const th = J.th0 + R() * (J.th1 - J.th0), r = ringR(th) + J.gap + R() * (J.r1 - ringR(th) - J.gap);
       const x = Math.cos(th) * r, z = Math.sin(th) * r;
       const m = jungleMask(x, z);
       if (R() > m || dipMask(x, z) > 0.2 || riverDist(x, z) < RIVER_HALF + 5) continue;
       const open = inClearing(x, z), k = R();
-      if (k < 0.08 && ng < 650 && !open) {
+      if (k < 0.08 && ng < 1300 && !open) {
         if (!isFree(x, z, 3.2)) continue;
         const s2 = 0.85 + R() * 0.45;
         layout.jungleGiants.push({ x, z, s: s2, rot: R() * 6.28, v: Math.floor(R() * 3) });
         occupy(x, z, 3);
         colliders.push({ kind: 'c', x, z, r: 0.75 * s2 });
         ng++;
-      } else if (k < 0.66 && nf < 7000) {
+      } else if (k < 0.66 && nf < 12000) {
         if (!isFree(x, z, 0.35)) continue;
         layout.ferns.push({ x, z, s: (open ? 0.6 : 0.8) + R() * 0.7, rot: R() * 6.28, v: Math.floor(R() * 3) });
         nf++;
-      } else if (k < 0.88 && nl < 2800 && !open) {
+      } else if (k < 0.88 && nl < 5000 && !open) {
         if (!isFree(x, z, 0.6)) continue;
         layout.bigLeaf.push({ x, z, s: 0.8 + R() * 0.7, rot: R() * 6.28, v: Math.floor(R() * 3) });
         occupy(x, z, 0.5);
         nl++;
-      } else if (nb2 < 1800 && !open) {
+      } else if (nb2 < 3000 && !open) {
         if (!isFree(x, z, 0.9)) continue;
         layout.bushes.push({ x, z, s: 0.9 + R() * 1.0, rot: R() * 6.28, v: Math.floor(R() * 3) });
         occupy(x, z, 0.7);
         nb2++;
+      }
+    }
+  }
+  // avenues along the line: for a few hundred metres at a stretch, a row of trees down each side of the track
+  {
+    const R2 = rng(4471);
+    for (const T of TRACKS) {
+      const q = {};
+      for (let s0 = 150 + R2() * 300; s0 < T.L - 300; s0 += 700 + R2() * 500) {
+        const len = 200 + R2() * 220, kind = R2(), gap = kind < 0.25 ? 9 : 12;
+        for (let s1 = s0; s1 < s0 + len && s1 < T.L; s1 += gap + R2() * 2.5) {
+          if (!T.openS(s1) || T.bridgeS(s1)) continue;
+          T.path.at(s1, q);
+          for (const sd of [-1, 1]) {
+            if (R2() < 0.12) continue; // (a gap here and there, as in any real row)
+            const off = 12 + R2() * 2.5, x = q.x - q.tz * sd * off, z = q.z + q.tx * sd * off;
+            if (trackDist(x, z) < 9 || riverDist(x, z) < RIVER_HALF + 4 || pondDist(x, z) < 3 || dirtMask(x, z) > 0.1 || jungleMask(x, z) > 0) continue;
+            if (fieldType(x, z) && !isBund(x, z)) continue;
+            if (!isFree(x, z, 2.2)) continue;
+            const s = 0.9 + R2() * 0.4;
+            if (kind < 0.25) layout.palms.push({ x, z, s: 0.85 + R2() * 0.3, rot: R2() * 6.28, v: Math.floor(R2() * 3) });
+            else layout.trees.push({ x, z, s, rot: R2() * 6.28, v: Math.floor(R2() * 3) });
+            occupy(x, z, 2);
+            colliders.push({ kind: 'c', x, z, r: 0.35 * s });
+          }
+        }
       }
     }
   }

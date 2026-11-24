@@ -452,12 +452,14 @@ P.setJungle = function (level = 0, night = false) {
     cr.connect(this._bp(3400, 10)).connect(crg).connect(g);
     this._jg = g; this._jcall = 3;
   }
-  this._jg.gain.setTargetAtTime(Math.min(0.06, level * (night ? 0.06 : 0.045)), t, 0.8);
+  this._jg.gain.setTargetAtTime(Math.min(0.11, level * (night ? 0.11 : 0.085)), t, 0.8);
   // calls from the trees (this is called four times a second)
   this._jcall -= 0.25;
-  if (level > 0.25 && this._jcall <= 0) {
-    this._jcall = 2.5 + Math.random() * 6;
-    const v = level * 0.05, k = Math.random(), at = t + 0.05;
+  if (level > 0.2 && this._jcall <= 0) {
+    // (often two at once: the jungle is never quiet for long)
+    this._jcall = 1 + Math.random() * 2.2;
+    if (Math.random() < 0.35) this._jcall = 0.3;
+    const v = level * 0.08, k = Math.random(), at = t + 0.05 + Math.random() * 0.3;
     const tone = (f0, f1, st, len, type = 'sine', vol = v) => { const o = this.ctx.createOscillator(), g = this._g(0); o.type = type; o.frequency.setValueAtTime(f0, at + st); o.frequency.exponentialRampToValueAtTime(f1, at + st + len); g.gain.setValueAtTime(0, at + st); g.gain.linearRampToValueAtTime(vol, at + st + 0.03); g.gain.exponentialRampToValueAtTime(0.0005, at + st + len); o.connect(g).connect(this.master); o.start(at + st); o.stop(at + st + len + 0.05); };
     if (night) { if (k < 0.5) tone(620, 540, 0, 0.5, 'sine', v * 0.6); }
     else if (k < 0.35) { tone(700, 1050, 0, 0.32); tone(760, 1150, 0.45, 0.38); } // the koel: ku-OO, ku-OO
