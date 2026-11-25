@@ -10,9 +10,9 @@ import {
 import { terrainColor } from './terrain.js';
 
 export const BAKE = {
-  height: { N: 2257, half: INNER_HALF }, // terrain mesh heights: a grid of N × N vertices (2.97 m apart; N − 1 = 16 tiles × 3 × 47)
-  color: { N: 4096, half: INNER_HALF }, // the terrain's colour map (1.64 m a pixel)
-  grass: { N: 3600, half: DATA_HALF }, // grass height / density / crop type (1.86 m a texel)
+  height: { N: 2737, half: INNER_HALF }, // terrain mesh heights: a grid of N × N vertices (3.0 m apart; N − 1 = 16 tiles × 3 × 57)
+  color: { N: 4096, half: INNER_HALF }, // the terrain's colour map (2 m a pixel)
+  grass: { N: 4096, half: DATA_HALF }, // grass height / density / crop type (2 m a texel)
   map: { N: 2900, half: 3360 }, // the painted area map
   // the two rings of land round the inner terrain (see buildTerrain): per vertex, its height and colour
   ringA: { N: Math.round((MID_HALF * 2) / 6) + 1, half: MID_HALF, S: 6, hole: INNER_HALF, dy: -0.03 },

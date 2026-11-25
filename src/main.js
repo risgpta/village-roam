@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { noise2, clamp } from './noise.js';
 import {
-  isFree, fieldType, trackDist, TANK, TRACKS, CANAL, canalDist, roadX, groundHeight, resolveCollisions, pushOut, colliders, forColliders, NP, MP, heightAt, riverDist, WATER_Y, WATER, PLAY_RADIUS, layout, jungleMask, TRACK_PONDS, regionName, WF, RIVER_HALF, MARKET, TEA, tunnelAt, LID_W, TRACK_Y, CRICKET, localToWorld, lanes,
+  isFree, fieldType, trackDist, TANK, TRACKS, CANAL, canalDist, RAPID, rapidLevel, rapidDist, roadX, groundHeight, resolveCollisions, pushOut, colliders, forColliders, NP, MP, heightAt, riverDist, WATER_Y, WATER, PLAY_RADIUS, layout, jungleMask, TRACK_PONDS, regionName, WF, RIVER_HALF, MARKET, TEA, tunnelAt, LID_W, TRACK_Y, CRICKET, localToWorld, lanes,
 } from './world.js';
 import { buildTerrain, buildGrassData } from './terrain.js';
 import { startBakes } from './bakepool.js';
@@ -17,8 +17,9 @@ import { buildVegetation, setFoliageGlow, setFoliageSeason, updateVegetation } f
 import { buildRiver, buildWaterfall, streamDist } from './water.js';
 import { buildVillage, setNightGlow } from './props.js';
 import { buildRailway } from './rail.js';
-import { buildPeople, makeBullockCart } from './people.js';
+import { buildPeople, makeBullockCart, makeTonga } from './people.js';
 import { AnimalMount } from './mounts.js';
+import { buildFriends } from './friends.js';
 import { buildFire } from './fire.js';
 import { buildAnimals } from './animals.js';
 import { LanternLights } from './gear.js';
@@ -473,8 +474,8 @@ const vehicles = [
   { obj: new AutoRickshaw(), name: 'auto', park: { x: layout.auto.x, z: layout.auto.z, rot: layout.auto.rot }, walk: 8.5, run: 13, boost: 19, accel: 0.8, reach: 2.8, rad: 0.75, lean: 0.2,
     four: true, wb: 1.6, rev: 3.5, probes: [-0.65, 0.6], exit: [-1.1, 0.2], box: [0, -0.1, 0.72, 1.3],
     on: 'Driving the auto rickshaw', off: 'Out of the auto', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['L', 'lights']], ask: 'drive the auto rickshaw', flame: true },
-  { obj: new Scooter(), name: 'scooter', nitro: true, park: { x: roadX(29) - 2.8, z: 29, rot: 2.6 }, walk: 8.5, run: 13, boost: 23, accel: 1.0, reach: 2.3, rad: 0.45, lean: 1, flame: true,
-    on: 'On the scooter', off: 'Off the scooter', help: [['E', 'get off'], ['B', 'horn'], ['Shift', 'faster'], ['N', 'nitro'], ['L', 'lights']], ask: 'ride the scooter' },
+  { obj: new Scooter(), name: 'scooter', park: { x: roadX(29) - 2.8, z: 29, rot: 2.6 }, walk: 8.5, run: 13, boost: 13, accel: 1.0, reach: 2.3, rad: 0.45, lean: 1, flame: false,
+    on: 'On the scooter', off: 'Off the scooter', help: [['E', 'get off'], ['B', 'horn'], ['Shift', 'faster'], ['L', 'lights']], ask: 'ride the scooter' },
   { obj: new SmallCar(), name: 'car', nitro: true, park: { x: roadX(100) + 5, z: 100, rot: 0.1 }, walk: 12, run: 18, boost: 28, accel: 0.9, reach: 3.0, rad: 0.82, lean: 0.1, flame: true,
     four: true, wb: 2.05, rev: 4.5, probes: [-1.05, 0, 1.05], exit: [-1.2, 0], box: [0.33, 0, 0.8, 1.68],
     on: 'In the little car — vroom!', off: 'Out of the car', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['N', 'nitro'], ['L', 'lights']], ask: 'drive the little car' },
@@ -527,6 +528,14 @@ const vehicles = [
     add('bicycle', new Bicycle(), cx - Math.cos(a) * 1.2, cz - Math.sin(a) * 1.2, -v.th);
     // the canal villages have a row of them by the square
     // Naharpur, the bigger of the two, has a car, an auto and an e-rickshaw about the square too
+    // the big villages out on the Seemant line: a car, an auto, a scooter and an e-rickshaw by the square
+    if (v.big) {
+      const bx = v.x - Math.cos(v.th) * 12, bz = v.z - Math.sin(v.th) * 12;
+      add('car', new SmallCar(['#8a2a2a', '#2a6a8a', '#e8e4da'][Math.round(v.th * 10) % 3]), bx + Math.cos(a) * 3, bz + Math.sin(a) * 3, -v.th + Math.PI / 2);
+      add('auto', new AutoRickshaw(), bx - Math.cos(a) * 3, bz - Math.sin(a) * 3, -v.th + Math.PI / 2);
+      add('scooter', new Scooter(['#d8407a', '#e8b020', '#2a8a6a'][Math.round(v.th * 10) % 3]), cx + Math.cos(a) * 3.4, cz + Math.sin(a) * 3.4, -v.th);
+      add('erick', Object.assign(new ERickshaw(), { fare0: 10, fareK: 2 }), bx + Math.cos(a) * 8, bz + Math.sin(a) * 8, -v.th + Math.PI / 2);
+    }
     if (v.name === 'Naharpur') {
       const bx = v.x - Math.cos(v.th) * 9, bz = v.z - Math.sin(v.th) * 9;
       add('car', new SmallCar('#2a6a8a'), bx + Math.cos(a) * 2.5, bz + Math.sin(a) * 2.5, -v.th + Math.PI / 2);
@@ -779,6 +788,7 @@ function toggleRide() {
 // Honk, and whoever is on the road ahead gets out of the way: people step off to the nearer side, and traffic
 // going either way pulls over to its edge and slows to let the boy through.
 let wayCool = 0;
+let friends = null; // (the people walking with the boy, see friends.js)
 function makeWay() {
   if (!started || performance.now() - wayCool < 600) return;
   wayCool = performance.now();
@@ -787,6 +797,7 @@ function makeWay() {
   for (const h of hitList) {
     const dx = h.x - player.x, dz = h.z - player.z, along = dx * fx + dz * fz, side = dx * fz - dz * fx;
     if (along < 1 || along > reach || Math.abs(side) > half + 0.8) continue;
+    if (h.person.atStop || h.person.friend) continue; // waiting under the bus shelter (or walking with the boy): they stay put
     const sd = side >= 0 ? 1 : -1, need = half + 1.2 - Math.abs(side);
     h.person.dodge(fz * sd * need, -fx * sd * need, 3.5 + along / 10);
   }
@@ -802,7 +813,7 @@ function reachOf(v) {
   return { fr: 0.9, bk: -0.9, w: 0.25 };
 }
 // how steep a slope each kind can climb (rise over run)
-const CLIMB = { camel: 0.5, elephant: 0.45, police: 0.65, cart: 0.32, bus: 0.38, minibus: 0.4, erick: 0.38, auto: 0.45, car: 0.5, jeep: 0.65, bicycle: 0.42, moped: 0.6, scooter: 0.55 };
+const CLIMB = { camel: 0.5, elephant: 0.45, police: 0.65, cart: 0.32, tonga: 0.36, bus: 0.38, minibus: 0.4, erick: 0.38, auto: 0.45, car: 0.5, jeep: 0.65, bicycle: 0.42, moped: 0.6, scooter: 0.55 };
 function hornFor(v) {
   if (v.siren) {
     v.obj.siren = !v.obj.siren;
@@ -849,16 +860,24 @@ TAKE_TPL.car = { walk: 12, run: 18, boost: 28, accel: 0.9, reach: 3.0, rad: 0.82
   four: true, wb: 2.05, rev: 4.5, probes: [-0.9, 0.15, 1.2], exit: [-1.2, 0], box: [0.33, 0.15, 0.8, 1.68],
   shapeOver: { half: [0.78, 0.7, 1.65], com: [0.33, 0.7, 0.15] },
   off: 'Out of the car', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['V', 'inside view'], ['E', 'get out'], ['B', 'horn'], ['N', 'nitro'], ['L', 'lights']], ask: 'drive the car' };
+// the tonga: a horse cart, light and quick — a brisk trot, a canter with Shift (much faster than the bullocks)
+TAKE_TPL.tonga = { walk: 3.6, run: 6.5, boost: 6.5, accel: 0.7, reach: 3.2, rad: 0.85, lean: 0.03, flame: false, sound: 'cart',
+  four: true, wb: 2.4, rev: 1.2, probes: [3.1, 1.6, 0, -1.1], exit: [-1.2, 0.3], box: [0, 1.05, 0.88, 2.45],
+  shapeOver: { half: [0.88, 1.0, 2.4], com: [0, 0.9, 1.05], mass: 520 },
+  off: 'Down from the tonga', help: [['W', 'trot on'], ['Shift', 'canter'], ['S', 'whoa · back'], ['A D', 'steer'], ['V', 'view'], ['E', 'get down'], ['B', 'bell']], ask: 'drive the tonga' };
 // a bullock cart standing by the road just short of the village, where the walk starts
 vehicles.push({ ...TAKE_TPL.cart, name: 'cart', obj: new TakenVehicle(makeBullockCart('#d8cfc0')), park: { x: roadX(startZ - 16) - 11, z: startZ - 16, rot: Math.PI },
   on: 'Up on the bullock cart — W to gee up, S to whoa', off: 'Off the bullock cart', ask: 'drive the bullock cart' });
+// and a tonga waiting a little further along, its horse swishing its tail
+vehicles.push({ ...TAKE_TPL.tonga, name: 'tonga', obj: new TakenVehicle(makeTonga('#7a4a2a', '#2a2a2a')), park: { x: roadX(startZ - 34) - 4.6, z: startZ - 34, rot: Math.PI },
+  on: 'Up on the tonga — W to trot, Shift to canter, S to whoa', off: 'Down from the tonga', ask: 'drive the tonga' });
 // the police jeep at each thana, ready to drive (B: siren and lights, and the traffic makes way)
 for (const B of layout.police ?? []) {
   vehicles.push({ ...TAKE_TPL.jeep, name: 'police', obj: new TakenVehicle(new PoliceJeep()), park: { x: B.jeep.x, z: B.jeep.z, rot: B.jeep.rot }, siren: true, sound: 'jeep',
     on: `The ${B.name} police jeep — B for the siren and lights`, off: 'Out of the police jeep', ask: 'drive the police jeep',
     help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster'], ['B', 'siren on / off'], ['V', 'inside view'], ['L', 'lights'], ['E', 'get out']] });
 }
-const TAKE_NAME = { bicycle: 'bicycle', moped: 'motorbike', scooter: 'scooter', bus: 'bus', jeep: 'jeep', cart: 'bullock cart', car: 'car' };
+const TAKE_NAME = { bicycle: 'bicycle', moped: 'motorbike', scooter: 'scooter', bus: 'bus', jeep: 'jeep', cart: 'bullock cart', car: 'car', tonga: 'tonga' };
 const TAKE_SHOUT = {
   bicycle: [['अरे! मेरी साइकिल!', 'Arey! Meri cycle!'], ['ओ भाई, साइकिल वापस लाना!', 'O bhai, cycle vaapas laana!']],
   moped: [['अरे! मेरी गाड़ी!', 'Arey! Meri gaadi!'], ['ओए! धीरे चलाना!', 'Oye! Dheere chalaana!']],
@@ -867,9 +886,10 @@ const TAKE_SHOUT = {
   jeep: [['ओ! मेरी जीप!', 'O! Meri jeep!'], ['अरे रुको! जीप मेरी है!', 'Arey ruko! Jeep meri hai!']],
   car: [['अरे! मेरी गाड़ी!', 'Arey! Meri gaadi!'], ['रुको! गाड़ी मेरी है!', 'Ruko! Gaadi meri hai!']],
   cart: [['अरे! मेरे बैल!', 'Arey! Mere bail!'], ['धीरे हाँकना, बैल थके हैं!', 'Dheere haankna, bail thake hain!']],
+  tonga: [['अरे! मेरा ताँगा!', 'Arey! Mera taanga!'], ['घोड़ा तेज़ है, संभाल के!', 'Ghoda tez hai, sambhaal ke!']],
 };
 const robbed = [];
-const takeKind = (t) => (t.kind === 'bike' ? t.bike.kind : t.veh?.kind === 'car' ? 'car' : t.kind);
+const takeKind = (t) => (t.kind === 'bike' ? t.bike.kind : t.veh?.kind === 'car' ? 'car' : t.tonga ? 'tonga' : t.kind);
 function nearTraffic() {
   if (!people || ride || swim.on) return null;
   let best = null, bd = 1e9;
@@ -980,7 +1000,7 @@ function updateRobbed(dt) {
 // a parked scooter shoved by the car falls on its side, the car hits a bus and stops dead, and anything
 // the train catches on the line is thrown clear — further and higher the faster the train is going.
 const crashes = new Crashes();
-const MASS = { camel: 500, elephant: 4000, police: 1800, bicycle: 60, moped: 130, scooter: 150, auto: 420, erick: 480, car: 900, jeep: 1800, minibus: 3600, bus: 7000, cart: 700, ambulance: 2600, firetruck: 9000 };
+const MASS = { camel: 500, elephant: 4000, police: 1800, bicycle: 60, moped: 130, scooter: 150, auto: 420, erick: 480, car: 900, jeep: 1800, minibus: 3600, bus: 7000, cart: 700, tonga: 520, ambulance: 2600, firetruck: 9000 };
 const UPV = new THREE.Vector3(0, 1, 0);
 function obbDist(x, z, b) {
   const dx = x - b.x, dz = z - b.z, c = Math.cos(b.rot), sn = Math.sin(b.rot);
@@ -1182,7 +1202,7 @@ function crashCheck(dt) {
   const mine = ride.probes ? ride.probes.map((o) => [player.x + Math.sin(player.facing) * o, player.z + Math.cos(player.facing) * o]) : [[player.x + Math.sin(player.facing) * 0.45, player.z + Math.cos(player.facing) * 0.45], [player.x, player.z]];
   const rP = ride.probes ? ride.rad : 0.35;
   // people: anyone in the way of the boy's vehicle is knocked flat (and gets up again, cross)
-  if (player.speed > 2.2) for (const h of hitList) {
+  if (player.speed > 1.2) for (const h of hitList) {
     if (h.person.fallT > 0) continue;
     if (Math.abs(h.x - player.x) + Math.abs(h.z - player.z) > 12) continue;
     let hit = false;
@@ -1816,6 +1836,13 @@ async function build() {
   };
   status('Waking the village…');
   await nextFrame();
+  friends = buildFriends(scene, {
+    player, boy, camera,
+    ride: () => ride,
+    onFoot: () => !ride && !drv && !pax && !joy && !knock.on,
+    toast: (t) => toast(t),
+    say: ([hi, ro], female) => audio.say(hi, { roman: ro, pitch: female ? 1.55 : 0.95, rate: 1.1 }),
+  });
   people = buildPeople(scene, village, {
     started: () => started,
     onBell: (d) => audio.cycleBell(clamp(1 - d / 25, 0, 1) * 0.8),
@@ -1827,6 +1854,7 @@ async function build() {
       for (const h of hitList) {
         const dx = h.x - t.p.x, dz = h.z - t.p.z, along = dx * fx + dz * fz, side = dx * fz - dz * fx;
         if (along < 0 || along > Math.hypot(at.x - t.p.x, at.z - t.p.z) + 4 || Math.abs(side) > half + 0.6) continue;
+        if (h.person.atStop || h.person.friend) continue;
         const sd = side >= 0 ? 1 : -1, need = half + 1 - Math.abs(side);
         h.person.dodge(fz * sd * need, -fx * sd * need, 4);
       }
@@ -2002,6 +2030,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyO' && !e.repeat && postcards) { postcards.toggle(); return; }
   if (e.code === 'Escape' && postcards?.open) { postcards.toggle(false); return; }
   if (e.code === 'KeyK' && !e.repeat && !(ride && ride.fly) && ride?.name !== 'firetruck') shareSpot(); // (on the fire tender, K is the water cannon)
+  if (e.code === 'KeyF' && !e.repeat && friends?.marking) { friends.keyF(); return; } // (holding P: make a friend)
   if (e.code === 'KeyF' && !e.repeat && fire && !ride && !drv && !pax && !swim.on && !cricketOn) { const r = fire.strike(player.x, player.z); boy.greetT = 1.2; if (r.text) toast(r.text); }
   if (cricketOn) {
     if (e.code === 'Space' && !e.repeat) cricket.action();
@@ -2018,7 +2047,7 @@ window.addEventListener('keydown', (e) => {
     else toggleRide();
   }
   if (e.code === 'KeyQ' && !e.repeat && !ride && !drv && !pax && !joy) { if (sit.on) standUp(); else sitDown(); }
-  if (e.code === 'KeyP' && !e.repeat && !(ride && ride.fly)) wantShot = true;
+  if (e.code === 'KeyP' && !e.repeat && !(ride && ride.fly)) { if (friends) friends.keyP(true); else wantShot = true; }
   if (e.code === 'KeyV' && pax && !e.repeat) { pax.view = 1 - pax.view; pax.yaw0 = yaw; toast(pax.view ? 'Outside view' : 'At the window'); }
   if (e.code === 'KeyH') toggleHelp();
   if (e.code === 'KeyC') cycleCamera();
@@ -2030,7 +2059,7 @@ window.addEventListener('keydown', (e) => {
   if (drv && !e.repeat) { if (e.code === 'KeyB') audio.horn(1); if (e.code === 'KeyV') { drvView = 1 - drvView; toast(drvView ? "Driver's view" : 'Outside view'); } }
   if (e.code === 'KeyV' && ride && ride.four) { inside = (inside + 1) % 3; yaw = player.facing + Math.PI; pitch = 0.28; toast(['Outside view', ride.name === 'minibus' || ride.name === 'bus' ? 'Inside the bus' : ride.name === 'erick' ? 'With the passengers' : 'Back seat view', "Driver's view"][inside]); }
 });
-window.addEventListener('keyup', (e) => { keys[e.code] = false; if (!e.shiftKey) keys.ShiftLeft = keys.ShiftRight = false; });
+window.addEventListener('keyup', (e) => { if (e.code === 'KeyP' && friends?.keyP(false)) wantShot = true; keys[e.code] = false; if (!e.shiftKey) keys.ShiftLeft = keys.ShiftRight = false; });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 
 let dragging = false;
@@ -2302,7 +2331,7 @@ function updatePlayer(dt) {
       player.z += rg.zr * (Math.cos(f0) - Math.cos(player.facing));
     }
     player.speed = Math.abs(v);
-  } else player.speed += (target - player.speed) * (1 - Math.exp(-dt * (riding ? (target > player.speed ? ride.accel : 2.5) : swim.on ? 3 : player.grounded ? 7 : 1.5)));
+  } else player.speed += (target - player.speed) * (1 - Math.exp(-dt * (riding ? (target > player.speed ? ride.accel : ride.water ? 0.32 : 2.5) : swim.on ? 3 : player.grounded ? 7 : 1.5))); // (a boat glides on when you stop rowing)
   if (len > 0 && !four) {
     mx /= len; mz /= len;
     if (!riding) { player.dirX = mx; player.dirZ = mz; }
@@ -2339,7 +2368,7 @@ function updatePlayer(dt) {
     if (!(riding && ride.water)) {
       for (const c of people.colliders()) if (!(c.person && riding)) pushOut(p, rad, c);
       for (const c of animals.colliders()) pushOut(p, rad, c);
-      if (herds) for (const c of herds.colliders()) pushOut(p, rad, c);
+      if (herds) for (const c of herds.colliders()) if (!(c.person && riding)) pushOut(p, rad, c); // (a herder in the way is knocked over, not a wall)
       if (buffs) for (const c of buffs.colliders()) pushOut(p, rad, c);
     }
     for (const b of train.boxes) pushOut(p, 0.3, b);
@@ -2378,6 +2407,28 @@ function updatePlayer(dt) {
     player.x = p.x; player.z = p.z;
   }
 
+  // in the boat: the river's current carries you gently downstream (more so when you're not rowing), and a wake
+  // spreads out behind the stern
+  if (ride?.water) {
+    const drift = 0.32 * (1 - Math.min(1, player.speed / 2.5) * 0.6), q2 = { x: player.x, z: player.z + drift * dt };
+    if (groundHeight(q2.x, q2.z, player.y) < WY() - 0.22 && wet(q2.x, q2.z)) player.z = q2.z;
+    if (player.speed > 0.4 && Math.random() < dt * (4 + player.speed * 5)) {
+      const fx = Math.sin(player.facing), fz = Math.cos(player.facing), lx = Math.cos(player.facing), lz = -Math.sin(player.facing), sd = Math.random() < 0.5 ? -1 : 1;
+      swim.splash.emit(player.x - fx * 2.3 + lx * sd * 0.3, WY() + 0.03, player.z - fz * 2.3 + lz * sd * 0.3, -fx * 0.3 + lx * sd * 0.5, 0.15 + Math.random() * 0.2, -fz * 0.3 + lz * sd * 0.5, 0.9, 0.04, 0.25, 0.55);
+      swim.splash.emit(player.x + fx * 2.25, WY() + 0.03, player.z + fz * 2.25, lx * sd * 0.7, 0.2, lz * sd * 0.7, 0.6, 0.04, 0.2, 0.5); // the bow wave
+    }
+  }
+  // Tez Nadi's current: wade into it and it pushes you downstream (harder in the middle)
+  if (!ride) {
+    const n = RAPID.path.near(player.x, player.z);
+    if (n && n.d < RAPID.half && player.y < rapidLevel(n.s) + 0.25) {
+      const q = RAPID.path.at(n.s), k = RAPID.speed * 0.55 * (1 - (n.d / RAPID.half) ** 2) * dt;
+      const p2 = { x: player.x + q.tx * k, z: player.z + q.tz * k };
+      resolveCollisions(p2, 0.28, player.y);
+      player.x = p2.x; player.z = p2.z;
+      if (Math.random() < dt * 3) splashAround(3, 0.7);
+    }
+  }
   let gy = groundHeight(player.x, player.z, player.y);
   if (riding && ride.water) { gy = WY(); player.grounded = true; player.vy = 0; }
   // into deep water: float and swim; climb out where it gets shallow
@@ -2472,7 +2523,7 @@ function updatePlayer(dt) {
     }
     if (ride.water) {
       boy.setGear(gearMode === 'lantern' ? 'lantern' : 'none');
-      bike.update(dt, player.speed, clamp(yawRate * 0.6, -1, 1), true);
+      bike.update(dt, player.speed, clamp(yawRate * 0.6, -1, 1), true, ATMO.glow > 0.5 ? 1 : 0);
       boy.row(dt, bike);
       for (const sx of bike.dips) { splashAround(3, 0.5); audio.splash(0.25); }
     } else {
@@ -3526,6 +3577,7 @@ function frame(now) {
   if (!started) yaw += dt * 0.04;
   mark('pre');
   collectHittables();
+  if (friends && started) friends.update(dt, time);
   mark('hittables');
   people.update(dt, player);
   mark('people');
@@ -3654,11 +3706,13 @@ function frame(now) {
     }
     const meta = `${clockText(clock.hour)} · ${ATMO.weather === 'clear' ? ATMO.name : ATMO.weatherName} · ${SEASONS[season].name.split(' — ')[0]}${ride ? ' · ' + Math.round(player.speed * 3.6) + ' km/h' : ''}`;
     if ($('pl-meta').textContent !== meta) $('pl-meta').textContent = meta;
-    audio.update(windUniforms.uWind.value, Math.min(riverDist(player.x, player.z), streamDist(player.x, player.z) * 1.3), {
+    audio.update(windUniforms.uWind.value, Math.min(riverDist(player.x, player.z), streamDist(player.x, player.z) * 1.3, rapidDist(player.x, player.z) * 0.6), {
       temple: Math.hypot(player.x - layout.temple.x, player.z - layout.temple.z),
       cow: nearest(layout.cows, player.x, player.z),
     }, (() => { const n = train.nearest(player.x, player.z); return { active: train.active, distance: n.d, speed: n.v, dwell: n.dwell }; })());
     audio.setTractor(farm.tractorDistance(player.x, player.z));
+    // up in the plane or the helicopter, the sounds of the ground (the mela, the river, the village) fade away
+    { const F = ride?.fly ? flight : null, agl = F && !F.ground ? F.pos.y - groundHeight(F.pos.x, F.pos.z) : 0; audio.setAloft?.(Math.round(clamp((agl - 6) / 30, 0, 1) * 20) / 20); }
     audio.setJungle?.(jungleMask(player.x, player.z), !!ATMO.night); // (insects, birds and monkeys in the jungle)
     audio.setFalls(waterfall ? Math.hypot(player.x - waterfall.impact.x, player.y - waterfall.impact.y, player.z - waterfall.impact.z) : 999);
     {
@@ -3792,8 +3846,9 @@ window.__gaon = {
   get stations() { return stations; },
   get herds() { return herds; },
   get hamlets() { return hamlets; },
+  get friends() { return friends; },
   heightAt, groundHeight, // (testing: the ground)
-  get hose() { return hose; }, get joy() { return joy; }, layout, pumpS, TRACK_PONDS, jungleMask,
+  get hose() { return hose; }, get joy() { return joy; }, layout, pumpS, TRACK_PONDS, jungleMask, RAPID, rapidLevel,
   get shrineLife() { return shrineLife; },
   get trackside() { return trackside; },
   allPeople: ALL_PEOPLE,

@@ -27,6 +27,10 @@ const LOOKS = {
     man: (i) => ({ dress: 'kurta', top: ['#6a5a4a', '#8a7a6a', '#4a4a52'][i % 3], bottom: '#3a3a42', skin: SKIN[(i + 3) % 6], mustache: true, headwear: 'topi', turban: '#2a5a3a' }),
     woman: (i) => ({ dress: 'saree', top: ['#7a2b6e', '#2a5a3a', '#c4241c'][i % 3], bottom: ['#3a2a4a', '#6a2a2a', '#2a3a5a'][i % 3], veil: true, skin: SKIN[(i + 5) % 6] }),
   },
+  raj: {
+    man: (i) => ({ dress: 'dhoti', top: ['#f4f1e8', '#f2efe6', '#e9dcc3'][i % 3], bottom: '#f4f1e8', skin: SKIN[(i + 2) % 6], mustache: true, beard: i % 3 === 2, headwear: 'turban', turban: ['#e0612b', '#c2185b', '#f2b705', '#c4241c'][i % 4] }),
+    woman: (i) => ({ dress: 'saree', top: ['#e85fc8', '#f2b705', '#c4241c'][i % 3], bottom: ['#e0612b', '#7a2b6e', '#2e8b57'][i % 3], veil: true, skin: SKIN[(i + 4) % 6] }), // ghagra and odhni in bright colours
+  },
   kutch: {
     man: (i) => ({ dress: 'dhoti', top: '#f4f1e8', bottom: '#f4f1e8', skin: SKIN[(i + 1) % 6], mustache: true, headwear: 'turban', turban: ['#ffffff', '#c4241c', '#f2efe6'][i % 3] }),
     woman: (i) => ({ dress: 'saree', top: ['#1a1a1a', '#c4241c', '#2a2a6a'][i % 3], bottom: ['#c4241c', '#1a1a1a', '#e0612b'][i % 3], veil: true, skin: SKIN[(i + 3) % 6] }),
@@ -59,13 +63,23 @@ export function buildHamlets(scene, villages) {
     for (let i = 0; i < 2; i++) add(kid(i + (v.style === 'kutch' ? 2 : 0)), 'kid');
     { const f = add(L.man(3), 'farmer'); f.p.prop('hay', true); }
     // the canal villages are big, busy places: more of everyone
-    if (v.canal) {
+    if (v.canal || v.big) {
       for (let i = 0; i < 3; i++) { const f = add(L.woman(i + 3), 'water'); f.p.prop(i === 1 ? 'bundle' : 'potHead', true); }
       for (let i = 0; i < 2; i++) add(L.woman(i + 1), 'door');
       for (let i = 0; i < 3; i++) add(kid(i), 'kid');
       for (let i = 0; i < 2; i++) { const f = add(L.man(i + 4), 'farmer'); f.p.prop(i ? 'stick' : 'hay', true); }
       for (let i = 0; i < 2; i++) { const f = add(L.man(i + 1), 'talk'); f.x = centre.x + (i ? 1.6 : -1.6); f.z = centre.z - 3; f.face = i ? -Math.PI / 2 : Math.PI / 2; }
       { const f = add(L.man(5), 'elder'); f.p.prop('stick', true); }
+    }
+    // the big villages are bigger still: more women at the well and in the doorways, more children, men at the
+    // tea stall, farmers going out to the fields
+    if (v.big) {
+      for (let i = 0; i < 3; i++) { const f = add(L.woman(i + 6), 'water'); f.p.prop('potHead', true); }
+      for (let i = 0; i < 3; i++) add(L.woman(i + 4), 'door');
+      for (let i = 0; i < 3; i++) add(kid(i + 1), 'kid');
+      for (let i = 0; i < 3; i++) { const f = add(L.man(i + 6), 'farmer'); f.p.prop(['hay', 'stick', 'bundle'][i], true); }
+      for (let i = 0; i < 2; i++) { const f = add(L.man(i + 3), 'talk'); f.x = centre.x + 4 + (i ? 1.6 : -1.6); f.z = centre.z; f.face = i ? -Math.PI / 2 : Math.PI / 2; }
+      for (let i = 0; i < 2; i++) { const f = add(L.man(i + 7), 'elder'); f.p.prop('stick', true); }
     }
     // the animals: cows at Khetpura; goats and a decorated camel at Rannvas
     const animals = [];
@@ -74,6 +88,13 @@ export function buildHamlets(scene, villages) {
       for (let i = 0; i < 5; i++) animals.push(new Goat([['#1d1a19', '#2a2524'], ['#5a3a26', '#e8e0d2'], ['#efe9dd', '#d9cdb8']][i % 3], 0.95 + R() * 0.1, pen, R));
       animals.push(new Goat(['#c49a62', '#e2c89a', 1], 1, { ...pen, r: 10 }, R, null, 'camel'));
     } else for (let i = 0; i < 2; i++) animals.push(new Goat([['#ece6da'], ['#b98e64']][i], 0.95, pen, R, null, 'cow'));
+    // and in the big villages a flock of goats, a buffalo or two, and (in Devgarh) a camel
+    if (v.big) {
+      const pen2 = { x: v.x + Math.cos(v.th) * 60, z: v.z + Math.sin(v.th) * 60, r: 14 };
+      for (let i = 0; i < 6; i++) animals.push(new Goat([['#1d1a19', '#2a2524'], ['#5a3a26', '#e8e0d2'], ['#efe9dd', '#d9cdb8']][i % 3], 0.95 + R() * 0.1, pen2, R));
+      for (let i = 0; i < 2; i++) animals.push(new Goat([['#2a2624'], ['#ece6da']][i], 1.0, pen, R, null, 'cow'));
+      if (v.style === 'raj') animals.push(new Goat(['#c49a62', '#e2c89a', 1], 1, { ...pen2, r: 10 }, R, null, 'camel'));
+    }
     for (const a of animals) scene.add(a.root);
     all.push({ v, folk, animals, homes, doorOf, centre });
   }
@@ -87,7 +108,7 @@ export function buildHamlets(scene, villages) {
     } else if (f.role === 'kid') { const a = R() * 6.28, d = 4 + R() * 14; f.tx = H.centre.x + Math.cos(a) * d; f.tz = H.centre.z + Math.sin(a) * d; f.timer = 1 + R() * 3; }
     else if (f.role === 'farmer') {
       f.out = !f.out;
-      const a = H.v.th + Math.PI + (R() - 0.5), d = f.out ? 42 : 8;
+      const a = H.v.th + Math.PI + (R() - 0.5), d = f.out ? (H.v.big ? 70 : 42) : 8;
       f.tx = H.centre.x + Math.cos(a) * d; f.tz = H.centre.z + Math.sin(a) * d; f.timer = 8 + R() * 8;
     } else if (f.role === 'elder') { const d = H.doorOf(H.homes[Math.floor(R() * H.homes.length)]); f.tx = (d.x + H.centre.x) / 2; f.tz = (d.z + H.centre.z) / 2; f.timer = 20 + R() * 20; }
   };

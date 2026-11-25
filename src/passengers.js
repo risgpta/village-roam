@@ -84,6 +84,7 @@ export function buildPassengers(scene, hooks = {}) {
       for (const w of s.waiting) {
         w.person.root.visible = near;
         if (!near) continue;
+        w.person.atStop = w.state === 'wait'; // (under the shelter: a horn doesn't send them off sideways)
         if (w.state === 'wait') { w.person.update(dt, 0, 'idle'); continue; }
         if (w.state === 'board') {
           w.delay -= dt;

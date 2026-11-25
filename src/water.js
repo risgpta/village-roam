@@ -1,6 +1,6 @@
 // Flowing river: a ribbon along the river curve with a procedural normal-mapped water shader.
 import * as THREE from 'three';
-import { WATER_Y, RIVER_HALF, riverX, heightAt, WF, fallsMeander, fallsFloor, PLAY_RADIUS, TRIB, tribLevel, CANAL, WATER } from './world.js';
+import { WATER_Y, RIVER_HALF, riverX, heightAt, WF, fallsMeander, fallsFloor, PLAY_RADIUS, TRIB, tribLevel, CANAL, WATER, RAPID, rapidLevel } from './world.js';
 import { boulder } from './shapes.js';
 import { fbm, noise2 } from './noise.js';
 import { Puffs } from './particles.js';
@@ -171,7 +171,82 @@ export function buildRiver() {
     cm.onBeforeRender = () => { cm.position.y = -WATER.off; };
     mesh.add(cm);
   }
+  mesh.add(rushingRiver(mat));
   return mesh;
+}
+
+// Tez Nadi: a ribbon down its course, stepping down with its level. Its water races downstream — streaks and
+// churning white foam carried along fast, whiter where it drops steeply, foam along the banks — and it doesn't
+// rise or fall with the seasons (it's fed by the hills).
+function rushingRiver(riverMat) {
+  const P = RAPID.path, q = {}, w = RAPID.half + 1.1, n = Math.ceil(P.L / 2), acr = 6, pos = [], uv = [], sl = [], idx = [];
+  for (let i = 0; i <= n; i++) {
+    const s = (P.L * i) / n; P.at(s, q);
+    const y = rapidLevel(s) + 0.03, slope = Math.max(0, (rapidLevel(s - 8) - rapidLevel(s + 8)) / 16);
+    for (let j = 0; j <= acr; j++) { const u = j / acr, o = (u * 2 - 1) * w; pos.push(q.x + q.tz * o, y, q.z - q.tx * o); uv.push(u, s); sl.push(Math.min(0.4, slope)); }
+  }
+  for (let i = 0; i < n; i++) for (let j = 0; j < acr; j++) { const a = i * (acr + 1) + j, b = a + acr + 1; idx.push(a, b, a + 1, a + 1, b, b + 1); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('aSlope', new THREE.Float32BufferAttribute(sl, 1));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const mat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, fog: true,
+    uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 }, uNight: { value: 0 }, uSky: { value: new THREE.Color('#9fbad0') }, uSpeed: { value: RAPID.speed } }]),
+    vertexShader: /* glsl */ `
+      #include <common>
+      #include <fog_pars_vertex>
+      attribute float aSlope;
+      varying vec2 vUv; varying float vSlope; varying vec3 vWorld;
+      void main() {
+        vUv = uv; vSlope = aSlope;
+        vec4 wp = modelMatrix * vec4(position, 1.0); vWorld = wp.xyz;
+        vec4 mvPosition = viewMatrix * wp;
+        gl_Position = projectionMatrix * mvPosition;
+        #include <fog_vertex>
+      }`,
+    fragmentShader: /* glsl */ `
+      #include <common>
+      #include <fog_pars_fragment>
+      uniform float uTime, uNight, uSpeed; uniform vec3 uSky;
+      varying vec2 vUv; varying float vSlope; varying vec3 vWorld;
+      ${NOISE}
+      void main() {
+        float t = uTime * uSpeed;
+        float edge = 1.0 - abs(vUv.x * 2.0 - 1.0);
+        // the water carried downstream: broad swirls, quick ripples, long streaks
+        float f1 = vnoise(vec2(vUv.x * 5.0, vUv.y * 0.45 - t * 0.45));
+        float f2 = vnoise(vec2(vUv.x * 13.0 + 3.0, vUv.y * 1.5 - t * 1.5));
+        float f3 = vnoise(vec2(vUv.x * 27.0 + 7.0, vUv.y * 3.2 - t * 3.2));
+        float streak = vnoise(vec2(vUv.x * 18.0, vUv.y * 0.18 - t * 0.18));
+        float churn = f1 * 0.5 + f2 * 0.35 + f3 * 0.25;
+        float white = smoothstep(0.62 - vSlope * 1.6, 0.95 - vSlope * 1.2, churn) * (0.55 + vSlope * 5.0);
+        white += (1.0 - smoothstep(0.0, 0.2, edge)) * smoothstep(0.35, 0.75, f3) * 0.7; // foam against the banks
+        white = clamp(white, 0.0, 1.0);
+        vec3 deep = vec3(0.10, 0.27, 0.27), shallow = vec3(0.32, 0.46, 0.38);
+        vec3 col = mix(shallow, deep, smoothstep(0.08, 0.6, edge));
+        col *= 0.82 + streak * 0.32 + f2 * 0.1;
+        vec3 V = normalize(cameraPosition - vWorld);
+        float fres = pow(1.0 - max(V.y, 0.0), 3.0);
+        col = mix(col, uSky, fres * 0.45 + (f2 - 0.5) * 0.08);
+        col = mix(col, vec3(0.93, 0.96, 0.95), white * 0.9);
+        float alpha = mix(0.5, 0.93, smoothstep(0.04, 0.28, edge)) + white * 0.2;
+        col = mix(col, col * vec3(0.35, 0.42, 0.6), uNight);
+        gl_FragColor = vec4(col, clamp(alpha, 0.0, 1.0));
+        #include <fog_fragment>
+      }`,
+  });
+  const m = new THREE.Mesh(g, mat);
+  m.renderOrder = 2;
+  m.onBeforeRender = () => {
+    m.position.y = -WATER.off; // (a child of the big river's mesh, which rises and falls with the seasons: undo that)
+    mat.uniforms.uTime.value = performance.now() / 1000;
+    if (riverMat.uniforms.uNight) mat.uniforms.uNight.value = riverMat.uniforms.uNight.value;
+    if (riverMat.uniforms.uSky) mat.uniforms.uSky.value.copy(riverMat.uniforms.uSky.value);
+  };
+  return m;
 }
 
 // ---------------- the little waterfall ----------------

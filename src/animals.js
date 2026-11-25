@@ -428,6 +428,35 @@ export function makeCow(color) {
   return { g: q.root, neck: q.neck, tail, head: h, legs: q.legs, body: q.body };
 }
 
+// ---------------- the tonga's horse ----------------
+// A lean country horse: a long neck with a dark mane, a long head, neat hooves, a flowing tail; a red-and-gold
+// harness with a collar, a plume on the browband and little bells.
+export function makeHorse(color = '#7a4a2a') {
+  const c = coatM(color), dark = mat('#1e1714', 0.85), pale = coatM('#e8dccb');
+  const q = quadruped({ L: 1.12, r: 0.3, legH: 1.05, legR: 0.045, coat: c, sock: c, hoof: '#1e1a17', solid: true, deep: 1.15, tuck: 0.2, withers: 0.5, neckLen: 0.62, neckTilt: 0.55, neckR: 0.12 });
+  const hs = headShape({ len: 0.56, w: 0.085, h: 0.1, muzzleW: 0.065, muzzleH: 0.07, drop: 0.2, coat: c, noseM: dark });
+  hs.rotation.x = 0.95;
+  q.head.add(hs);
+  part(ellipsoid(0.03, 0.045, 0.05), pale, hs, 0, 0.06, 0.12); // a white star on the forehead
+  eyes(hs, 0.085, 0.04, 0.0, 0.016);
+  for (const sx of [-1, 1]) { const e = part(new THREE.ConeGeometry(0.03, 0.12, 8).scale(1, 1, 0.5), c, hs, sx * 0.045, 0.13, -0.08); e.rotation.z = -sx * 0.15; }
+  // mane down the neck and a forelock, the long tail
+  part(limb(0.045, 0.03, 0.62, 8).rotateX(Math.PI + 0.55), dark, q.neck, 0, 0.08, -0.04);
+  part(ellipsoid(0.035, 0.06, 0.04), dark, hs, 0, 0.14, 0.02);
+  part(taperTube([[0, 0, 0], [0, -0.18, -0.14], [0, -0.5, -0.16], [0, -0.8, -0.1]], 0.07, 0.04), dark, q.tail);
+  // the harness: a padded collar, a saddle pad with a gold border, the bridle, a red plume
+  const red = mat('#b8322b', 0.6), gold = mat('#d8a83a', 0.4);
+  part(new THREE.TorusGeometry(0.17, 0.05, 8, 16).rotateX(Math.PI / 2 - 0.5), red, q.neck, 0, 0.12, 0.1);
+  part(ellipsoid(0.33, 0.07, 0.3), red, q.body, 0, 0.27, 0.1);
+  part(ellipsoid(0.34, 0.05, 0.31), gold, q.body, 0, 0.245, 0.1);
+  part(new THREE.TorusGeometry(0.1, 0.012, 6, 14).rotateY(Math.PI / 2), mat('#2a1a12', 0.6), hs, 0, -0.02, 0.2);
+  const plume = part(new THREE.ConeGeometry(0.035, 0.22, 8), red, hs, 0, 0.24, -0.02); plume.rotation.x = -0.3;
+  for (const sx of [-1, 1]) part(new THREE.SphereGeometry(0.022, 8, 6), gold, q.neck, sx * 0.12, 0.05, 0.16);
+  consolidate(q.root);
+  for (const l of q.legs) l.hip.rotation.x = l.front ? 0.03 : -0.03;
+  return { g: q.root, neck: q.neck, tail: q.tail, head: q.head, legs: q.legs, body: q.body };
+}
+
 // ---------------- goat ----------------
 const GOAT_COATS = [['#1d1a19', '#2a2524'], ['#5a3a26', '#e8e0d2'], ['#efe9dd', '#d9cdb8'], ['#7a5236', '#2a1f1a'], ['#2a2422', '#e9e2d6']];
 
@@ -642,7 +671,7 @@ export class Goat {
     } else if (this.state === 'walk') {
       const d = Math.hypot(this.target.x - this.p.x, this.target.z - this.p.z);
       this.stuck = (this.stuck || 0) + dt;
-      want = 0.55;
+      want = this.species === 'cow' ? 0.8 : 0.55;
       if (d < 0.4 || this.stuck > 14) { this.state = 'graze'; this.timer = 6 + this.R() * 14; }
     }
     // shy away from the boy: deer bolt from far off, cats dash for cover, the rest just step aside
@@ -673,7 +702,7 @@ export class Goat {
     const rest = this.state === 'rest' ? 1 : 0;
     this.restB += (rest - this.restB) * damp(dt, 1.5);
     const r = this.restB;
-    this.phase += this.speed * dt * 8.5 / this.scale;
+    this.phase += this.speed * dt * (4.25 / Math.max(0.4, this.legH)) / this.scale; // (a stride to suit the legs: a cow's slow, a goat's quick)
     const amp = Math.min(1, this.speed * 1.4) * 0.5;
     for (const l of this.legs) {
       const ph = this.phase + l.ph;

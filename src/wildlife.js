@@ -240,17 +240,38 @@ class Tiger {
     if (kind === 'leopard') this.root.scale.setScalar(0.72);
     if (kind === 'lion') this.root.scale.setScalar(1.08);
     if (kind === 'lioness') this.root.scale.setScalar(0.94);
+    // (a big old tiger lying in ambush: larger than the rest, and he doesn't give himself away)
+    if (home.ambush) this.root.scale.setScalar(1.28);
     this.home = home; this.R = R;
     this.p = { x: home.x, z: home.z };
     this.y = heightAt(home.x, home.z);
-    this.facing = 0; this.speed = 0; this.phase = 0; this.t = 0;
-    this.state = 'prowl'; this.timer = 5; this.target = null; this.restB = 0; this.roar = 0;
+    this.facing = R() * 6.28; this.speed = 0; this.phase = 0; this.t = 0;
+    this.state = home.ambush ? 'hide' : 'prowl'; this.timer = home.ambush ? 0.5 : 5; this.target = null; this.restB = 0; this.roar = 0;
   }
   update(dt, boy, ev) {
     this.t += dt;
     const bx = boy.x - this.p.x, bz = boy.z - this.p.z, bd = Math.hypot(bx, bz);
     let want = 0;
     this.timer -= dt;
+    // in ambush: flat in the undergrowth, watching the way in, quite still — until you come close, and then
+    // he's out at you in a rush with a roar (and back to his hiding place afterwards)
+    if (this.home.ambush) {
+      if (this.state === 'prowl' || this.state === 'watch' || this.state === 'rest') this.state = 'hide';
+      if (this.state === 'hide') {
+        const hx = this.home.x - this.p.x, hz = this.home.z - this.p.z, hd = Math.hypot(hx, hz);
+        this.target = hd > 1.2 ? { x: this.home.x, z: this.home.z } : null;
+        want = hd > 1.2 ? 1.2 : 0;
+        if (!this.target) this.facing += wrap(Math.atan2(bx, bz) - this.facing) * damp(dt, bd < 45 ? 1.5 : 0.2);
+        if (bd < 21 && this.timer < 0) { this.state = 'charge'; this.timer = 1.8; ev.roar?.(bd); }
+        this.speed += (want - this.speed) * damp(dt, 3);
+        if (this.target && this.speed > 0.05) { this.p.x += (hx / hd) * this.speed * dt; this.p.z += (hz / hd) * this.speed * dt; this.facing += wrap(Math.atan2(hx, hz) - this.facing) * damp(dt, 4); }
+        animateCat(this, dt, 0, 1, 0.74);
+        this.body.position.y *= 0.72; // (pressed low to the ground)
+        this.jaw.rotation.x = 0;
+        return;
+      }
+      if (this.state === 'leave' && this.timer < 0) { this.state = 'hide'; this.timer = 12; }
+    }
     if (this.state !== 'charge' && this.state !== 'roar' && this.state !== 'leave') {
       if (bd < (this.kind === 'leopard' ? 24 : 32) && this.state !== 'watch') { this.state = 'watch'; this.timer = 4 + this.R() * 2; ev.growl?.(bd, this.kind === 'leopard' ? 'leopard' : 'tiger'); }
     }
@@ -1074,6 +1095,15 @@ export function buildWildlife(scene) {
   const nearTrees3 = layout.trees.filter((t) => Math.hypot(t.x - J.monkeys3.x, t.z - J.monkeys3.z) < 30).slice(0, 3);
   for (let i = 0; i < 7; i++) { const t = i >= 4 ? nearTrees3[i - 4] : null; monkeys.push(new Monkey({ ...J.monkeys3 }, R, i + 20, t ? { x: t.x + 0.6, z: t.z + 0.3, y: heightAt(t.x, t.z) + 3.4 * t.s } : null)); }
   const jBirds2 = new JungleBirds({ ...J.birds2 }, R);
+  // by the jungle's edge: seven elephants (a tusker among them, two calves), five rhinos, a dozen monkeys, and
+  // three big tigers in ambush beside the ways in
+  const matriarch3 = new Elephant({ ...J.elephants3 }, R, 1.04, null, false);
+  const jElephants3 = [matriarch3, ...[[1.12, true], [0.97, false], [0.93, false], [0.9, false], [0.52, false], [0.46, false]].map(([sc, tusk]) => new Elephant({ ...J.elephants3 }, R, sc, matriarch3, tusk))];
+  const rhinoLead3 = new Grazer({ ...J.rhinos3 }, R, 'rhino', null, 1.08);
+  const rhinos3 = [rhinoLead3, ...[1.0, 0.95, 0.9, 0.55].map((sc) => new Grazer({ ...J.rhinos3 }, R, 'rhino', rhinoLead3, sc))];
+  const nearTrees4 = layout.trees.filter((t) => Math.hypot(t.x - J.monkeys4.x, t.z - J.monkeys4.z) < 34).slice(0, 5);
+  for (let i = 0; i < 12; i++) { const t = i >= 7 ? nearTrees4[i - 7] : null; monkeys.push(new Monkey({ ...J.monkeys4 }, R, i + 60, t ? { x: t.x + 0.6, z: t.z + 0.3, y: heightAt(t.x, t.z) + 3.4 * t.s } : null)); }
+  const ambushers = J.ambush.map((h) => new Tiger({ ...h }, R));
   // at the watering hole: a third band of zebras, a flock of sheep; sloth bears in the shade further in
   const zLead3 = new Herbivore({ ...J.zebras3 }, R, 'zebra', null, 1.03);
   zebras.push(zLead3, ...[0.98, 1, 0.7].map((sc) => new Herbivore({ ...J.zebras3 }, R, 'zebra', zLead3, sc)));
@@ -1098,7 +1128,7 @@ export function buildWildlife(scene) {
   }
   const all = [...crocs, tiger, ...leopards, ...wolves, ...elephants, ...lions, ...hyenas, ...buffalo, ...rhinos, ...monkeys, ...snakes,
     ...deer, ...zebras, ...giraffes, ...jackals, jTiger, ...jElephants, ...rhinos2, ...owls, jBirds,
-    ...lions2, ...jLeopards, ...buffaloJ, ...jPeacocks, ...jRabbits, jBirds2, ...sheep, ...bears, ...roamers];
+    ...lions2, ...jLeopards, ...buffaloJ, ...jPeacocks, ...jRabbits, jBirds2, ...sheep, ...bears, ...roamers, ...jElephants3, ...rhinos3, ...ambushers];
   for (const a of all) scene.add(a.root);
   let night = false;
   return {
@@ -1111,7 +1141,7 @@ export function buildWildlife(scene) {
         // close by, and a few times a second further out — so the jungle is alive wherever you look from
         const dx = Math.abs(p.x - boy.x), dz = Math.abs(p.z - boy.z), far = dx > 330 || dz > 330, mid = dx > 140 || dz > 140;
         a.root.visible = !far;
-        const lead = a === leader || a === matriarch || a === hyLead || a === bull || a === stag || a === zLead || a === gLead || a === jkLead || a === jMatriarch || a === stag2 || a === zLead2 || a === gLead2 || a === bullJ || a === zLead3;
+        const lead = a === leader || a === matriarch || a === hyLead || a === bull || a === stag || a === zLead || a === gLead || a === jkLead || a === jMatriarch || a === stag2 || a === zLead2 || a === gLead2 || a === bullJ || a === zLead3 || a === matriarch3 || a === rhinoLead3;
         if (far && !lead) continue;
         if (mid) { a._skip = ((a._skip ?? 0) + 1) % 4; a._acc = (a._acc ?? 0) + dt; if (a._skip) continue; a.update(a._acc, boy, ev, night); a._acc = 0; continue; }
         a._acc = 0;
@@ -1121,7 +1151,8 @@ export function buildWildlife(scene) {
     colliders() {
       return [...leopards.map((l) => ({ kind: 'c', x: l.p.x, z: l.p.z, r: 0.35 })), ...elephants.map((e) => ({ kind: 'c', x: e.p.x, z: e.p.z, r: 1.3 * e.scale })), ...crocs.map((c) => ({ kind: 'c', x: c.x, z: c.z, r: 0.5 })), { kind: 'c', x: tiger.p.x, z: tiger.p.z, r: 0.5 }, ...wolves.map((w) => ({ kind: 'c', x: w.p.x, z: w.p.z, r: 0.3 })),
         ...[...lions, ...lions2].map((l) => ({ kind: 'c', x: l.p.x, z: l.p.z, r: 0.5 })), ...buffaloJ.map((g) => ({ kind: 'c', x: g.p.x, z: g.p.z, r: 0.8 * g.scale })), ...[...buffalo, ...rhinos, ...rhinos2].map((g) => ({ kind: 'c', x: g.p.x, z: g.p.z, r: 0.8 * g.scale })),
-        ...jElephants.map((e) => ({ kind: 'c', x: e.p.x, z: e.p.z, r: 1.3 * e.scale })), { kind: 'c', x: jTiger.p.x, z: jTiger.p.z, r: 0.5 },
+        ...[...jElephants, ...jElephants3].map((e) => ({ kind: 'c', x: e.p.x, z: e.p.z, r: 1.3 * e.scale })), { kind: 'c', x: jTiger.p.x, z: jTiger.p.z, r: 0.5 },
+        ...rhinos3.map((g) => ({ kind: 'c', x: g.p.x, z: g.p.z, r: 0.8 * g.scale })), ...ambushers.map((t) => ({ kind: 'c', x: t.p.x, z: t.p.z, r: 0.6 })),
         ...[...zebras, ...giraffes].map((g) => ({ kind: 'c', x: g.p.x, z: g.p.z, r: g.spec.rad * g.scale }))];
     },
     nearest(x, z) {

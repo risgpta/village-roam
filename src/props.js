@@ -5,7 +5,7 @@ import { streetLight, setStreetLights } from './lights.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { rng } from './noise.js';
 import { applyClothWave } from './wind.js';
-import { warpR, layout, heightAt, colliders, surfaces, WATER_Y, RIVER_HALF, MARKET, CRICKET, RV, RBRIDGE, BRIDGES, archTop, BV, TV, MH, NE, NV, EH, CROSSING, HILLTOP, roadX, PG, NP, MP, PEAK, STAIRS } from './world.js';
+import { warpR, layout, heightAt, groundHeight, resolveCollisions, colliders, surfaces, WATER_Y, RIVER_HALF, MARKET, CRICKET, RV, RBRIDGE, BRIDGES, archTop, BV, TV, MH, NE, NV, EH, CROSSING, HILLTOP, roadX, PG, NP, MP, PEAK, STAIRS } from './world.js';
 import { makeCow } from './animals.js';
 import { makeLantern } from './gear.js';
 import { lathe, limbZ, boulder } from './shapes.js';
@@ -2009,6 +2009,8 @@ export function buildVillage() {
 
   const T = layout.temple;
   place(temple(), T.x, T.z, T.rot, 0);
+  // the big villages out on the Seemant line each have a temple on the square
+  for (const v of layout.newVillages ?? []) if (v.temple) place(temple(), v.temple.x, v.temple.z, v.temple.rot, 0);
   place(well(), layout.well.x, layout.well.z, 0.4, 0);
   for (const hs of layout.haystacks) { hs.obj = place(haystack(R), hs.x, hs.z, R() * 6); hs.obj.scale.setScalar(hs.s); hs.obj.userData.keep = true; }
   for (const c of layout.charpais) { place(charpai(), c.x, c.z, c.rot); colliders.push({ kind: 'b', x: c.x, z: c.z, rot: c.rot, hw: 0.45, hd: 0.95 }); }
@@ -2115,7 +2117,7 @@ export function buildVillage() {
     cow.g.position.set(c.x, heightAt(c.x, c.z), c.z);
     cow.g.rotation.y = c.rot;
     out.add(cow.g);
-    return { ...cow, phase: c.phase };
+    return { ...cow, phase: c.phase, ref: c, hx: c.x, hz: c.z, x: c.x, z: c.z, face: c.rot, walk: false, timer: 4 + ((c.phase * 7.3) % 1) * 20, sp: 0, step: 0, idx: layout.cows.indexOf(c) };
   });
 
   const gh = layout.ghat;
@@ -2146,8 +2148,44 @@ export function buildVillage() {
     steam.update(dt);
     teaLantern.rotation.z = Math.sin(t * 0.9) * 0.05;
     for (const c of cows) {
+      // a cow grazes a while, then ambles a few unhurried steps to fresh grass (never far from her spot), legs
+      // stepping in time with her pace; far from the boy she just stands
+      const far = player && Math.abs(player.x - c.x) + Math.abs(player.z - c.z) > 260;
+      if (!far) {
+        c.timer -= dt;
+        if (!c.walk && c.timer < 0) {
+          const a = Math.random() * 6.28, d = c.idx < 3 ? 1 + Math.random() * 1.5 : 2 + Math.random() * 6;
+          c.tx = c.hx + Math.cos(a) * d; c.tz = c.hz + Math.sin(a) * d; c.walk = true; c.timer = 25;
+        }
+        let want = 0;
+        if (c.walk) {
+          const dx = c.tx - c.x, dz = c.tz - c.z, d = Math.hypot(dx, dz);
+          if (d < 0.35 || c.timer < 0) { c.walk = false; c.timer = 10 + Math.random() * 25; }
+          else {
+            want = Math.min(0.8, 0.25 + d * 0.4);
+            c.face += Math.atan2(Math.sin(Math.atan2(dx, dz) - c.face), Math.cos(Math.atan2(dx, dz) - c.face)) * Math.min(1, dt * 1.6);
+          }
+        }
+        c.sp += (want - c.sp) * Math.min(1, dt * 2);
+        if (c.sp > 0.02) {
+          const q = { x: c.x + Math.sin(c.face) * c.sp * dt, z: c.z + Math.cos(c.face) * c.sp * dt };
+          resolveCollisions(q, 0.5, undefined, true);
+          c.x = q.x; c.z = q.z; c.ref.x = c.x; c.ref.z = c.z;
+        }
+        c.g.position.set(c.x, groundHeight(c.x, c.z), c.z);
+        c.g.rotation.y = c.face;
+        // the walk: a slow four-beat stride, the stride length to suit her long legs
+        c.step += c.sp * dt * 4.4;
+        const amp = Math.min(1, c.sp * 1.8) * 0.42;
+        for (const l of c.legs) {
+          const ph = c.step + l.ph;
+          l.hip.rotation.x = (l.front ? 0.03 : -0.03) + Math.sin(ph) * amp;
+          l.knee.rotation.x = Math.max(0, -Math.cos(ph)) * 0.75 * Math.min(1, c.sp * 2);
+        }
+        c.body.position.y = (c.body.userData.y0 ??= c.body.position.y) + Math.abs(Math.sin(c.step)) * 0.012;
+      }
       const k = t * 0.35 + c.phase;
-      const graze = Math.sin(k) * 0.5 + 0.5;
+      const graze = c.walk ? 0.05 : Math.sin(k) * 0.5 + 0.5;
       c.neck.rotation.x = 0.1 + Math.pow(graze, 2) * 1.35 + Math.sin(t * 6 + c.phase) * 0.02 * graze;
       c.neck.rotation.y = Math.sin(k * 0.37) * 0.25;
       c.tail.rotation.z = Math.sin(t * 2.1 + c.phase) * 0.35;

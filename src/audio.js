@@ -48,6 +48,11 @@ export class Ambience {
       const send = ctx.createGain(); send.gain.value = 0.3;
       this.master.connect(send).connect(rev).connect(tone);
     }
+    // the sounds of the ground (the river, the village, animals, the mela, trains, traffic) all go through one more
+    // bus, so they can fade away beneath you when you fly; the plane and the helicopter go straight out
+    this.out = this.master;
+    this.master = ctx.createGain();
+    this.master.connect(this.out);
 
     const len = ctx.sampleRate * 4;
     const white = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -203,7 +208,7 @@ export class Ambience {
     };
     // the little plane: a buzzy flat-four, the propeller's thrum, wind over the wings, the stall horn
     {
-      const g = gain(0); g.connect(this.master);
+      const g = gain(0); g.connect(this.out);
       const lp = filt('lowpass', 900, 1.1);
       const am = gain(0.65);
       const o1 = ctx.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = 40;
@@ -213,24 +218,24 @@ export class Ambience {
       loop(brown).connect(filt('bandpass', 260, 0.8)).connect(gain(0.7)).connect(am);
       am.connect(lp).connect(g);
       o1.start(); o2.start(); beat.start();
-      const wind = gain(0); wind.connect(this.master);
+      const wind = gain(0); wind.connect(this.out);
       const wf = filt('bandpass', 700, 0.5);
       loop(pink).connect(wf).connect(wind);
-      const tyre = gain(0); tyre.connect(this.master);
+      const tyre = gain(0); tyre.connect(this.out);
       loop(brown).connect(filt('bandpass', 180, 0.9)).connect(gain(1.2)).connect(tyre);
-      const horn = gain(0); horn.connect(this.master);
+      const horn = gain(0); horn.connect(this.out);
       const ho = ctx.createOscillator(); ho.type = 'square'; ho.frequency.value = 440; ho.connect(filt('lowpass', 1500, 1)).connect(horn); ho.start();
       this.planeV = { g, lp, o1, o2, beat, wind, wf, tyre, horn };
     }
     // the helicopter: the thud-thud of the blades (noise chopped by the blade pass) over a turbine's whine
     {
-      const g = gain(0); g.connect(this.master);
+      const g = gain(0); g.connect(this.out);
       const chop = gain(0.4);
       const lfo = ctx.createOscillator(); lfo.type = 'sawtooth'; lfo.frequency.value = 12; lfo.connect(gain(0.55)).connect(chop.gain); lfo.start();
       loop(brown).connect(filt('lowpass', 420, 0.9)).connect(gain(2.2)).connect(chop);
       loop(pink).connect(filt('bandpass', 900, 0.7)).connect(gain(0.25)).connect(chop);
       chop.connect(g);
-      const whine = gain(0); whine.connect(this.master);
+      const whine = gain(0); whine.connect(this.out);
       const w1 = ctx.createOscillator(); w1.type = 'sine'; w1.frequency.value = 900; w1.connect(whine); w1.start();
       const w2 = ctx.createOscillator(); w2.type = 'triangle'; w2.frequency.value = 1810; w2.connect(gain(0.3)).connect(whine); w2.start();
       this.heliV = { g, lfo, whine, w1, w2 };
@@ -271,7 +276,13 @@ export class Ambience {
 
   setMuted(m) {
     this.muted = m;
-    if (this.ctx) this.master.gain.setTargetAtTime(m ? 0 : 0.9, this.ctx.currentTime, 0.3);
+    if (this.ctx) this.out.gain.setTargetAtTime(m ? 0 : 0.9, this.ctx.currentTime, 0.3);
+  }
+  // 0 on the ground .. 1 high in the air: the ground's sounds fade out below you (a faint hint stays low down)
+  setAloft(k) {
+    if (!this.ctx || this._aloft === k) return;
+    this._aloft = k;
+    this.master.gain.setTargetAtTime(1 - 0.985 * k, this.ctx.currentTime, 0.5);
   }
 
   update(gust, riverDist, near, train) {

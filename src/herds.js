@@ -96,7 +96,7 @@ export function buildHerds(scene, P, hooks = {}) {
       const o = [];
       for (const h of herds) {
         if (!h.herder.root.visible) continue;
-        if (!(h.herder.fallT > 0)) o.push({ kind: 'c', x: h.lead.x, z: h.lead.z, r: 0.3 });
+        if (!(h.herder.fallT > 0)) o.push({ kind: 'c', x: h.lead.x, z: h.lead.z, r: 0.3, person: true });
         for (const a of h.animals) o.push({ kind: 'c', x: a.p.x, z: a.p.z, r: a.cr * a.scale * 0.8 });
       }
       return o;

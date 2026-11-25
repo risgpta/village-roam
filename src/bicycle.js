@@ -272,14 +272,12 @@ export class Moped {
     seat.position.copy(M.saddle); seat.position.y -= 0.02;
     const panel = add(ellipsoid(0.12, 0.13, 0.16, 12, 8), mats.paint);
     panel.position.set(0, 0.5, -0.24);
-    add(new THREE.BoxGeometry(0.2, 0.015, 0.34), mats.rust).position.set(0, 0.68, -0.58);
-    for (const sx of [-0.09, 0.09]) add(tube(V(sx, 0.68, -0.72), V(sx * 0.9, M.rear.y + 0.05, M.rear.z - 0.05), 0.008), mats.rust);
+    for (const sx of [-0.09, 0.09]) add(tube(V(sx, 0.62, -0.7), V(sx * 0.9, M.rear.y + 0.05, M.rear.z - 0.05), 0.008), mats.frame);
     // engine, cylinder fins, exhaust
     add(new THREE.BoxGeometry(0.2, 0.2, 0.3), mats.engine).position.set(0, 0.28, -0.05);
     for (let i = 0; i < 5; i++) add(new THREE.BoxGeometry(0.17, 0.012, 0.16), mats.engine).position.set(0, 0.38 + i * 0.022, 0.07);
     add(mergeGeometries([tube(V(0.06, 0.3, 0.08), V(0.14, 0.22, -0.1), 0.02), tube(V(0.14, 0.22, -0.1), V(0.16, 0.24, -0.45), 0.022)]), mats.chrome);
-    const muffler = add(new THREE.CylinderGeometry(0.045, 0.04, 0.32, 10).rotateX(Math.PI / 2), mats.rust);
-    muffler.position.set(0.16, 0.24, -0.58);
+
     // pedals/foot pegs
     for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.08, 0.02, 0.05), mats.rubber).position.set(sx * M.peg.x, M.peg.y, M.peg.z);
     add(new THREE.CylinderGeometry(0.012, 0.012, 0.34, 6).rotateZ(Math.PI / 2), mats.frame).position.set(0, M.peg.y, M.peg.z);
@@ -308,7 +306,36 @@ export class Moped {
     this.frontW = wheel(mats, 1.9); this.frontW.scale.setScalar(MR / WR); this.frontW.position.copy(fl(M.front)); this.fork.add(this.frontW);
     this.stand = add(tube(V(0.05, 0.3, -0.15), V(0.16, 0.0, -0.25), 0.012), mats.frame);
     this.stand.userData.keep = true;
-    this.exhaust = new THREE.Vector3(0.16, 0.24, -0.76);
+    // made over as a proper village motorbike: a long two-up seat (room for a pillion), knee pads and a chrome
+    // badge on the tank, a black chain guard, a chrome silencer with its heat shield, a grab rail, a tail lamp and
+    // amber winkers, a speedometer and two round mirrors, a number plate
+    const amber = new THREE.MeshStandardMaterial({ color: '#f0a020', emissive: '#7a4004', emissiveIntensity: 0.4, roughness: 0.3 });
+    const red = new THREE.MeshStandardMaterial({ color: '#c4201c', emissive: '#5a0806', emissiveIntensity: 0.6, roughness: 0.3 });
+    const seat2 = add(ellipsoid(0.115, 0.05, 0.27, 14, 8), mats.seat);
+    seat2.position.set(0, M.saddle.y + 0.0, M.saddle.z - 0.3);
+    add(new THREE.BoxGeometry(0.2, 0.012, 0.5), mats.chrome).position.set(0, M.saddle.y - 0.05, M.saddle.z - 0.17);
+    for (const sx of [-1, 1]) {
+      const pad = add(ellipsoid(0.02, 0.05, 0.07, 8, 6), mats.rubber); pad.position.set(sx * 0.12, 0.7, 0.1);
+      const badge = add(new THREE.BoxGeometry(0.006, 0.035, 0.14), mats.chrome); badge.position.set(sx * 0.128, 0.75, 0.2); badge.rotation.x = -0.18;
+      add(new THREE.BoxGeometry(0.06, 0.02, 0.05), mats.rubber).position.set(sx * 0.17, 0.36, -0.42); // the pillion's foot pegs
+      const w1 = add(ellipsoid(0.025, 0.02, 0.03, 8, 6), amber); w1.position.set(sx * 0.12, 0.6, -0.82);
+      const w2 = add(ellipsoid(0.025, 0.02, 0.03, 8, 6), amber, this.fork); w2.position.copy(fl(V(sx * 0.14, 0.76, 0.6)));
+      // the mirrors on their stalks
+      add(tube(fl(V(sx * 0.22, M.bar.y + 0.04, M.bar.z - 0.02)), fl(V(sx * 0.26, M.bar.y + 0.24, M.bar.z - 0.04)), 0.006), mats.chrome, this.fork);
+      const mir = add(new THREE.CylinderGeometry(0.04, 0.04, 0.012, 14).rotateX(Math.PI / 2), mats.chrome, this.fork); mir.position.copy(fl(V(sx * 0.26, M.bar.y + 0.26, M.bar.z - 0.04)));
+    }
+    add(new THREE.TorusGeometry(0.12, 0.012, 6, 16, Math.PI), mats.chrome).position.set(0, 0.66, -0.66);
+    add(new THREE.BoxGeometry(0.1, 0.05, 0.04), red).position.set(0, 0.62, -0.8);
+    add(new THREE.BoxGeometry(0.03, 0.06, 0.5), mats.frame).position.set(-0.11, 0.33, -0.25); // the chain guard
+    const sil = add(new THREE.CylinderGeometry(0.04, 0.032, 0.42, 12).rotateX(Math.PI / 2), mats.chrome); sil.position.set(0.17, 0.27, -0.58);
+    const shield = add(new THREE.CylinderGeometry(0.046, 0.046, 0.2, 12, 1, true, -0.3, 1.6).rotateX(Math.PI / 2), mats.chrome); shield.position.set(0.17, 0.27, -0.5);
+    const speedo = add(new THREE.CylinderGeometry(0.05, 0.05, 0.04, 14).rotateX(-0.6), mats.frame, this.fork); speedo.position.copy(fl(V(0, M.bar.y + 0.06, M.bar.z + 0.03)));
+    const dial = add(new THREE.CircleGeometry(0.04, 14), new THREE.MeshStandardMaterial({ color: '#f2efe6', roughness: 0.4 }), this.fork); dial.position.copy(fl(V(0, M.bar.y + 0.085, M.bar.z + 0.01))); dial.rotation.x = -Math.PI / 2 + 0.6;
+    const plateC = document.createElement('canvas'); plateC.width = 128; plateC.height = 48;
+    { const pg = plateC.getContext('2d'); pg.fillStyle = '#f2f0e6'; pg.fillRect(0, 0, 128, 48); pg.strokeStyle = '#111'; pg.lineWidth = 3; pg.strokeRect(2, 2, 124, 44); pg.fillStyle = '#111'; pg.font = 'bold 20px Arial'; pg.textAlign = 'center'; pg.fillText('UP 32 K 4417', 64, 31); }
+    const plateT = new THREE.CanvasTexture(plateC); plateT.colorSpace = THREE.SRGBColorSpace;
+    const plate = add(new THREE.PlaneGeometry(0.16, 0.06), new THREE.MeshStandardMaterial({ map: plateT, roughness: 0.5 })); plate.position.set(0, 0.52, -0.83); plate.rotation.y = Math.PI;
+    this.exhaust = new THREE.Vector3(0.17, 0.27, -0.8);
   }
   foot(side, out) { return out.set(side * MOPED.peg.x, MOPED.peg.y + 0.03, MOPED.peg.z); }
   update(dt, speed, steer, riding, night = 0) {

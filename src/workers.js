@@ -100,12 +100,12 @@ export function buildWorkers(scene, hooks = {}) {
   const villages = [SQUARE, NV, EH, RV, BV, TV, MH, NE, PG, NP, MP, layout.sonpur, ...NEW_VILLAGES].filter(Boolean);
   const farmers = [];
   villages.forEach((V, vi) => {
-    const n = 4 + (vi % 2);
+    const n = 7 + (vi % 3) + (V.big ? 5 : 0); // (plenty of hands in the fields: the country is never empty)
     for (let i = 0; i < n; i++) {
       // a spot in a field near the village, or else on open ground at its edge
       let p = null;
       for (let k = 0; k < 80 && !p; k++) {
-        const a = rnd() * Math.PI * 2, d = 45 + rnd() * 120, x = V.x + Math.cos(a) * d, z = V.z + Math.sin(a) * d;
+        const a = rnd() * Math.PI * 2, d = 45 + rnd() * (V.big ? 200 : 160), x = V.x + Math.cos(a) * d, z = V.z + Math.sin(a) * d;
         if (fieldType(x, z) && fieldType(x, z) !== 7 && isFree(x, z, 1.2)) p = { x, z, field: true };
       }
       for (let k = 0; k < 60 && !p; k++) {
@@ -115,10 +115,11 @@ export function buildWorkers(scene, hooks = {}) {
       if (!p) continue;
       const fem = (i + vi) % 3 === 1;
       const job = ['hoe', 'cut', 'water', 'hay', 'hoe'][(i + vi) % 5];
-      const o = fem ? { dress: 'saree', k: 0.92, top: ['#c4241c', '#2e8b57', '#d4a017', '#7a2b6e'][i % 4], bottom: ['#f2b705', '#c2185b', '#2e3fa8', '#e0612b'][i % 4], veil: true, skin: ['#80523a', '#86573b', '#6a4230'][i % 3] }
-        : { dress: 'dhoti', top: ['#efe8d6', '#dfe6ea', '#b9c7a5', '#e9dcc3'][i % 4], bottom: '#f4f1e8', headwear: 'turban', turban: ['#f2efe6', '#e07a1e', '#c0392b', '#ffffff'][(i + vi) % 4], mustache: true, skin: ['#6e4530', '#7a4c33', '#5f3a26'][i % 3], sleeves: 'short' };
+      // village working clothes: women in cotton sarees with the pallu over the head; men in a dhoti and a loose
+      // kurta or vest, a pagdi or a gamchha tied round the head against the sun
+      const o = fem ? { dress: 'saree', k: 0.92, top: ['#c4241c', '#2e8b57', '#d4a017', '#7a2b6e', '#e0612b', '#1e6fa8'][(i + vi) % 6], bottom: ['#f2b705', '#c2185b', '#2e3fa8', '#e0612b', '#2e8b57', '#f6f2e8'][(i * 2 + vi) % 6], veil: true, skin: ['#80523a', '#86573b', '#6a4230'][i % 3] }
+        : { dress: (i + vi) % 4 === 3 ? 'kurta' : 'dhoti', top: ['#efe8d6', '#dfe6ea', '#b9c7a5', '#e9dcc3', '#f4f1e8', '#d8c8a8'][(i + vi) % 6], bottom: ['#f4f1e8', '#efe8d6', '#e9e2d2'][i % 3], headwear: 'turban', turban: ['#f2efe6', '#e07a1e', '#c0392b', '#ffffff', '#2e8b57', '#f2b705'][(i + vi) % 6], mustache: (i + vi) % 5 !== 2, beard: (i + vi) % 7 === 3, skin: ['#6e4530', '#7a4c33', '#5f3a26', '#83553a'][i % 4], sleeves: (i + vi) % 3 ? 'short' : undefined };
       const f = new Person(o);
-      f.noHit = true;
       if (job === 'hoe') f.prop('hoe', true);
       if (job === 'water') f.prop('can', true);
       if (job === 'cut') f.poseHook = (P, t) => { const c = Math.sin(t * 3.2); P.torsoX = 0.95; P.hip0 = P.hip1 = -0.35; P.knee0 = P.knee1 = 0.5; P.bodyY = -0.08; P.sh1 = -1.2 + c * 0.35; P.shz1 = c * 0.4; P.el1 = -0.3; P.sh0 = -1.0; P.el0 = -0.9; P.headX = -0.35; P.headY = 0; };
@@ -216,6 +217,7 @@ export function buildWorkers(scene, hooks = {}) {
         const near = Math.abs(player.x - F.x) + Math.abs(player.z - F.z) < 260;
         F.p.root.visible = near && !night;
         if (!near || night) continue;
+        if (F.p.fallT > 0) { F.p.update(dt, 0, 'idle'); continue; } // knocked over (they get up again, cross)
         let sp = 0;
         if (F.job === 'hay') {
           const T = F.leg ? F.a : F.b, dx = T.x - F.x, dz = T.z - F.z, d = Math.hypot(dx, dz);

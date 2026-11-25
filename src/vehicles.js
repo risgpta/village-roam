@@ -336,6 +336,24 @@ export class Scooter {
     const plate = add(new THREE.PlaneGeometry(0.2, 0.08), new THREE.MeshStandardMaterial({ map: plateTexture('MH 12 S 88'), roughness: 0.5 }), 0, 0.42, -0.89);
     plate.rotation.y = Math.PI;
     add(RB(0.2, 0.12, 0.06, 0.03), paint, 0, 0.62, 0.36); // glovebox under the handlebar
+    // the finer things: a chrome horn grille on the front of the apron, the crest on the front mudguard, amber
+    // winkers front and back, a chrome grab rail round the back of the seat, the tail lamp in its chrome bezel,
+    // chrome beading along each cowl, the spare wheel behind the leg shield, the kick-start lever
+    const amber = std('#f0a020', { emissive: '#7a4004', emissiveIntensity: 0.4, roughness: 0.3 });
+    add(ellipsoid(0.07, 0.045, 0.02, 14, 8), chrome, 0, 0.72, 0.47).rotation.x = -0.15;
+    for (let i = -2; i <= 2; i++) add(new THREE.BoxGeometry(0.09, 0.006, 0.012), std('#2a2a2a'), 0, 0.72 + i * 0.016, 0.49).rotation.x = -0.15;
+    add(new THREE.ConeGeometry(0.025, 0.07, 8).rotateX(Math.PI / 2), chrome, 0, 0.39, 0.83);
+    for (const sx of [-1, 1]) {
+      add(ellipsoid(0.03, 0.025, 0.035, 10, 6), amber, sx * 0.27, 0.48, 0.02, this.fork);
+      add(ellipsoid(0.03, 0.025, 0.03, 10, 6), amber, sx * 0.2, 0.55, -0.86);
+      add(new THREE.TorusGeometry(0.32, 0.007, 4, 20, Math.PI * 0.55), chrome, sx * 0.236, 0.4, -0.42).rotation.set(0, Math.PI / 2, Math.PI * 0.18);
+    }
+    const rail = add(new THREE.TorusGeometry(0.15, 0.012, 6, 18, Math.PI), chrome, 0, 0.72, -0.62);
+    rail.rotation.set(Math.PI / 2, 0, Math.PI);
+    add(new THREE.TorusGeometry(0.048, 0.01, 6, 16), chrome, 0, 0.56, -0.88);
+    const spare = wheelMesh(0.17, 0.09, rubber, cream, { wall: '#f2efe6' });
+    spare.position.set(-0.17, 0.5, 0.02); spare.rotation.z = Math.PI / 2; spare.scale.setScalar(0.9); g.add(spare);
+    add(new THREE.CylinderGeometry(0.008, 0.008, 0.2, 6), chrome, 0.27, 0.38, -0.32).rotation.x = 0.9;
     this.exhaust = V(0.12, 0.2, -0.88);
   }
   foot(side, out) { return out.set(side * 0.1, 0.32, 0.16); }
@@ -658,6 +676,21 @@ export class RowBoat {
       add(new THREE.CylinderGeometry(0.02, 0.02, 0.1, 6), dark, sx * 0.66, 0.38, 0.3);
       return { sx, pivot, oar };
     });
+    // a raised, curving prow and a stern post, a little saffron pennant on the bow, a hurricane lantern on a
+    // pole at the stern, and a tarpaulin bundle under the bow seat
+    const prow = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.045, 6, 12, Math.PI * 0.42), paint);
+    prow.rotation.set(0, Math.PI / 2, Math.PI * 0.58); prow.position.set(0, 0.52, 2.05); prow.castShadow = true; g.add(prow);
+    add(new THREE.CylinderGeometry(0.035, 0.045, 0.5, 6), dark, 0, 0.62, -2.18).rotation.x = -0.35;
+    add(new THREE.CylinderGeometry(0.012, 0.012, 0.7, 5), dark, 0, 0.95, 2.05);
+    const pen = add(new THREE.PlaneGeometry(0.3, 0.16), std('#f08a1e', { side: THREE.DoubleSide, roughness: 0.8 }), 0.15, 1.2, 2.05);
+    pen.rotation.y = Math.PI / 2;
+    this.pennant = pen;
+    add(new THREE.CylinderGeometry(0.015, 0.015, 1.0, 5), dark, 0.32, 0.8, -1.95);
+    const lan = add(new THREE.CylinderGeometry(0.06, 0.07, 0.16, 8), std('#c8a04a', { metalness: 0.6, roughness: 0.4 }), 0.32, 1.25, -1.95);
+    this.lamp = std('#ffd890', { emissive: '#ffb050', emissiveIntensity: 0.2, transparent: true, opacity: 0.85 });
+    add(new THREE.SphereGeometry(0.05, 8, 6), this.lamp, 0.32, 1.26, -1.95);
+    void lan;
+    add(ellipsoid(0.25, 0.12, 0.2, 10, 6), std('#4a6a3a', { roughness: 0.95 }), 0, 0.16, 1.55);
     this.phase = 0;
     this.saddle = V(0, 0.08, 0.05);
     this.dips = [];
@@ -684,9 +717,12 @@ export class RowBoat {
       if (pulling && Math.cos(c) > 0.95) this.dips.push(o.sx);
     }
     const t = performance.now() * 0.001;
-    this.hull.rotation.z = Math.sin(t * 0.9) * 0.025 + (riding ? -steer * 0.06 : 0);
-    this.hull.rotation.x = Math.sin(t * 1.1) * 0.015;
+    // it rolls a little into a turn, the bow lifts as it gathers way and dips at each pull of the oars
+    this.hull.rotation.z = Math.sin(t * 0.9) * 0.025 + (riding ? -steer * 0.08 : 0);
+    this.hull.rotation.x = Math.sin(t * 1.1) * 0.015 - Math.min(0.05, speed * 0.018) + (pulling ? Math.max(0, Math.cos(c)) * 0.012 : 0);
     this.hull.position.y = -0.22 + Math.sin(t * 1.3) * 0.02;
+    if (this.pennant) this.pennant.rotation.y = Math.PI / 2 + Math.sin(t * 6) * 0.25 + Math.min(0.6, speed * 0.2);
+    if (this.lamp) this.lamp.emissiveIntensity = arguments[4] ? 3 : 0.2;
   }
 }
 

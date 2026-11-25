@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { cullBeyond } from './perf.js';
 import { streetLight } from './lights.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { TRACK, TRACK3, TRACK5, TRACK6, TRACK7, OUTER_LOOP, TRACKS, RING, TRACK_Y, riverX, RIVER_HALF, WATER_Y, CROSSING, CROSSING3, heightAt, colliders, roadX, BORE_HALF, ROAD_X } from './world.js';
+import { TRACK, TRACK3, TRACK5, TRACK6, TRACK7, TRACK8, OUTER_LOOP, TRACKS, RING, TRACK_Y, riverX, RIVER_HALF, WATER_Y, CROSSING, CROSSING3, heightAt, colliders, roadX, BORE_HALF, ROAD_X } from './world.js';
 import { toTexture } from './textures.js';
 import { lathe, boulder } from './shapes.js';
 import { Puffs } from './particles.js';
@@ -459,6 +459,8 @@ export function buildRailway(scene) {
   const I = new Train(scene, TRACK6, { livery: { base: '#1f6a6a', line: '#f4e6b8', dark: '#134646', door: '#185656' }, end: '#1f6a6a', coaches: 3, first: 18, boiler: '#1a2222', name: 'Nahar Shuttle — the canal branch' });
   // the far north line's train, to and fro between Dhaniyapur and Kheri Kalan
   const J = new Train(scene, TRACK7, { livery: { base: '#5a3a7a', line: '#f2e2c0', dark: '#3c2652', door: '#4a2f66' }, end: '#5a3a7a', coaches: 4, first: 30, boiler: '#1e1a24', name: 'Uttar Rani — Dhaniyapur–Kheri Kalan' });
+  // the Seemant line's train, to and fro between the bay at Rannvas and Devgarh through the big villages
+  const S8 = new Train(scene, TRACK8, { livery: { base: '#a8501a', line: '#f6e6c0', dark: '#743610', door: '#8a4214' }, end: '#a8501a', coaches: 5, first: 20, boiler: '#201a16', name: 'Seemant Express — Rannvas–Devgarh' });
   // a long passenger train round the ring: six coaches
   const RL = RING.path.L;
   const K = new Train(scene, RING, { livery: { base: '#8a1c22', line: '#f4dca0', dark: '#5e1216', door: '#6e161b' }, end: '#8a1c22', coaches: 6, startS: s0 + RL / 6, boiler: '#18191b', name: 'Gaon Express — six coaches round the ring' });
@@ -469,7 +471,9 @@ export function buildRailway(scene) {
   const G2 = new Train(scene, RING, { ...goodsLook, wagons: ['covered', 'stone', 'covered', 'coal'], startS: s0 + (RL * 5) / 6, name: 'Maal Gaadi — goods train (stone and grain)' });
   const G3 = new Train(scene, TRACK5, { ...goodsLook, service: OUTER_LOOP, wagons: ['covered', 'coal', 'tank', 'covered', 'stone'], startS: LL / 4, name: 'Maal Gaadi — goods train on the outer line' });
   for (const g of [G1, G2, G3]) g.color = '#6b4a2a';
-  return new Railway([A, B, C, D, E, F, G, H, I, J, K, G1, G2, G3]);
+  const R = new Railway([A, B, C, D, E, F, G, H, I, J, K, G1, G2, G3, S8]);
+  R.signals = buildSignals(scene);
+  return R;
 }
 
 // a level crossing: a plank-and-concrete deck across the line, striped barrier booms on both sides of the
@@ -577,7 +581,7 @@ function roadCrossing(group, X) {
   const fr = hut.rotation.y;
   const benchAt = { x: hp.x + Math.sin(fr) * 1.9 + Math.cos(fr) * 0.3, z: hp.z + Math.cos(fr) * 1.9 - Math.sin(fr) * 0.3 };
   const winchFront = { x: wp.x + Math.sin(fr) * 0.65, z: wp.z + Math.cos(fr) * 0.65 };
-  const XC = { cx: X.x, cz: X.z, booms, lamps, boxes, man, wheel, benchAt, winchFront, hutRot: fr, angle: -1.3, closed: false, t: 0, manP: { ...benchAt }, tracks: X.tracks.map((t) => t.T) };
+  const XC = { cx: X.x, cz: X.z, booms, lamps, boxes, man, wheel, benchAt, winchFront, hutRot: fr, angle: -1.3, closed: false, t: 0, manP: { ...benchAt }, tracks: X.tracks.map((t) => t.T), lines: X.tracks };
   CROSSINGS.push(XC);
   return XC;
 }
@@ -586,7 +590,12 @@ function updateCrossing(X, dt, trains) {
   let near = false;
   for (const tr of trains) {
     if (!X.tracks.some((T) => (tr.lines ?? [tr.tk]).includes(T))) continue;
-    for (const b of tr.boxes) if (Math.hypot(b.x - X.cx, b.z - X.cz) - b.hd < 80) near = true;
+    for (const b of tr.boxes) {
+      const d = Math.hypot(b.x - X.cx, b.z - X.cz) - b.hd;
+      // on the crossing or just past it; or running toward it, still a good way off (the booms are down and the
+      // signal shows green well before the engine gets there)
+      if (d < 80 || (d < 320 && b.moving && (X.cx - b.x) * b.vx + (X.cz - b.z) * b.vz > 0)) { near = true; break; }
+    }
   }
   if (near !== X.closed) { X.closed = near; X.t = 0; if (X.onBell) X.onBell(X, near); }
   X.t += dt;
@@ -773,7 +782,8 @@ function buildLine(group, T) {
           diag.rotation.set(Math.atan2((b1 - b0) / n, 2.8) * (i % 2 ? 1 : -1), Math.atan2(qq.tx, qq.tz), 0, 'YXZ');
           diag.castShadow = true; group.add(diag);
         }
-        if (i % 3 === 0) colliders.push({ kind: 'c', x: px, z: pz, r: 0.2 });
+        // (only up on the deck: walking or driving underneath, the trusses are far overhead)
+        if (i % 3 === 0) colliders.push({ kind: 'c', x: px, z: pz, r: 0.2, minY: RAIL_TOP - 1.2 });
       }
       if (i % 4 === 2) {
         // piers down into the river, or all the way to the floor of the valley
@@ -916,6 +926,7 @@ class Railway {
     this.boxes.length = 0;
     for (const t of this.trains) { t.update(dt); this.boxes.push(...t.boxes); }
     for (const X of CROSSINGS) updateCrossing(X, dt, this.trains);
+    if (this.signals) this.signals.update(dt, this.trains);
   }
   distanceTo(x, z) { return Math.min(...this.trains.map((t) => t.distanceTo(x, z))); }
   // the train nearest (x, z): how far, how fast it is moving, and whether it is standing at a platform
@@ -930,6 +941,10 @@ class Railway {
 // doors open, people get on and off), into the tunnel at the far end, a wait, and back again. The boy can
 // climb into the cab while it's standing at a station and drive it himself.
 const CRUISE = 22, ACCEL = 0.7, BRAKE = 0.9, TOP = 120 / 3.6; // timetable cruise ~80 km/h; the boy can take her up to 120
+// past a station's distant signal (showing yellow: the next signal, at the platform's end, is red) a train runs
+// at caution, about 50 km/h, ready to stop at the platform
+const CAUTION_D = 440, CAUTION_V = 14;
+const cautionV = (nh) => (nh && !nh.h.noStation && nh.d < CAUTION_D ? CAUTION_V : CRUISE);
 class Train {
   constructor(scene, track, o) {
     this.tk = track;
@@ -1119,7 +1134,7 @@ class Train {
     } else if (this.mode === 'run') {
       const nh = this.nextStop(this.m);
       let target = CRUISE;
-      if (nh) target = Math.min(target, Math.sqrt(Math.max(0, 2 * BRAKE * Math.max(0, nh.d - 0.5))));
+      if (nh) target = Math.min(target, Math.sqrt(Math.max(0, 2 * BRAKE * Math.max(0, nh.d - 0.5))), cautionV(nh));
       const sp = Math.abs(this.v);
       const nsp = sp < target ? Math.min(target, sp + ACCEL * dt) : Math.max(target, sp - BRAKE * 1.6 * dt);
       this.v = nsp * this.m;
@@ -1157,7 +1172,7 @@ class Train {
       if (this.timer <= 0) { this.mode = 'run'; if (this.at && this.onStation) this.onStation('depart', this, this.at); this.at = null; }
     } else if (this.mode === 'run') {
       const nh = this.nextLoopStop();
-      const target = nh ? Math.min(CRUISE, Math.sqrt(Math.max(0, 2 * BRAKE * Math.max(0, nh.d - 0.5)))) : CRUISE;
+      const target = nh ? Math.min(CRUISE, Math.sqrt(Math.max(0, 2 * BRAKE * Math.max(0, nh.d - 0.5))), cautionV(nh)) : CRUISE;
       this.v = this.v < target ? Math.min(target, this.v + ACCEL * dt) : Math.max(target, this.v - BRAKE * 1.6 * dt);
       const step = this.v * dt;
       if (nh && nh.d - step < 0.6 && this.v < 1.2) {
@@ -1199,7 +1214,7 @@ class Train {
       let target = CRUISE;
       if (nh) {
         const brakeV = Math.sqrt(Math.max(0, 2 * BRAKE * Math.max(0, nh.d - 0.5)));
-        target = Math.min(target, brakeV);
+        target = Math.min(target, brakeV, cautionV(nh));
         if (nh.d < 0.6 && this.v < 1.2) {
           this.v = 0; this.head = this.stopFor(nh.h);
           this.served.add(nh.h); this.at = nh.h;
@@ -1335,4 +1350,138 @@ class Train {
     for (const b of this.boxes) m = Math.max(0, Math.min(m, Math.hypot(b.x - x, b.z - z) - b.hd));
     return m;
   }
+}
+
+// ---------------- signals ----------------
+// Colour-light signals beside the line, on the driver's side, facing the trains that come to them:
+//  · a distant signal ~ 400 m before each station — YELLOW (caution: the next one is red, slow down), or green
+//    when the platform's starter is off;
+//  · a starter at the far end of each platform — RED while a train stands there (it stops at the platform),
+//    turning GREEN a few seconds before it leaves and staying green while it pulls out;
+//  · a gate signal 150 m either side of every level crossing — RED while the booms are up, GREEN once they're down.
+// The posts and heads are merged into a couple of meshes; the lamps are two instanced meshes (the lenses and
+// their glow) recoloured when an aspect changes.
+const SIG_COL = { r: new THREE.Color('#ff2a1a'), y: new THREE.Color('#ffb21a'), g: new THREE.Color('#30ff70') };
+const SIG_DIM = { r: new THREE.Color('#2a0806'), y: new THREE.Color('#2a1c04'), g: new THREE.Color('#06200c') };
+const LAMP_Y = { g: 5.5, y: 5.08, r: 4.66 };
+function buildSignals(scene) {
+  const list = [], q = {}, n2 = {};
+  const otherTrackNear = (T, x, z, r) => TRACKS.some((U) => { if (U === T) return false; const m = U.path.near(x, z, n2); return m && m.d < r; });
+  const place = (T, s, d, kind, extra) => {
+    const P = T.path;
+    if (!P.closed && (s < 5 || s > P.L - 5)) return;
+    if (!T.openS(s) || T.bridgeS(s)) return;
+    P.at(s, q);
+    // the driver's (left) side if it's clear of other lines, else the right
+    for (const side of [1, -1]) {
+      const nx = -q.tz * d * side, nz = q.tx * d * side, o = 3.1;
+      const x = q.x + nx * o, z = q.z + nz * o;
+      if (otherTrackNear(T, x, z, 4.2)) continue;
+      list.push({ T, s, d, kind, x, z, rot: Math.atan2(-q.tx * d, -q.tz * d), aspect: null, ...extra });
+      return;
+    }
+  };
+  for (const T of TRACKS) {
+    if (T.name === 'mail') continue;
+    const dirs = T.loop || T.name === 'outer' ? [1] : [1, -1];
+    for (const h of T.halts ?? []) {
+      if (h.noStation) continue;
+      const L = h.L ?? 110;
+      for (const d of dirs) {
+        const st = { h };
+        place(T, h.s + d * (L / 2 + 10), d, 'starter', st);
+        const starter = list[list.length - 1]?.h === h && list[list.length - 1].d === d ? list[list.length - 1] : null;
+        place(T, h.s - d * (L / 2 + 330), d, 'distant', { h, starter });
+      }
+    }
+  }
+  for (const X of CROSSINGS) for (const Ln of X.lines ?? []) {
+    const T = Ln.T;
+    for (const d of T.loop || T.name === 'outer' ? [1] : [1, -1]) place(T, Ln.s - d * 150, d, 'gate', { X });
+  }
+  // the static parts: a grey lattice-like post on a concrete base, a black head with three hooded lenses, a
+  // white number plate
+  const posts = [], heads = [], plates = [], m4 = new THREE.Matrix4(), e = new THREE.Euler();
+  const postParts = [
+    new THREE.BoxGeometry(0.7, 0.45, 0.7).translate(0, 0.0, 0),
+    new THREE.CylinderGeometry(0.085, 0.11, 5.9, 8).translate(0, 2.95, 0),
+    new THREE.BoxGeometry(0.42, 0.04, 0.42).translate(0, 4.05, 0), // the little platform for the lineman
+    ...[0.9, 1.5, 2.1, 2.7, 3.3, 3.9].map((y) => new THREE.BoxGeometry(0.26, 0.025, 0.025).translate(0, y, -0.14)), // ladder rungs
+    new THREE.BoxGeometry(0.025, 3.4, 0.025).translate(-0.13, 2.4, -0.14), new THREE.BoxGeometry(0.025, 3.4, 0.025).translate(0.13, 2.4, -0.14),
+  ];
+  const postG = mergeGeometries(postParts.map((g) => (g.index ? g.toNonIndexed() : g)));
+  const headParts = [
+    new THREE.BoxGeometry(0.46, 1.36, 0.26).translate(0, 5.08, 0.02),
+    new THREE.BoxGeometry(0.78, 1.62, 0.03).translate(0, 5.08, -0.12), // the black target board behind it
+    ...['g', 'y', 'r'].map((k) => new THREE.CylinderGeometry(0.17, 0.17, 0.2, 12, 1, true, -Math.PI / 2, Math.PI).rotateX(Math.PI / 2).translate(0, LAMP_Y[k] + 0.02, 0.24)), // hoods
+  ];
+  const headG = mergeGeometries(headParts.map((g) => (g.index ? g.toNonIndexed() : g)));
+  const plateG = new THREE.BoxGeometry(0.34, 0.26, 0.02).translate(0, 3.6, 0.1);
+  for (const S of list) {
+    const y = heightAt(S.x, S.z);
+    S.y = Math.min(y, RAIL_TOP - 0.1);
+    m4.makeRotationFromEuler(e.set(0, S.rot, 0)).setPosition(S.x, S.y, S.z);
+    posts.push(postG.clone().applyMatrix4(m4)); heads.push(headG.clone().applyMatrix4(m4)); plates.push(plateG.clone().applyMatrix4(m4));
+    colliders.push({ kind: 'c', x: S.x, z: S.z, r: 0.35 });
+  }
+  const group = new THREE.Group();
+  if (!list.length) return { list, update() {} };
+  for (const [geos, mat] of [[posts, std('#8b8f94', { metalness: 0.4, roughness: 0.55 })], [heads, std('#121314', { roughness: 0.6 })], [plates, std('#f2f0ea')]]) {
+    const m = new THREE.Mesh(mergeGeometries(geos), mat); m.castShadow = mat.color.getHex() !== 0xf2f0ea; m.receiveShadow = true; group.add(m);
+  }
+  // the lenses (three per signal) and the glow round the lit one
+  const lens = new THREE.InstancedMesh(new THREE.CircleGeometry(0.115, 16), new THREE.MeshBasicMaterial({ toneMapped: false }), list.length * 3);
+  const glowTexC = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,255,255,0.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
+  const glow = new THREE.InstancedMesh(new THREE.PlaneGeometry(1.3, 1.3), new THREE.MeshBasicMaterial({ map: glowTexC, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, opacity: 0.8 }), list.length);
+  const o3 = new THREE.Object3D();
+  list.forEach((S, i) => {
+    ['g', 'y', 'r'].forEach((k, j) => {
+      o3.position.set(S.x + Math.sin(S.rot) * 0.155, S.y + LAMP_Y[k], S.z + Math.cos(S.rot) * 0.155); o3.rotation.set(0, S.rot, 0); o3.scale.setScalar(1); o3.updateMatrix();
+      lens.setMatrixAt(i * 3 + j, o3.matrix); lens.setColorAt(i * 3 + j, SIG_DIM[k]);
+    });
+    o3.scale.setScalar(0); o3.updateMatrix(); glow.setMatrixAt(i, o3.matrix); glow.setColorAt(i, SIG_COL.r);
+  });
+  for (const m of [lens, glow]) { m.frustumCulled = false; m.renderOrder = 3; group.add(m); }
+  glow.renderOrder = 4;
+  scene.add(group);
+  const setAspect = (S, i, a) => {
+    if (S.aspect === a) return;
+    S.aspect = a;
+    ['g', 'y', 'r'].forEach((k, j) => lens.setColorAt(i * 3 + j, k === a ? SIG_COL[k] : SIG_DIM[k]));
+    o3.position.set(S.x + Math.sin(S.rot) * 0.2, S.y + LAMP_Y[a], S.z + Math.cos(S.rot) * 0.2); o3.rotation.set(0, S.rot, 0); o3.scale.setScalar(1); o3.updateMatrix();
+    glow.setMatrixAt(i, o3.matrix); glow.setColorAt(i, SIG_COL[a]);
+    lens.instanceColor.needsUpdate = true; glow.instanceColor.needsUpdate = true; glow.instanceMatrix.needsUpdate = true;
+  };
+  // is any train coming up to (or just past) this signal, running its way? (u: how far past it, along its way)
+  const running = (S, trains, back, ahead) => {
+    const dx = Math.sin(S.rot + Math.PI), dz = Math.cos(S.rot + Math.PI); // the way the trains run past it
+    for (const t of trains) for (const b of t.boxes) {
+      const ux = b.x - S.x, uz = b.z - S.z, u = ux * dx + uz * dz, lat = Math.abs(ux * dz - uz * dx);
+      if (lat > 6 || u < -back - b.hd || u > ahead + b.hd) continue;
+      if (b.vx * dx + b.vz * dz > 0.3) return true;
+    }
+    return false;
+  };
+  let acc = 0;
+  const api = {
+    list,
+    update(dt, trains) {
+      acc += dt;
+      if (acc < 0.25) return;
+      acc = 0;
+      list.forEach((S, i) => {
+        let a;
+        if (S.kind === 'gate') a = S.X.angle > -0.2 ? 'g' : 'r';
+        else if (S.kind === 'starter') {
+          // off (green) as the train standing at this platform is about to leave, and while it pulls out
+          const leaving = trains.some((t) => t.at && t.at.name === S.h.name && Math.abs(t.at.s - S.h.s) < 1 && t.mode === 'dwell' && t.timer < 4 && (t.termini ? (t.nextStop(t.m) ? t.m : -t.m) : t.loopLine ? 1 : t.dir) === S.d);
+          a = leaving || running(S, trains, (S.h.L ?? 110) + 60, 25) ? 'g' : 'r';
+        } else a = S.starter && S.starter.aspect === 'g' ? 'g' : 'y';
+        setAspect(S, i, a);
+      });
+    },
+  };
+  // a first pass, so they all show something before the first update
+  for (const [i, S] of list.entries()) setAspect(S, i, S.kind === 'distant' ? 'y' : 'r');
+  return api;
 }

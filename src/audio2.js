@@ -136,6 +136,10 @@ P._elecHorn = function ({ freqs, times, vol, res = 2500, drive = 2.2, duty = 0.2
 // the car: a quick "peep" and a longer "peeep" on two disc horns
 P.carHorn = function (v = 1) { this._elecHorn({ freqs: [418, 510], times: [[0, 0.17], [0.25, 0.52]], vol: 0.055 * v }); };
 // the jeep: deeper, harder, punchier
+// the scooter: one small disc horn, bright and nasal — a quick "meep" and a longer "meeep"
+P.scooterHorn = function (v = 1) { this._elecHorn({ freqs: [458, 489], times: [[0, 0.13], [0.19, 0.38]], vol: 0.05 * v, res: 2900, drive: 2.6, duty: 0.22 }); };
+// the motorbike: a single disc horn, lower and buzzier, two honks with a little catch between
+P.mopedHorn = function (v = 1) { this._elecHorn({ freqs: [396, 405], times: [[0, 0.17], [0.25, 0.44]], vol: 0.056 * v, res: 2300, drive: 3.0, duty: 0.3 }); };
 P.jeepHorn = function (v = 1) { this._elecHorn({ freqs: [352, 428], times: [[0, 0.15], [0.22, 0.32]], vol: 0.06 * v, res: 2100, drive: 3 }); };
 
 // ---------- the bus's pressure horn ----------
