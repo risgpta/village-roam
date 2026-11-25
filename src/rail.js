@@ -460,7 +460,7 @@ export function buildRailway(scene) {
   // the far north line's train, to and fro between Dhaniyapur and Kheri Kalan
   const J = new Train(scene, TRACK7, { livery: { base: '#5a3a7a', line: '#f2e2c0', dark: '#3c2652', door: '#4a2f66' }, end: '#5a3a7a', coaches: 4, first: 30, boiler: '#1e1a24', name: 'Uttar Rani — Dhaniyapur–Kheri Kalan' });
   // the Seemant line's train, to and fro between the bay at Rannvas and Devgarh through the big villages
-  const S8 = new Train(scene, TRACK8, { livery: { base: '#a8501a', line: '#f6e6c0', dark: '#743610', door: '#8a4214' }, end: '#a8501a', coaches: 5, first: 20, boiler: '#201a16', name: 'Seemant Express — Rannvas–Devgarh' });
+  const S8 = new Train(scene, TRACK8, { livery: { base: '#a8501a', line: '#f6e6c0', dark: '#743610', door: '#8a4214' }, end: '#a8501a', coaches: 5, first: 20, boiler: '#201a16', name: 'Seemant Express — Rannvas–Devgarh–Naharpur–Kheri Kalan' });
   // a long passenger train round the ring: six coaches
   const RL = RING.path.L;
   const K = new Train(scene, RING, { livery: { base: '#8a1c22', line: '#f4dca0', dark: '#5e1216', door: '#6e161b' }, end: '#8a1c22', coaches: 6, startS: s0 + RL / 6, boiler: '#18191b', name: 'Gaon Express — six coaches round the ring' });

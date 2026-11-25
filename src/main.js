@@ -1824,15 +1824,16 @@ async function build() {
   });
   train.onStation = (type, tr) => {
     const d = Math.min(...tr.boxes.map((b) => Math.hypot(b.x - player.x, b.z - player.z)), 600);
-    if (d < 500) audio.horn(clamp(1 - d / 480, 0.15, 1));
+    if (d < 420) audio.horn(clamp(1 - d / 420, 0.08, 1));
     if (type === 'arrive' && d < 60 && !drv && !ride) queueToast('Train standing at the platform — walk up to the engine cab and press E to drive it!');
   };
   goodsYards = buildGoodsYards(scene, train);
   // the crossing bell: a quick ding-ding while the barriers are down
   train.onCrossingBell = (X, closed) => { X.bellT = closed ? 0 : -1; };
-  train.onEmerge = () => {
-    const d = Math.min(...train.boxes.map((b) => Math.hypot(b.x - player.x, b.z - player.z)), 400);
-    audio.horn(clamp(1 - d / 380, 0.15, 1));
+  // a whistle as an engine comes out of a tunnel: only that train's, and only if it's within earshot
+  train.onEmerge = (tr) => {
+    const d = Math.min(...(tr?.boxes ?? []).map((b) => Math.hypot(b.x - player.x, b.z - player.z)), 999);
+    if (d < 380) audio.horn(clamp(1 - d / 380, 0.1, 1));
   };
   status('Waking the village…');
   await nextFrame();

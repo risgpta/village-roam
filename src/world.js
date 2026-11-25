@@ -276,7 +276,7 @@ export const NEW_VILLAGES = NEWV;
 // Seemant line, runs out to them from a bay platform beside the ring's Rannvas station (outside it, away from the
 // village), sweeping out across the plain and round the arc to a terminus at Devgarh. A train runs to and fro.
 export const SEEM_R = (th) => 2960 + 35 * Math.sin(4 * th + 1.1);
-export const SEEM_TH = { start: 3.91, out: 3.99, arc: 4.13, end: 4.985 };
+export const SEEM_TH = { start: 3.91, out: 3.99, arc: 4.13, end: 4.985, kheri: 0.452 };
 const SEEM_PTS = (() => {
   const pol = (th, r) => ({ x: Math.cos(th) * r, z: Math.sin(th) * r });
   const par = (th) => pol(th, ringR(th) + 13), arcP = (th) => pol(th, SEEM_R(th));
@@ -284,7 +284,11 @@ const SEEM_PTS = (() => {
   const o = [];
   for (let th = SEEM_TH.start; th < SEEM_TH.out; th += 2 / ringR(th)) o.push(par(th));
   o.push(...bez(par(SEEM_TH.out), ccw(par, SEEM_TH.out), arcP(SEEM_TH.arc), ccw(arcP, SEEM_TH.arc), 2));
-  for (let th = SEEM_TH.arc + 2 / SEEM_R(SEEM_TH.arc); th < SEEM_TH.end; th += 2 / SEEM_R(th)) o.push(arcP(th));
+  for (let th = SEEM_TH.arc + 2 / SEEM_R(SEEM_TH.arc); th < 4.94; th += 2 / SEEM_R(th)) o.push(arcP(th));
+  // and on beyond Devgarh: round the far side of the jungle (under Tez Nadi in a tunnel through the hills), into
+  // the canal country to a station across the canal from Naharpur, and on to a terminus near Kheri Kalan
+  const ext = [arcP(4.94), arcP(4.985), pol(5.1, 3005), pol(5.32, 3020), pol(5.55, 3000), pol(5.8, 2955), pol(6.05, 2860), pol(6.25, 2750), pol(Math.PI * 2 + 0.12, 2668), pol(Math.PI * 2 + 0.3, 2682), pol(Math.PI * 2 + SEEM_TH.kheri, 2700)];
+  o.push(...catmull(ext, 2).slice(1));
   return o;
 })();
 // the ring
@@ -331,7 +335,7 @@ const OUTER_PTS = (() => {
 const P_MAIN = makePath(MAIN_PTS), P_MAIL = makePath(MAIL_PTS), P_LINE3 = makePath(LINE3_PTS), P_RING = makePath(RING_PTS, true), P_OUTER = makePath(OUTER_PTS);
 // The little river (Choti Nadi): out of the far hills in the south-west, along the edge of the new country,
 // and into the big river south of the ring. Its water steps down from the hills, then runs level to the mouth.
-const catmull = (ctrl, step = 3) => {
+function catmull(ctrl, step = 3) {
   const out = [];
   for (let i = 0; i < ctrl.length - 1; i++) {
     const p0 = ctrl[Math.max(0, i - 1)], p1 = ctrl[i], p2 = ctrl[i + 1], p3 = ctrl[Math.min(ctrl.length - 1, i + 2)];
@@ -344,7 +348,7 @@ const catmull = (ctrl, step = 3) => {
   }
   out.push(ctrl[ctrl.length - 1]);
   return out;
-};
+}
 const polarP = (th, r) => ({ x: Math.cos(th) * r, z: Math.sin(th) * r });
 export const TRIB = (() => {
   const mouthZ = 1690, mouth = { x: riverX(mouthZ) - RIVER_HALF + 3, z: mouthZ };
@@ -419,6 +423,10 @@ const DK_PTS = (() => {
 // where roads cross the canal: earth causeways over culverts, with low concrete parapets
 CANAL.crossings = [-0.16, 0.12, 0.5].map((th) => { const r = CANAL.Rc(th); return CANAL.path.sOf(Math.cos(th) * r, Math.sin(th) * r); });
 // the valleys the station lines and the ring run along: a coarse distance field, stamped once
+// Tez Nadi's course down from the hills (see RAPID): the Seemant line passes under it in a tunnel, so its valley
+// isn't carved flat there
+const RAPID_HILL = [[-0.6, 4430], [-0.52, 4210], [-0.58, 3990], [-0.62, 3760], [-0.53, 3520], [-0.63, 3280], [-0.54, 3040], [-0.65, 2800], [-0.56, 2560], [-0.66, 2330], [-0.57, 2110], [-0.64, 1900]];
+const nearRapidHill = (() => { const pts = catmull(RAPID_HILL.map(([t, r]) => polarP(t, r)), 20); return (p, d) => pts.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < d); })();
 const FLATD = (() => {
   const C = 8, H = INNER_HALF + 80, n = Math.ceil((2 * H) / C) + 1, R = 140, rc = Math.ceil(R / C);
   const d = new Float32Array(n * n).fill(999);
@@ -428,7 +436,7 @@ const FLATD = (() => {
       const dd = Math.hypot(i * C - H - p.x, j * C - H - p.z); if (dd < d[j * n + i]) d[j * n + i] = dd;
     }
   };
-  for (const P of [MAIN_PTS, LINE3_PTS, RING_PTS, OUTER_PTS, BRANCH_PTS, DK_PTS, SEEM_PTS]) for (let k = 0; k < P.length; k += 2) stamp(P[k]);
+  for (const P of [MAIN_PTS, LINE3_PTS, RING_PTS, OUTER_PTS, BRANCH_PTS, DK_PTS, SEEM_PTS]) for (let k = 0; k < P.length; k += 2) if (P !== SEEM_PTS || !nearRapidHill(P[k], 330)) stamp(P[k]);
   return (x, z) => {
     const fx = (x + H) / C, fz = (z + H) / C, i = Math.floor(fx), j = Math.floor(fz);
     if (i < 0 || j < 0 || i >= n - 1 || j >= n - 1) return 999;
@@ -505,7 +513,7 @@ export const WATERHOLE = { ...polar(-0.7, ringR(-0.7) + 150), r: 19 };
 // watering hole. Its water level steps down all the way (never rising), cutting a gorge where the hills stand.
 export const RAPID = (() => {
   const W = WATERHOLE, ea = -0.12, ex = Math.cos(ea), ez = Math.sin(ea);
-  const ctrl = [[-0.6, 4430], [-0.52, 4210], [-0.58, 3990], [-0.62, 3760], [-0.53, 3520], [-0.63, 3280], [-0.54, 3040], [-0.65, 2800], [-0.56, 2560], [-0.66, 2330], [-0.57, 2110], [-0.64, 1900]].map(([t, r]) => polarP(t, r));
+  const ctrl = RAPID_HILL.map(([t, r]) => polarP(t, r));
   ctrl.push({ x: W.x + ex * 150, z: W.z + ez * 150 }, { x: W.x + ex * 70, z: W.z + ez * 70 }, { x: W.x + ex * (W.r + 1), z: W.z + ez * (W.r + 1) });
   const path = makePath(catmull(ctrl), false, false, 80);
   // the level: the ground along it, smoothed, never rising downstream, ending at the watering hole's water
@@ -767,7 +775,7 @@ export const RING = Object.assign(makeTrack(P_RING, false), { loop: true, name: 
 export const TRACK5 = Object.assign(makeTrack(P_OUTER, true), { name: 'outer' });
 export const TRACK6 = Object.assign(makeTrack(makePath(BRANCH_PTS), true), { termini: true, name: 'nahar' });
 export const TRACK7 = Object.assign(makeTrack(makePath(DK_PTS), true), { termini: true, name: 'dk' });
-export const TRACK8 = Object.assign(makeTrack(makePath(SEEM_PTS), true), { termini: true, name: 'seemant' });
+export const TRACK8 = Object.assign(makeTrack(makePath(SEEM_PTS), false), { termini: true, name: 'seemant' });
 export const TRACKS = [TRACK, TRACK2, TRACK3, RING, TRACK5, TRACK6, TRACK7, TRACK8];
 // The route a driven train can take: its own line, and at each end on round the ring through the junction
 // (a whole loop each way), so the boy can run through onto the ring line and on to its stations. The line's
@@ -823,8 +831,10 @@ TRACK7.halts = [
   const P = TRACK8.path, SV = NEWV.filter((v) => v.seem);
   TRACK8.halts = [
     { s: 66, name: 'Rannvas', hi: 'रणवास', side: -1, L: 110 },
-    ...SV.slice(0, 2).map((v) => { const r = SEEM_R(v.th); return { s: P.sOf(Math.cos(v.th) * r, Math.sin(v.th) * r), name: v.name, hi: v.hi, side: 1, L: 120, village: v }; }),
-    { s: P.L - 66, name: SV[2].name, hi: SV[2].hi, side: 1, L: 120, village: SV[2] },
+    ...SV.map((v) => { const r = SEEM_R(v.th); return { s: P.sOf(Math.cos(v.th) * r, Math.sin(v.th) * r), name: v.name, hi: v.hi, side: 1, L: 120, village: v }; }),
+    // the canal country: across the canal from Naharpur (a lane over the causeway), and the terminus near Kheri Kalan
+    { s: P.sOf(Math.cos(0.12) * 2668, Math.sin(0.12) * 2668), name: 'Naharpur Paar', hi: 'नहरपुर पार', side: 1, L: 110, canalStop: 0.12 },
+    { s: P.L - 66, name: 'Kheri Kalan Road', hi: 'खेड़ी कलां रोड', side: 1, L: 110, canalStop: 0.5 },
   ];
 }
 // the outer line's stations, one at each of its villages (platforms on the inside, toward the village)
@@ -2091,6 +2101,11 @@ TRACK_PONDS.push({ x: WATERHOLE.x, z: WATERHOLE.z, r: WATERHOLE.r, level: baseHe
       const sRoad = trail(items);
       road(sRoad, 2.6);
       layout.newRoads.seem = sRoad;
+    // lanes from the Seemant line's two canal-country stations: over the causeway to Naharpur, and in to Kheri Kalan
+    for (const h of TRACK8.halts.filter((o) => o.canalStop !== undefined && o.yard)) {
+      if (h.canalStop < 0.3) road([[h.yard.x, h.yard.z], bank(0.12, CANAL.half + 10), bank(0.12, bankOff)], 2.4);
+      else road(trail([[h.yard.x, h.yard.z], [(h.yard.x + KH.x) / 2, (h.yard.z + KH.z) / 2], KHv]), 2.4);
+    }
       // a lane out of the far side of Devgarh, and between the villages' back lanes, carts and cattle
     }
     // a little shrine between Naharpur and the canal, under a big shade tree, beside the bank track

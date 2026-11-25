@@ -6,6 +6,7 @@ import { Gear } from './gear.js';
 import { poseRider } from './bicycle.js';
 import { poseRower } from './vehicles.js';
 
+const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _qc = new THREE.Quaternion(), _X = new THREE.Vector3(1, 0, 0), _Y = new THREE.Vector3(0, 1, 0);
 export class Boy {
   constructor() {
     const rig = buildHuman({ k: 0.72, headScale: 1.24, dress: 'shorts', top: '#e9a23b', bottom: '#3f5a7a', skin: '#8a5a3c', sleeves: 'short' });
@@ -91,15 +92,22 @@ export class Boy {
     this.legs.forEach((l, i) => {
       const s = i ? 1 : -1;
       if (perch) { l.hip.rotation.set(-1.45 * b, 0, 0); l.knee.rotation.x = (1.45 + Math.sin(t * 1.3 + i * 2) * 0.12) * b; }
-      else { l.hip.rotation.set(-1.5 * b, 0, s * 0.72 * b); l.knee.rotation.x = 2.25 * b; }
+      else {
+        // cross-legged (sukhasana): each thigh out forward and to its side, turned out so the knee bends flat,
+        // the shins folded across in front, one tucked just under the other
+        _qa.setFromAxisAngle(_Y, s * 0.62); _qb.setFromAxisAngle(_X, -1.52); _qc.setFromAxisAngle(_Y, s * (i ? 1.38 : 1.56));
+        _qa.multiply(_qb).multiply(_qc);
+        l.hip.quaternion.identity().slerp(_qa, b);
+        l.knee.rotation.x = (i ? 2.32 : 2.42) * b;
+      }
     });
     // a sip every few seconds: the cup comes up, tips, and goes back to rest on the knee
     const cyc = (t % 6) / 6, up = sip ? Math.max(0, Math.sin(Math.min(1, cyc / 0.45) * Math.PI)) : 0;
     this.arms.forEach((a, i) => {
       const s = i ? 1 : -1, lift = i === 1 ? up : 0;
-      a.shoulder.rotation.x = (-0.55 - lift * 0.55) * b;
-      a.shoulder.rotation.z = s * (0.18 - lift * 0.3) * b;
-      a.elbow.rotation.x = (-0.75 - lift * 1.35) * b;
+      a.shoulder.rotation.x = (perch ? -0.55 : -0.42) * b - lift * 0.55 * b;
+      a.shoulder.rotation.z = s * ((perch ? 0.18 : 0.32) - lift * 0.3) * b;
+      a.elbow.rotation.x = ((perch ? -0.75 : -0.55) - lift * 1.35) * b;
     });
     this.head.rotation.y = Math.sin(t * 0.23) * 0.5 + Math.sin(t * 0.11) * 0.25;
     this.head.rotation.x = -0.05 + up * -0.18 + Math.sin(t * 0.17) * 0.05;
