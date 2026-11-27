@@ -8,7 +8,7 @@ export const DATA_HALF = 4100; // grass data texture half-size (m)
 export const WATER_Y = -0.4;
 // the season can lower the river (summer): physics and swimmers use WATER_Y + WATER.off
 export const WATER = { off: 0 };
-export const RIVER_HALF = 10;
+export const RIVER_HALF = 20; // (a broad river: 40 m bank to bank)
 export const SQUARE = { x: -2, z: 2, r: 12 };
 // Ponds by the railway (found when each line is laid, see makeTrack): some right under the line, which then
 // crosses them on a bridge; some just beside it. { x, z, r, level (the water), depth, bridge }
@@ -360,10 +360,10 @@ export const TRIB = (() => {
   const ctrl = [[2.98, 2780], [2.84, 2470], [2.66, 2310], [2.46, 2262], [2.24, 2252], [2.04, 2240], [1.88, 2170], [1.76, 2030], [1.68, 1880]].map(([t, r]) => polarP(t, r));
   ctrl.push(mouth);
   const path = makePath(catmull(ctrl), false, false, 72);
-  return { path, half: 3.4 };
+  return { path, half: 6.8 }; // (14 m of water)
 })();
 export const tribLevel = (s) => WATER_Y + 0.05 + 9 * Math.pow(Math.max(0, 1 - s / TRIB.path.L / 0.6), 1.6);
-export const tribDist = (x, z) => { const n = TRIB.path.near(x, z); const d = n ? n.d : Infinity; return Math.min(d, rapidDist(x, z)); };
+export const tribDist = (x, z) => { const n = TRIB.path.near(x, z); const d = n ? n.d : Infinity; return Math.min(d, rapidDist(x, z) - (RAPID.half - TRIB.half)); }; // (measured so the wider Tez Nadi keeps the same margins)
 // ---------- the canal country: out east beyond Noorpur ----------
 // A broad, level plain of fields watered by a long irrigation canal (a nahar) that sweeps round in a gentle
 // arc: brick-lined water between raised banks with a dirt track along the top, rows of eucalyptus, little
@@ -542,7 +542,7 @@ export const RAPID = (() => {
   for (let i = 1; i < n; i++) lv[i] = Math.min(lv[i], lv[i - 1] - 0.004);
   for (let i = 0; i < n; i++) { const k = i / (n - 1); lv[i] = Math.max(lv[i], end) * (1 - k * k * k * k) + end * k * k * k * k; }
   for (let i = 1; i < n; i++) lv[i] = Math.min(lv[i], lv[i - 1]);
-  return { path, half: 3.8, lv, step, speed: 5.5 };
+  return { path, half: 8.0, lv, step, speed: 5.5 }; // (a good broad river: 16 m of water bank to bank)
 })();
 export const rapidLevel = (s) => { const R = RAPID, f = Math.max(0, Math.min(R.lv.length - 1.001, s / R.step)), i = Math.floor(f), t = f - i; return R.lv[i] * (1 - t) + R.lv[i + 1] * t; };
 export const rapidDist = (x, z) => { const n = RAPID.path.near(x, z); return n ? n.d : Infinity; };
@@ -560,7 +560,7 @@ export const rapidDist = (x, z) => { const n = RAPID.path.near(x, z); return n ?
   for (let i = 0; i < 900 && J.roamers.length < 60; i++) {
     const th = JUNGLE.th0 + 0.06 + R() * (JUNGLE.th1 - JUNGLE.th0 - 0.12), rr = ringR(th) + JUNGLE.gap + 30 + R() * (JUNGLE.r1 - ringR(th) - JUNGLE.gap - 60);
     const x = Math.cos(th) * rr, z = Math.sin(th) * rr;
-    if (jungleMask(x, z) < 0.6 || dipMask(x, z) > 0.1 || Math.hypot(x - W.x, z - W.z) < 90 || rapidDist(x, z) < 14) continue;
+    if (jungleMask(x, z) < 0.6 || dipMask(x, z) > 0.1 || Math.hypot(x - W.x, z - W.z) < 90 || rapidDist(x, z) < 22) continue;
     if (J.roamers.some((q) => Math.hypot(q.x - x, q.z - z) < 85)) continue;
     J.roamers.push({ x, z, r: 25, kind: kinds[J.roamers.length % kinds.length] });
   }
@@ -826,7 +826,31 @@ TRACK3.halts = [
   { s: sX(TRACK3, MP.x), name: 'Mariapur', hi: 'मरियापुर', side: 1, L: 110 },
   { s: sX(TRACK3, XJ), name: 'Noorpur Junction', hi: 'नूरपुर जंक्शन', side: -1, W: 8.5, L: 150 },
 ];
-TRACK2.halts = [{ s: sX(TRACK2, x2W + 45), name: 'Mail west loop', noStation: true }, { s: sX(TRACK2, x2E - 45), name: 'Mail east loop', noStation: true }];
+// the Mail line's two loops are proper little stations now, with a platform on the side away from any other line
+TRACK2.halts = [[x2W + 45, 'Paschim Loop', 'पश्चिम लूप'], [x2E - 45, 'Purab Loop', 'पूरब लूप']].map(([x, name, hi]) => {
+  const s0 = sX(TRACK2, x), q = TRACK2.path.at(s0);
+  let side = 1;
+  for (const U of [TRACK, TRACK3, RING]) { const n = U.path.near(q.x, q.z); if (n && n.d < 40) { const p = U.path.at(n.s); side = (p.x - q.x) * -q.tz + (p.z - q.z) * q.tx > 0 ? -1 : 1; } }
+  return { s: s0, name, hi, side, L: 90 };
+});
+// Routes a driven train can run on beyond its own line's ends, wherever the rails join another line: the Mail
+// line onto the ring at both ends; the Nahar branch onto the ring; the Seemant line onto the ring at Rannvas and,
+// at Kheri Kalan, on into the Dhaniyapur line and the outer line beyond; and the Dhaniyapur line the other way.
+{
+  const pathOf = (pts) => makePath(pts, false, true);
+  const withOff = (pre, pts, post = []) => { const path = pathOf([...pre, ...pts, ...post]); return { path, off: path.S[pre.length] }; };
+  const R2 = Math.PI * 2;
+  const thJs = SEEM_TH.start - 170 / ringR(SEEM_TH.start), thJn = -0.1 - 170 / ringR(-0.1), thJd = 2.075 + 180 / OUTER_R(2.075);
+  const jd = outerPt(thJd), iJ = OUTER_PTS.reduce((b, q, i) => (Math.hypot(q.x - jd.x, q.z - jd.z) < Math.hypot(OUTER_PTS[b].x - jd.x, OUTER_PTS[b].z - jd.z) ? i : b), 0);
+  const outerOn = [...OUTER_PTS.slice(iJ + 1), ...ringArc(OUT_J2 + 3 / ringR(OUT_J2), OUT_J2 + R2 - 0.01)];
+  const ringIn = (th) => ringArc(th - R2 + 0.01, th - 0.5 / ringR(th)), ringOutCw = (th) => ringArc(th - 3 / ringR(th), th - R2 + 0.01);
+  TRACK8.drive = withOff(ringIn(thJs), SEEM_PTS, [...DK_PTS.slice().reverse().slice(1), ...outerOn]);
+  TRACK7.drive = withOff(OUTER_PTS.slice(iJ + 1).reverse(), DK_PTS, [...SEEM_PTS.slice().reverse().slice(1), ...ringOutCw(thJs)]);
+  TRACK6.drive = withOff(ringIn(thJn), BRANCH_PTS);
+  TRACK2.drive = withOff(ringArc(J_2W.th + R2 - 0.01, J_2W.th + 0.5 / ringR(J_2W.th)), MAIL_PTS, ringOutCw(J_2E.th));
+  TRACK8.driveLines = [TRACK8, TRACK7, TRACK5, RING]; TRACK7.driveLines = [TRACK7, TRACK8, TRACK5, RING];
+  TRACK6.driveLines = [TRACK6, RING]; TRACK2.driveLines = [TRACK2, RING];
+}
 RING.halts = [
   { s: sTh(J_ME.th + 0.08), name: 'Purab Junction', hi: 'पूरब जंक्शन', side: -1, L: 100 },
   { s: sTh(NEWV[0].th), name: NEWV[0].name, hi: NEWV[0].hi, side: 1, L: 110, village: NEWV[0] },
@@ -950,19 +974,19 @@ export function heightAt(x, z, bore = true) {
     if (w > 0 && top > h) h += (top - h) * w;
   }
   // the little river: a channel along its course, the land easing down to its banks
-  { const n = TRIB.path.near(x, z); if (n && n.d < 66) {
+  { const n = TRIB.path.near(x, z); if (n && n.d < 66 + TRIB.half) {
     const ws = tribLevel(n.s), bank = ws + 0.75;
-    h = lerp(bank, h, smoothstep(5, 60, n.d));
+    h = lerp(bank, h, smoothstep(TRIB.half + 1.6, TRIB.half + 57, n.d));
     if (n.d < TRIB.half + 1.5) h = Math.min(h, lerp(ws - 1.0, bank, smoothstep(TRIB.half - 1.6, TRIB.half + 1.5, n.d)));
   } }
   // Tez Nadi: its channel and a gorge where it runs through the hills; near the watering hole it eases off so
   // the pool keeps its bowl
-  { const n = RAPID.path.near(x, z); if (n && n.d < 70) {
-    const ws = rapidLevel(n.s), bank = ws + 1.0;
+  { const n = RAPID.path.near(x, z); if (n && n.d < 70 + RAPID.half) {
+    const ws = rapidLevel(n.s), bank = ws + 1.0, wd = RAPID.half - 3.8;
     let wE = n.s > RAPID.path.L - 60 ? smoothstep(0, 12, Math.hypot(x - WATERHOLE.x, z - WATERHOLE.z) - WATERHOLE.r) : 1;
     // (the railway's embankment up to its bridge keeps its own height)
     if (SEEM_TRACK) { const m = SEEM_TRACK.path.near(x, z); if (m && m.d < 9 && !SEEM_TRACK.bridgeS(m.s)) wE *= smoothstep(3.5, 9, m.d); }
-    const hb = lerp(bank, h, smoothstep(6, 66, n.d));
+    const hb = lerp(bank, h, smoothstep(6 + wd, 70 + wd, n.d));
     let hh = hb;
     if (n.d < RAPID.half + 1.8) hh = Math.min(hh, lerp(ws - 1.3 - noise2(x * 0.4, z * 0.4) * 0.25, bank, smoothstep(RAPID.half - 2.0, RAPID.half + 1.8, n.d)));
     h = lerp(h, hh, wE);
@@ -2663,7 +2687,7 @@ TRACK_PONDS.push({ x: WATERHOLE.x, z: WATERHOLE.z, r: WATERHOLE.r, level: baseHe
 }
 
 export function regionName(x, z) {
-  if (rapidDist(x, z) < 18) return 'Tez Nadi — the rushing river, down from the hills';
+  if (rapidDist(x, z) < 26) return 'Tez Nadi — the rushing river, down from the hills';
   if (Math.hypot(x - HAAT.x, z - HAAT.z) < 45) return 'Haat — the little market between Sonpur and Mariapur';
   { const tn = tunnelAt(x, z); if (tn && tn.d < BORE_HALF + 1) return tn.T.name === 'ring' ? 'Pahadi Surang — the ring line\'s tunnel' : 'In the Mail line\'s tunnel'; }
   if (dipMask(x, z) > 0.35) return 'Ghati — the valley under the viaduct';

@@ -789,6 +789,7 @@ function toggleRide() {
 // going either way pulls over to its edge and slows to let the boy through.
 let wayCool = 0;
 let friends = null; // (the people walking with the boy, see friends.js)
+let drvBlockT = 0;
 function makeWay() {
   if (!started || performance.now() - wayCool < 600) return;
   wayCool = performance.now();
@@ -2731,6 +2732,7 @@ function updateTrainDrive(dt) {
   else if (w) { if (vc < -0.2) tr.drive.brake = 1; else tr.drive.throttle = 1; }
   else if (sk) { if (vc > 0.2) tr.drive.brake = 1; else tr.drive.throttle = -1; }
   if (tr.bumped) { tr.bumped = false; toast('End of the line — the buffers! Back up with S'); }
+  if (tr.blockedAhead) { tr.blockedAhead = false; if (performance.now() - (drvBlockT ?? 0) > 4000) { drvBlockT = performance.now(); toast('A train is standing on the line ahead — wait for it to move on'); } }
   // the boy stands at the controls; the player is wherever the cab is
   boy.update(dt, 0, false, 0);
   boy.root.updateWorldMatrix(true, false);

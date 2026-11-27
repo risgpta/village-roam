@@ -470,7 +470,7 @@ export function buildRailway(scene) {
   const G1 = new Train(scene, RING, { ...goodsLook, wagons: ['coal', 'covered', 'stone', 'tank', 'covered'], startS: s0 + RL / 2, name: 'Maal Gaadi — goods train (coal and grain)' });
   const G2 = new Train(scene, RING, { ...goodsLook, wagons: ['covered', 'stone', 'covered', 'coal'], startS: s0 + (RL * 5) / 6, name: 'Maal Gaadi — goods train (stone and grain)' });
   const G3 = new Train(scene, TRACK5, { ...goodsLook, service: OUTER_LOOP, wagons: ['covered', 'coal', 'tank', 'covered', 'stone'], startS: LL / 4, name: 'Maal Gaadi — goods train on the outer line' });
-  for (const g of [G1, G2, G3]) g.color = '#6b4a2a';
+  for (const [i, g] of [G1, G2, G3].entries()) { g.color = '#6b4a2a'; g.goodsParity = i % 2; }
   const R = new Railway([A, B, C, D, E, F, G, H, I, J, K, G1, G2, G3, S8]);
   R.signals = buildSignals(scene);
   return R;
@@ -809,7 +809,7 @@ function buildLine(group, T) {
 
   // level crossings on the main road (the old one, spanning the main and Mail lines; the Mariapur line's)
 
-  // The lines are electrified: a steel portal over the track every 45 m — a mast either side and a lattice
+  // Through the stations the lines are electrified (out in the hills and fields they run bare): a steel portal over the track every 45 m — a mast either side and a lattice
   // beam across — carrying the contact wire with its sagging catenary and droppers over the rails, and a
   // feeder wire along the mast tops on both sides. (Not at stations, crossings, bridges or in tunnels.)
   if (T.name === 'mail') return;
@@ -834,12 +834,13 @@ function buildLine(group, T) {
   insParts.push(new THREE.CylinderGeometry(0.06, 0.06, 0.3, 8).translate(0, CAT_Y - RAIL_TOP + 0.15, 0));
   const mastG = mergeGeometries(mastParts), insG = mergeGeometries(insParts);
   const farFrom = (x, z, list, r) => !list.some((o) => Math.hypot(x - o.x, z - o.z) < r);
-  const stops = (T.halts ?? []).map((h) => P.at(h.s));
+  const stops = (T.halts ?? []).filter((h) => !h.noStation).map((h) => P.at(h.s));
   const wire = [];
   const seg = (a, b) => wire.push(a.x, a.y, a.z, b.x, b.y, b.z);
   const at = (t, y, lat = 0) => { P.at(t, q); return new THREE.Vector3(q.x - q.tz * lat, y, q.z + q.tx * lat); };
   for (const [a, b] of T.segs) {
-    const ok = (t) => { P.at(t, q); return !onBridge(t) && farFrom(q.x, q.z, ROAD_X, 16) && farFrom(q.x, q.z, stops, 70); };
+    // (the wires only run through the stations and a little way either side: out in the hills the line is bare)
+    const ok = (t) => { P.at(t, q); return !onBridge(t) && farFrom(q.x, q.z, ROAD_X, 16) && farFrom(q.x, q.z, stops, 70) && !farFrom(q.x, q.z, stops, 600); };
     const n = Math.floor((b - a - 20) / 45);
     let run = [], prev = null;
     const flush = () => {
@@ -1017,7 +1018,7 @@ class Train {
     // a service that runs a loop over more than one line (the outer trains: the outer line, then the ring)
     if (o.service) { this.path = o.service.path; this.svcOpen = o.service.open; this.loopLine = true; this.sE = this.path.L; this.halts = o.service.halts.map((h) => ({ ...h })); }
     // every line it can be on (for the level crossings to close as it comes)
-    this.lines = o.service ? [TRACK5, RING] : track.drive ? [track, RING] : [track];
+    this.lines = o.service ? [TRACK5, RING] : track.driveLines ?? (track.drive ? [track, RING] : [track]);
     this.layover = o.layover ?? 25;
     this.startDir = o.startDir ?? 1;
     this.dir = this.startDir;
@@ -1154,7 +1155,7 @@ class Train {
       this.head += this.v * dt;
       if (nh && nh.d < 0.6 && nsp < 1.2) {
         this.v = 0; this.head = this.stopFor(nh.h); this.at = nh.h;
-        this.mode = 'dwell'; this.timer = nh.h.noStation ? 12 : this.goods ? 60 : 45; // 45 s at every platform: time to get on, or take over the cab
+        this.mode = 'dwell'; this.timer = nh.h.noStation ? 12 : this.goods ? 36 : 30; // half a minute at every platform: time to get on, or take over the cab
         if (this.goods) this.goodsArrive(nh.h);
         if (this.onStation) this.onStation('arrive', this, nh.h);
       }
@@ -1175,7 +1176,10 @@ class Train {
   nextLoopStop() {
     const L = this.path.L;
     let best = null, bd = Infinity;
-    for (const h of this.halts) { let d = (((this.stopFor(h) - this.head) % L) + L) % L; if (d < 0.5) d += L; if (d < bd) { bd = d; best = h; } }
+    for (const [i, h] of this.halts.entries()) {
+      if (this.goods && this.halts.length > 3 && (i + (this.goodsParity ?? 0)) % 2) continue; // goods trains call at every other station
+      let d = (((this.stopFor(h) - this.head) % L) + L) % L; if (d < 0.5) d += L; if (d < bd) { bd = d; best = h; }
+    }
     return best ? { h: best, d: bd } : null;
   }
   updateLoop(dt) {
@@ -1190,7 +1194,7 @@ class Train {
       this.v = this.v < target ? Math.min(target, this.v + ACCEL * dt) : Math.max(target, this.v - BRAKE * 1.6 * dt);
       const step = this.v * dt;
       if (nh && nh.d - step < 0.6 && this.v < 1.2) {
-        this.head += nh.d; this.v = 0; this.at = nh.h; this.mode = 'dwell'; this.timer = this.goods ? 60 : 45;
+        this.head += nh.d; this.v = 0; this.at = nh.h; this.mode = 'dwell'; this.timer = this.goods ? 36 : (nh.h.shared ? 20 : 30);
         if (this.goods) this.goodsArrive(nh.h);
         if (this.onStation) this.onStation('arrive', this, nh.h);
       } else this.head += step;
@@ -1233,7 +1237,7 @@ class Train {
         if (nh.d < 0.6 && this.v < 1.2) {
           this.v = 0; this.head = this.stopFor(nh.h);
           this.served.add(nh.h); this.at = nh.h;
-          this.mode = 'dwell'; this.timer = 45;
+          this.mode = 'dwell'; this.timer = 30;
           if (this.onStation) this.onStation('arrive', this, nh.h);
         }
       }
@@ -1285,7 +1289,7 @@ class Train {
         if (hit) break;
       }
       this.blockedBy = by;
-      if (hit) { this.head = prevHead; this.v = 0; this.bumped = true; }
+      if (hit) { this.head = prevHead; this.v = 0; this.blockedAhead = true; } // (not the end of the line: a train in the way)
     }
     const ds = this.head - prevHead;
     this.travel += this.termini || this.loopLine ? ds : ds * this.dir;

@@ -500,6 +500,7 @@ export function buildStations(scene, railway, hooks = {}) {
     stations,
     update(dt, player, night) { for (const s of stations) s.update(dt, player, night); },
     // the station a train is standing at, if any
-    of(h) { return stations.find((s) => s.h.name === h.name); },
+    // (by name and place: two lines can each have a station of the same name, side by side)
+    of(h) { return stations.find((s) => s.h.name === h.name && Math.abs(s.h.s - h.s) < 1) ?? stations.find((s) => s.h.name === h.name); },
   };
 }
