@@ -204,6 +204,9 @@ export class Ambience {
       erick: voice({ base: 95, osc: [['sine', 1, 0.7], ['triangle', 2.01, 0.25], ['sine', 3.02, 0.12]], fire: 0.25, fireType: 'sine', depth: 0.08, cut: 2600, q: 1.2, noise: 0.1, noiseF: 3000, vol: 0.035, gears: [0, 40] }),
       bus: diesel({ base: 24, lump: 0.45, cut: 780, res: [[90, 7, 1.1], [300, 4, 1.4], [800, -4, 1]], chuffF: 380, chuff: 1.3, clatter: 0.26, clatF: 2100, vol: 0.19, gears: [0, 3.5, 7, 11, 25] }),
       jeep: diesel({ base: 26, lump: 0.35, cut: 1100, res: [[130, 6, 1.3], [420, 5, 1.6], [1100, -2, 1]], chuffF: 520, chuff: 1.1, clatter: 0.3, clatF: 2800, vol: 0.15, gears: [0, 5, 10, 16, 40] }),
+      // the tractor: a big, slow three-cylinder diesel — a deep thump at each firing, the exhaust barking up the
+      // tall stack, a loose mechanical clatter; it hardly revs, it lugs
+      tractor: diesel({ base: 15, lump: 0.8, cut: 640, res: [[62, 9, 1.1], [190, 6, 1.3], [520, 2, 1.4], [900, -4, 1]], chuffF: 300, chuff: 1.9, clatter: 0.42, clatF: 1650, vol: 0.24, gears: [0, 1.5, 3.0, 4.6, 6.2, 9] }),
       car: diesel({ base: 27, lump: 0.3, cut: 1150, res: [[140, 5, 1.3], [450, 4, 1.6], [1200, -2, 1]], chuffF: 540, chuff: 1.0, clatter: 0.26, clatF: 2900, vol: 0.14, gears: [0, 5, 10, 15, 21, 45] }),
     };
     // the little plane: a buzzy flat-four, the propeller's thrum, wind over the wings, the stall horn
@@ -262,7 +265,8 @@ export class Ambience {
       loop(pink).connect(filt('bandpass', 650, 1.4)).connect(am).connect(this.marketG);
       loop(pink).connect(filt('bandpass', 1300, 2.5)).connect(gain(0.4)).connect(this.marketG);
     }
-    this.tractor = engine(32, 420);
+    // tractors heard across the fields (the one ploughing, those on the roads): the same thumping diesel, working steady
+    this.tractor = diesel({ base: 19, lump: 0.8, cut: 560, res: [[62, 9, 1.1], [190, 6, 1.3], [800, -4, 1]], chuffF: 300, chuff: 1.9, clatter: 0.35, clatF: 1600, vol: 1 });
 
     this.nextBird = ctx.currentTime + 1.5;
     this.nextKoel = ctx.currentTime + 6;
@@ -817,7 +821,7 @@ export class Ambience {
   setTractor(dist) {
     if (!this.ctx) return;
     const v = Math.max(0, Math.min(1, 1 - dist / 140));
-    this.tractor.g.gain.setTargetAtTime(v * v * 0.16, this.ctx.currentTime, 0.4);
+    this.tractor.g.gain.setTargetAtTime(v * v * 0.13, this.ctx.currentTime, 0.4);
   }
   // a moped's squeaky "peep peep"
   mopedHorn(v = 1) { this._horn({ times: [[0, 0.32], [0.42, 0.18]], freqs: [380, 470], vol: 0.065 * v }, { form: 1200, q: 2.8, air: 0.015, vib: 0.01, bend: -0.04 }); }

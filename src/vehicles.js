@@ -1542,7 +1542,7 @@ export class ERickshaw {
 // small front wheels that steer, the tall exhaust stack, an open seat with the steering wheel raked up in front.
 // With a trolley hitched behind: a high-sided steel box on two wheels, loaded with hay, sugarcane or bricks, that
 // swings a little behind the tractor round the bends. Built like the other carts: the driver's seat is `driverSeat`.
-export function makeTractor({ color = '#c0281e', trolley = false, load = 'hay', trolleyColor = '#2f6a9a' } = {}) {
+export function makeTractor({ color = '#c0281e', trolley = false, load = 'hay', trolleyColor = '#2f6a9a', canopy = false } = {}) {
   const root = new THREE.Group();
   const body = std(color, { roughness: 0.42, metalness: 0.2 }), dark = std('#1e1d1c', { roughness: 0.9 }), steel = std('#9a9ea2', { metalness: 0.7, roughness: 0.35 });
   const rim = std('#e2b628', { roughness: 0.5 }), lampM = std('#fff5d8', { emissive: '#ffe2a0', emissiveIntensity: 0.3 });
@@ -1577,6 +1577,39 @@ export function makeTractor({ color = '#c0281e', trolley = false, load = 'hay', 
   tyre(0.66, 0.38, -0.8, 0.66, -0.55); tyre(0.66, 0.38, 0.8, 0.66, -0.55);
   steer.push(tyre(0.35, 0.16, -0.52, 0.35, 1.15), tyre(0.35, 0.16, 0.52, 0.35, 1.15));
   add(new THREE.BoxGeometry(0.16, 0.12, 0.5), steel, 0, 0.5, -1.15); // the hitch
+  // the working details: front ballast weights on a bumper bar, the oil-bath air cleaner's cup on the bonnet, a
+  // little dashboard with two dials, a white stripe and the model badge down each side of the bonnet, the
+  // three-point lift arms and top link at the back, lamps and red reflectors on the mudguards, a toolbox, steps
+  const white = std('#f2efe6', { roughness: 0.5 }), black = std('#121212', { roughness: 0.5 });
+  add(new THREE.BoxGeometry(0.9, 0.12, 0.12), dark, 0, 0.62, 1.62);
+  for (let i = 0; i < 6; i++) add(RB(0.12, 0.42, 0.22, 0.03), dark, -0.36 + i * 0.145, 0.74, 1.76);
+  add(new THREE.CylinderGeometry(0.06, 0.06, 0.32, 10), dark, -0.22, 1.47, 1.15);
+  add(new THREE.CylinderGeometry(0.09, 0.07, 0.12, 12), std('#d8dade', { metalness: 0.4, roughness: 0.4, transparent: true, opacity: 0.8 }), -0.22, 1.66, 1.15);
+  add(new THREE.CylinderGeometry(0.05, 0.05, 0.05, 10), steel, 0.12, 1.33, 1.25); // radiator cap
+  add(RB(0.5, 0.24, 0.16, 0.03), dark, 0, 1.36, 0.0); // the dashboard
+  for (const sx of [-0.12, 0.12]) { add(new THREE.CylinderGeometry(0.05, 0.05, 0.02, 14).rotateX(Math.PI / 2 - 0.5), white, sx, 1.4, -0.08); add(new THREE.TorusGeometry(0.05, 0.008, 4, 14), steel, sx, 1.4, -0.085).rotation.x = -0.5; }
+  const badgeC = document.createElement('canvas'); badgeC.width = 128; badgeC.height = 32;
+  { const bg = badgeC.getContext('2d'); bg.fillStyle = '#f2efe6'; bg.fillRect(0, 0, 128, 32); bg.fillStyle = color; bg.font = 'bold 22px Arial'; bg.textAlign = 'center'; bg.fillText('DI 575', 64, 24); }
+  const badgeT = new THREE.CanvasTexture(badgeC); badgeT.colorSpace = THREE.SRGBColorSpace;
+  for (const sx of [-1, 1]) {
+    add(new THREE.BoxGeometry(0.01, 0.05, 1.4), white, sx * 0.365, 1.18, 0.66);
+    const bd = add(new THREE.PlaneGeometry(0.34, 0.085), std('#ffffff', { map: badgeT, roughness: 0.5 }), sx * 0.367, 1.06, 0.9); bd.rotation.y = sx * Math.PI / 2;
+    add(new THREE.CylinderGeometry(0.075, 0.075, 0.06, 12).rotateX(Math.PI / 2), lampM, sx * 0.78, 1.22, -0.1); // lamps on the mudguards
+    add(new THREE.BoxGeometry(0.08, 0.05, 0.02), std('#c4201c', { emissive: '#5a0806', emissiveIntensity: 0.5 }), sx * 0.86, 1.2, -1.0);
+    add(new THREE.BoxGeometry(0.06, 0.06, 0.5), steel, sx * 0.3, 0.62, -1.25).rotation.x = 0.25; // lift arms
+    add(new THREE.BoxGeometry(0.22, 0.03, 0.14), steel, sx * 0.42, 0.34, -0.2); // the steps up
+  }
+  add(new THREE.BoxGeometry(0.06, 0.06, 0.45), steel, 0, 0.98, -1.2).rotation.x = -0.35; // top link
+  add(RB(0.28, 0.2, 0.42, 0.02), std('#3a3a3a', { metalness: 0.4, roughness: 0.6 }), -0.78, 1.3, -0.55); // toolbox on the mudguard
+  add(new THREE.BoxGeometry(0.85, 0.08, 0.08), steel, 0, 0.36, 1.15); // the front axle
+  // the rear wheels' hubs, and a lever or two by the seat
+  for (const sx of [-1, 1]) { add(new THREE.CylinderGeometry(0.12, 0.12, 0.44, 10).rotateZ(Math.PI / 2), steel, sx * 0.84, 0.66, -0.55); }
+  for (const [x, z, h] of [[0.26, -0.45, 0.45], [0.3, -0.62, 0.35], [-0.26, -0.5, 0.4]]) { add(new THREE.CylinderGeometry(0.012, 0.012, h, 5), steel, x, 1.1 + h / 2, z).rotation.x = 0.2; add(new THREE.SphereGeometry(0.03, 8, 6), black, x, 1.1 + h, z + 0.04); }
+  if (canopy) {
+    // a sun canopy on four thin posts (an older tractor's rig, sewn from tarpaulin)
+    for (const [x, z] of [[-0.55, -1.0], [0.55, -1.0], [-0.55, 0.15], [0.55, 0.15]]) add(new THREE.CylinderGeometry(0.02, 0.02, 1.45, 6), dark, x, 1.9, z);
+    add(RB(1.3, 0.05, 1.45, 0.02), std('#2a4a6a', { roughness: 0.9 }), 0, 2.64, -0.42);
+  }
   let trol = null, len = 3.2, back = -1.4;
   if (trolley) {
     // the trolley: pivots on the hitch; its box, its wheels and its load
@@ -1598,7 +1631,7 @@ export function makeTractor({ color = '#c0281e', trolley = false, load = 'hay', 
   const front = 1.55, mid = (front + back) / 2;
   // the body's centre sits ahead of the seat: a vehicle frame with the seat at driverSeat
   return {
-    kind: 'tractor', tractor: true, trolley: !!trolley, root, driverSeat: new THREE.Vector3(0, 1.26, -0.62), seats: [], len, half: 1.05, wheelR: 0.66, mid,
+    kind: 'tractor', tractor: true, trolley: !!trolley, load: trolley ? load : null, root, driverSeat: new THREE.Vector3(0, 1.26, -0.62), seats: [], len, half: 1.05, wheelR: 0.66, mid,
     lamp: lampM, exhaust: new THREE.Vector3(0.26, 2.15, 0.95),
     update(dt, speed, steerA = 0, riding = false, night = 0) {
       for (const w of wheels) w.g.rotation.x += (speed * dt) / w.r;

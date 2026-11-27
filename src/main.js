@@ -872,7 +872,7 @@ TAKE_TPL.tonga = { walk: 3.6, run: 6.5, boost: 6.5, accel: 0.7, reach: 3.2, rad:
 function tractorTpl(veh) {
   const fr = 1.55 + 0.62, bk = (veh.trolley ? -5.4 : -1.4) + 0.62, ps = [fr - 0.3, 0.6, -0.8];
   if (veh.trolley) ps.push(-2.3, -3.6, bk + 0.5);
-  return { walk: 4.5, run: 7.5, boost: 7.5, accel: 0.55, reach: 3.2, rad: 1.0, lean: 0.03, flame: false, sound: 'bus',
+  return { walk: 4.5, run: 7.5, boost: 7.5, accel: 0.55, reach: 3.2, rad: 1.0, lean: 0.03, flame: false, sound: 'tractor',
     four: true, wb: 2.2, rev: 2.5, probes: ps, exit: [-1.25, 0.2], box: [0, (fr + bk) / 2, 1.05, (fr - bk) / 2], tractor: true,
     shapeOver: { half: [1.05, 1.1, (fr - bk) / 2], com: [0, 1.0, (fr + bk) / 2], mass: veh.trolley ? 4200 : 2600 },
     off: 'Down from the tractor', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster'], ['V', 'view'], ['L', 'lights'], ['E', 'get down'], ['B', 'horn']], ask: veh.trolley ? 'drive the tractor and trolley' : 'drive the tractor' };
@@ -885,12 +885,12 @@ vehicles.push({ ...TAKE_TPL.cart, name: 'cart', obj: new TakenVehicle(makeBulloc
 // villages (see below)
 {
   const addTr = (o, x, z, rot, on) => { const veh = makeTractor(o); vehicles.push({ ...tractorTpl(veh), name: 'tractor', obj: new TakenVehicle(veh), park: { x, z, rot }, on }); };
-  addTr({ color: '#c0281e' }, roadX(startZ + 18) - 4.8, startZ + 18, Math.PI, 'On the tractor — W to go, it pulls anything (Shift for its top gear)');
+  addTr({ color: '#c0281e', canopy: true }, roadX(startZ + 18) - 4.8, startZ + 18, Math.PI, 'On the tractor — W to go, it pulls anything (Shift for its top gear)');
   addTr({ color: '#2a5a9a', trolley: true, load: 'hay', trolleyColor: '#c4241c' }, roadX(startZ + 40) - 4.8, startZ + 40, Math.PI, 'Tractor and trolley, loaded with hay — swing wide round the bends!');
   for (const v of layout.newVillages ?? []) {
     if (!(v.big || v.style === 'punjab' || v.canal)) continue;
     const a = v.th + Math.PI * 0.5, d = v.big ? 22 : 16, x = v.x + Math.cos(v.th + Math.PI) * d + Math.cos(a) * 5, z = v.z + Math.sin(v.th + Math.PI) * d + Math.sin(a) * 5;
-    addTr({ color: ['#c0281e', '#2a5a9a', '#2e7a3a', '#e07a1e'][Math.round(v.th * 7) % 4], trolley: v.big, load: ['hay', 'cane', 'bricks'][Math.round(v.th * 5) % 3], trolleyColor: '#3a5a3a' }, x, z, -v.th, 'On the tractor — W to go');
+    addTr({ color: ['#c0281e', '#2a5a9a', '#2e7a3a', '#e07a1e'][Math.round(v.th * 7) % 4], trolley: v.big, canopy: !v.big, load: ['hay', 'cane', 'bricks'][Math.round(v.th * 5) % 3], trolleyColor: '#3a5a3a' }, x, z, -v.th, 'On the tractor — W to go');
   }
 }
 // and a tonga waiting a little further along, its horse swishing its tail
@@ -2606,7 +2606,7 @@ function updatePlayer(dt) {
   if (ride && !ride.water) {
     $('rh-speed').textContent = Math.round(player.speed * 3.6);
     setDial(player.speed * 3.6, (ride.boost || ride.run || 10) * 3.6);
-    $('rh-name').textContent = { auto: 'Auto rickshaw', car: 'Little car', minibus: 'Gaon minibus', erick: 'E-rickshaw', bus: 'Village bus', jeep: 'Jeep', moped: 'Motorbike', cart: 'Bullock cart', firetruck: 'Fire tender 101', ambulance: 'Ambulance 108', police: 'Police jeep' }[ride.name] ?? ride.name[0].toUpperCase() + ride.name.slice(1);
+    $('rh-name').textContent = { auto: 'Auto rickshaw', car: 'Little car', minibus: 'Gaon minibus', erick: 'E-rickshaw', bus: 'Village bus', jeep: 'Jeep', moped: 'Motorbike', cart: 'Bullock cart', tonga: 'Tonga', tractor: 'Tractor', firetruck: 'Fire tender 101', ambulance: 'Ambulance 108', police: 'Police jeep' }[ride.name] ?? ride.name[0].toUpperCase() + ride.name.slice(1);
     hud.classList.toggle('four', !!ride.four);
     hud.classList.toggle('bus', !!ride.obj.seats);
     if (ride.four) {
@@ -2620,6 +2620,24 @@ function updatePlayer(dt) {
       $('px-fare').textContent = `₹${passengers.fare}`;
       const drops = passengers.nextDrops(ride.obj);
       $('px-next').textContent = drops.length ? 'Drop: ' + drops.map(([k, c]) => `${k}${c > 1 ? ' ×' + c : ''}`).join(', ') : 'Stop at a 🚏 bus stop to pick people up';
+    }
+    // the tractor's own panel: engine rpm, the gear it's in, what's on the trolley, the lamps
+    hud.classList.toggle('tractor', !!ride.tractor);
+    if (ride.tractor) {
+      const G = [0, 1.5, 3.0, 4.6, 6.2, 9], sp = Math.abs(drive.v);
+      let gi = 1; while (gi < G.length - 1 && sp > G[gi]) gi++;
+      const rpm = sp < 0.2 ? (f ? 1100 : 800) : Math.round(950 + 1250 * Math.min(1, (sp - G[gi - 1]) / (G[gi] - G[gi - 1])) + (f ? 80 : 0));
+      $('tr-rpm').textContent = rpm;
+      $('tr-rpmbar').style.width = `${Math.round(Math.min(1, (rpm - 600) / 1800) * 100)}%`;
+      $('tr-gear').textContent = drive.v < -0.15 ? 'R' : sp < 0.2 ? 'N' : (gi <= 3 ? 'L' : 'H') + (((gi - 1) % 3) + 1);
+      const veh = ride.obj.veh;
+      $('tr-load').textContent = veh?.trolley ? `🛻 Trolley: ${{ hay: 'hay, piled high', cane: 'sugarcane for the mill', bricks: 'a load of bricks' }[veh.load] ?? 'loaded'}` : '🚜 No trolley — light and nimble';
+      $('tr-lamp').classList.toggle('on', lamps.on);
+      // a puff of dark smoke up the stack as it pulls
+      if (veh?.exhaust && Math.random() < dt * (f ? 9 : 2.5)) {
+        const ex = veh.root.localToWorld(tmp.copy(veh.exhaust));
+        mopedSmoke.emit(ex.x, ex.y, ex.z, (Math.random() - 0.5) * 0.3, 1.1 + Math.random() * 0.6, (Math.random() - 0.5) * 0.3, f ? 1.6 : 2.2, 0.25, f ? 1.3 : 0.9, f ? 0.75 : 0.45, f ? 0.15 : 0.5);
+      }
     }
     const boat = !!ride.water;
     $('rh-name').textContent = boat ? 'Rowing boat' : $('rh-name').textContent;
@@ -3738,7 +3756,9 @@ function frame(now) {
       temple: Math.hypot(player.x - layout.temple.x, player.z - layout.temple.z),
       cow: nearest(layout.cows, player.x, player.z),
     }, (() => { const n = train.nearest(player.x, player.z); return { active: train.active, distance: n.d, speed: n.v, dwell: n.dwell }; })());
-    audio.setTractor(farm.tractorDistance(player.x, player.z));
+    { let dT = ride?.tractor ? 999 : farm.tractorDistance(player.x, player.z);
+      for (const t of people.travellers.list) if (t.tractor && !t.taken && t.holder.visible) dT = Math.min(dT, Math.hypot(t.p.x - player.x, t.p.z - player.z));
+      audio.setTractor(dT); }
     // up in the plane or the helicopter, the sounds of the ground (the mela, the river, the village) fade away
     { const F = ride?.fly ? flight : null, agl = F && !F.ground ? F.pos.y - groundHeight(F.pos.x, F.pos.z) : 0; audio.setAloft?.(Math.round(clamp((agl - 6) / 30, 0, 1) * 20) / 20); }
     audio.setJungle?.(jungleMask(player.x, player.z), !!ATMO.night); // (insects, birds and monkeys in the jungle)
