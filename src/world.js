@@ -103,6 +103,9 @@ export const WILD = {
 };
 // the railway station in its own valley beyond the western tunnel, and the Noorpur–Mariapur line's halts
 export const STATION = { x: -902, z: 0, name: 'Sonpur', hi: 'सोनपुर' };
+// the haat: a little market on open ground between Sonpur and Mariapur stations — two rows of stalls along a lane,
+// the lane running on as a road to each station
+export const HAAT = { x: -527, z: 325, r: 48 };
 NE.tea = { x0: NE.x - 70, x1: NE.x - 22, z0: NE.z - 40, z1: NE.z + 30 };
 // a hand pump (chapakal) on a little concrete apron, and the overhead water tank
 export const PUMP = { x: 8, z: 47, rot: -0.4 };
@@ -282,12 +285,14 @@ const SEEM_PTS = (() => {
   const par = (th) => pol(th, ringR(th) + 13), arcP = (th) => pol(th, SEEM_R(th));
   const ccw = (f, th) => { const a = f(th - 0.001), b = f(th + 0.001), l = Math.hypot(b.x - a.x, b.z - a.z); return { x: (b.x - a.x) / l, z: (b.z - a.z) / l }; };
   const o = [];
-  for (let th = SEEM_TH.start; th < SEEM_TH.out; th += 2 / ringR(th)) o.push(par(th));
+  // off the ring at a junction before Rannvas, curving out onto the bay
+  { const thJ = SEEM_TH.start - 170 / ringR(SEEM_TH.start); o.push(ringPt(thJ), ...bez(ringPt(thJ), ringTan(thJ, 1), par(SEEM_TH.start), ccw(par, SEEM_TH.start), 2)); }
+  for (let th = SEEM_TH.start + 2 / ringR(SEEM_TH.start); th < SEEM_TH.out; th += 2 / ringR(th)) o.push(par(th));
   o.push(...bez(par(SEEM_TH.out), ccw(par, SEEM_TH.out), arcP(SEEM_TH.arc), ccw(arcP, SEEM_TH.arc), 2));
   for (let th = SEEM_TH.arc + 2 / SEEM_R(SEEM_TH.arc); th < 4.94; th += 2 / SEEM_R(th)) o.push(arcP(th));
   // and on beyond Devgarh: round the far side of the jungle (under Tez Nadi in a tunnel through the hills), into
   // the canal country to a station across the canal from Naharpur, and on to a terminus near Kheri Kalan
-  const ext = [arcP(4.94), arcP(4.985), pol(5.1, 3005), pol(5.32, 3020), pol(5.55, 3000), pol(5.8, 2955), pol(6.05, 2860), pol(6.25, 2750), pol(Math.PI * 2 + 0.12, 2668), pol(Math.PI * 2 + 0.3, 2682), pol(Math.PI * 2 + SEEM_TH.kheri, 2700)];
+  const ext = [arcP(4.94), arcP(4.985), pol(5.1, 3005), pol(5.32, 3020), pol(5.55, 3000), pol(5.8, 2955), pol(6.05, 2860), pol(6.25, 2750), pol(Math.PI * 2 + 0.12, 2668), pol(Math.PI * 2 + 0.3, 2680), pol(Math.PI * 2 + SEEM_TH.kheri, 2662), pol(Math.PI * 2 + 0.5, 2645)]; // (and on into the end of the Kheri Kalan line: the rails meet)
   o.push(...catmull(ext, 2).slice(1));
   return o;
 })();
@@ -401,7 +406,10 @@ const BRANCH_PTS = (() => {
   const par = (th) => pol(th, ringR(th) + 13);
   const o = [];
   const th0 = -0.1, th1 = -0.005, thE = 0.075, rQ = 2080, rE = 2335;
-  for (let th = th0; th < th1; th += 2 / ringR(th)) o.push(par(th));
+  // off the ring at a junction (not a dead end): a curve out from the ring onto the bay's own track
+  { const thJ = th0 - 170 / ringR(th0), a = (() => { const p0 = par(th0 - 0.001), p1 = par(th0 + 0.001), l = Math.hypot(p1.x - p0.x, p1.z - p0.z); return { x: (p1.x - p0.x) / l, z: (p1.z - p0.z) / l }; })();
+    o.push(ringPt(thJ), ...bez(ringPt(thJ), ringTan(thJ, 1), par(th0), a, 2)); }
+  for (let th = th0 + 2 / ringR(th0); th < th1; th += 2 / ringR(th)) o.push(par(th));
   const tP = (() => { const a = par(th1 - 0.001), b = par(th1 + 0.001), l = Math.hypot(b.x - a.x, b.z - a.z); return { x: (b.x - a.x) / l, z: (b.z - a.z) / l }; })();
   o.push(...bez(par(th1), tP, pol(thE, rQ), { x: Math.cos(thE), z: Math.sin(thE) }, 2));
   for (let r = rQ + 2; r <= rE; r += 2) o.push(pol(thE, r));
@@ -415,7 +423,10 @@ const DK_PTS = (() => {
   const rA = (th) => OUTER_R(th) + 13, cw = (th) => ({ x: Math.sin(th), z: -Math.cos(th) }); // (heading clockwise)
   const o = [];
   const th0 = 2.075, thA = 0.95, thB = 0.63, rK = 2645, thE = 0.5;
-  for (let th = th0; th > thA; th -= 2 / rA(th)) o.push(pol(th, rA(th)));
+  // off the outer line at a junction beyond Dhaniyapur, curving out onto its own track
+  { const thJ = th0 + 180 / OUTER_R(th0), oP = (th) => pol(th, OUTER_R(th));
+    o.push(oP(thJ), ...bez(oP(thJ), cw(thJ), pol(th0, rA(th0)), cw(th0), 2)); }
+  for (let th = th0 - 2 / rA(th0); th > thA; th -= 2 / rA(th)) o.push(pol(th, rA(th)));
   o.push(...bez(pol(thA, rA(thA)), cw(thA), pol(thB, rK), cw(thB), 2));
   for (let th = thB - 2 / rK; th > thE; th -= 2 / rK) o.push(pol(th, rK));
   return o;
@@ -426,7 +437,14 @@ CANAL.crossings = [-0.16, 0.12, 0.5].map((th) => { const r = CANAL.Rc(th); retur
 // Tez Nadi's course down from the hills (see RAPID): the Seemant line passes under it in a tunnel, so its valley
 // isn't carved flat there
 const RAPID_HILL = [[-0.6, 4430], [-0.52, 4210], [-0.58, 3990], [-0.62, 3760], [-0.53, 3520], [-0.63, 3280], [-0.54, 3040], [-0.65, 2800], [-0.56, 2560], [-0.66, 2330], [-0.57, 2110], [-0.64, 1900]];
-const nearRapidHill = (() => { const pts = catmull(RAPID_HILL.map(([t, r]) => polarP(t, r)), 20); return (p, d) => pts.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < d); })();
+// its whole course (down the hills, then into the jungle and the watering hole from the east)
+const RAPID_CTRL = (() => {
+  const W = polarP(-0.7, ringR(-0.7) + 150), r = 19, ea = -0.12, ex = Math.cos(ea), ez = Math.sin(ea);
+  return [...RAPID_HILL.map(([t, rr]) => polarP(t, rr)), { x: W.x + ex * 150, z: W.z + ez * 150 }, { x: W.x + ex * 70, z: W.z + ez * 70 }, { x: W.x + ex * (r + 1), z: W.z + ez * (r + 1) }];
+})();
+// below where the Seemant line crosses it, the river runs in a broad, low valley through the jungle to the
+// watering hole (the line crosses it on a bridge, at rail height); above, it comes tumbling down the hills
+const RAPID_LOW = catmull(RAPID_CTRL, 12).filter((q) => Math.hypot(q.x, q.z) < 3230);
 const FLATD = (() => {
   const C = 8, H = INNER_HALF + 80, n = Math.ceil((2 * H) / C) + 1, R = 140, rc = Math.ceil(R / C);
   const d = new Float32Array(n * n).fill(999);
@@ -436,7 +454,8 @@ const FLATD = (() => {
       const dd = Math.hypot(i * C - H - p.x, j * C - H - p.z); if (dd < d[j * n + i]) d[j * n + i] = dd;
     }
   };
-  for (const P of [MAIN_PTS, LINE3_PTS, RING_PTS, OUTER_PTS, BRANCH_PTS, DK_PTS, SEEM_PTS]) for (let k = 0; k < P.length; k += 2) if (P !== SEEM_PTS || !nearRapidHill(P[k], 330)) stamp(P[k]);
+  for (const P of [MAIN_PTS, LINE3_PTS, RING_PTS, OUTER_PTS, BRANCH_PTS, DK_PTS, SEEM_PTS]) for (let k = 0; k < P.length; k += 2) stamp(P[k]);
+  for (const q of RAPID_LOW) stamp(q);
   return (x, z) => {
     const fx = (x + H) / C, fz = (z + H) / C, i = Math.floor(fx), j = Math.floor(fz);
     if (i < 0 || j < 0 || i >= n - 1 || j >= n - 1) return 999;
@@ -511,11 +530,10 @@ export const WATERHOLE = { ...polar(-0.7, ringR(-0.7) + 150), r: 19 };
 // Tez Nadi, the rushing river: born high in the far hills beyond the jungle, it comes tumbling down in long
 // swinging bends — fast, white over the rocks where it drops steeply — through the forest, and spills into the
 // watering hole. Its water level steps down all the way (never rising), cutting a gorge where the hills stand.
+let SEEM_TRACK = null; // (the Seemant line, once it's laid: see the river's carving in heightAt)
 export const RAPID = (() => {
-  const W = WATERHOLE, ea = -0.12, ex = Math.cos(ea), ez = Math.sin(ea);
-  const ctrl = RAPID_HILL.map(([t, r]) => polarP(t, r));
-  ctrl.push({ x: W.x + ex * 150, z: W.z + ez * 150 }, { x: W.x + ex * 70, z: W.z + ez * 70 }, { x: W.x + ex * (W.r + 1), z: W.z + ez * (W.r + 1) });
-  const path = makePath(catmull(ctrl), false, false, 80);
+  const W = WATERHOLE;
+  const path = makePath(catmull(RAPID_CTRL), false, false, 80);
   // the level: the ground along it, smoothed, never rising downstream, ending at the watering hole's water
   const step = 3, n = Math.ceil(path.L / step) + 1, raw = new Float32Array(n), lv = new Float32Array(n), q = {};
   for (let i = 0; i < n; i++) { path.at(Math.min(path.L, i * step), q); raw[i] = rawHeight(q.x, q.z); }
@@ -585,8 +603,12 @@ function rawHeight(x, z) {
   // the ring's tunnel hill, and the low valley under its viaduct
   { const dh = (x - RING_HILL.x) ** 2 + (z - RING_HILL.z) ** 2; if (dh < 400 * 400) h += 30 * Math.exp(-dh / (2 * 95 * 95)) * (0.85 + 0.15 * fbm(x * 0.02, z * 0.02, 2)); }
   { const m = dipMask(x, z); if (m > 0) h = lerp(h, -9 + fbm(x * 0.05, z * 0.05, 2) * 0.8, m * 0.97); }
+  // the haat's ground: levelled into a gentle shelf on the hillside
+  if (HAAT_Y != null) { const d = Math.hypot(x - HAAT.x, z - HAAT.z); if (d < 115) h = lerp(h, HAAT_Y + fbm(x * 0.04, z * 0.04, 2) * 0.2, 1 - smoothstep(HAAT.r + 6, 112, d)); }
   return h;
 }
+var HAAT_Y; // (hoisted: rawHeight may run before this line; it's levelled once known)
+HAAT_Y = rawHeight(HAAT.x, HAAT.z);
 const HILLTOP_H = rawHeight(HILLTOP.x, HILLTOP.z);
 HILLTOP.y = HILLTOP_H;
 export function baseHeight(x, z) {
@@ -776,6 +798,7 @@ export const TRACK5 = Object.assign(makeTrack(P_OUTER, true), { name: 'outer' })
 export const TRACK6 = Object.assign(makeTrack(makePath(BRANCH_PTS), true), { termini: true, name: 'nahar' });
 export const TRACK7 = Object.assign(makeTrack(makePath(DK_PTS), true), { termini: true, name: 'dk' });
 export const TRACK8 = Object.assign(makeTrack(makePath(SEEM_PTS), false), { termini: true, name: 'seemant' });
+SEEM_TRACK = TRACK8;
 export const TRACKS = [TRACK, TRACK2, TRACK3, RING, TRACK5, TRACK6, TRACK7, TRACK8];
 // The route a driven train can take: its own line, and at each end on round the ring through the junction
 // (a whole loop each way), so the boy can run through onto the ring line and on to its stations. The line's
@@ -815,14 +838,14 @@ RING.halts = [
 {
   const P = TRACK6.path, NH = NEWV.find((v) => v.name === 'Naharpur');
   TRACK6.halts = [
-    { s: 70, name: 'Nahar Road', hi: 'नहर रोड', side: -1, L: 100 },
+    { s: P.sOf(Math.cos(-0.054) * (ringR(-0.054) + 13), Math.sin(-0.054) * (ringR(-0.054) + 13)), name: 'Nahar Road', hi: 'नहर रोड', side: -1, L: 100 },
     { s: P.L - 68, name: 'Naharpur', hi: 'नहरपुर', side: 1, L: 110, village: NH },
   ];
 }
 // the far north line: its bay at Dhaniyapur (platform on the outside, across the outer line from the village's
 // own station), and the terminus at Kheri Kalan (platform on the village side)
 TRACK7.halts = [
-  { s: 66, name: 'Dhaniyapur', hi: 'धनियापुर', side: 1, L: 110 },
+  { s: TRACK7.path.sOf(Math.cos(2.044) * (OUTER_R(2.044) + 13), Math.sin(2.044) * (OUTER_R(2.044) + 13)), name: 'Dhaniyapur', hi: 'धनियापुर', side: 1, L: 110 },
   { s: TRACK7.path.L - 66, name: 'Kheri Kalan', hi: 'खेड़ी कलां', side: -1, L: 110, village: NEWV.find((v) => v.name === 'Kheri Kalan') },
 ];
 // the Seemant line: its bay at Rannvas, then a station at each of the three big villages (platforms on the inside,
@@ -830,11 +853,11 @@ TRACK7.halts = [
 {
   const P = TRACK8.path, SV = NEWV.filter((v) => v.seem);
   TRACK8.halts = [
-    { s: 66, name: 'Rannvas', hi: 'रणवास', side: -1, L: 110 },
+    { s: P.sOf(Math.cos(3.954) * (ringR(3.954) + 13), Math.sin(3.954) * (ringR(3.954) + 13)), name: 'Rannvas', hi: 'रणवास', side: -1, L: 110 },
     ...SV.map((v) => { const r = SEEM_R(v.th); return { s: P.sOf(Math.cos(v.th) * r, Math.sin(v.th) * r), name: v.name, hi: v.hi, side: 1, L: 120, village: v }; }),
     // the canal country: across the canal from Naharpur (a lane over the causeway), and the terminus near Kheri Kalan
     { s: P.sOf(Math.cos(0.12) * 2668, Math.sin(0.12) * 2668), name: 'Naharpur Paar', hi: 'नहरपुर पार', side: 1, L: 110, canalStop: 0.12 },
-    { s: P.L - 66, name: 'Kheri Kalan Road', hi: 'खेड़ी कलां रोड', side: 1, L: 110, canalStop: 0.5 },
+    { s: P.sOf(Math.cos(0.442) * 2668, Math.sin(0.442) * 2668), name: 'Kheri Kalan Road', hi: 'खेड़ी कलां रोड', side: 1, L: 110, canalStop: 0.5 },
   ];
 }
 // the outer line's stations, one at each of its villages (platforms on the inside, toward the village)
@@ -936,7 +959,9 @@ export function heightAt(x, z, bore = true) {
   // the pool keeps its bowl
   { const n = RAPID.path.near(x, z); if (n && n.d < 70) {
     const ws = rapidLevel(n.s), bank = ws + 1.0;
-    const wE = n.s > RAPID.path.L - 60 ? smoothstep(0, 12, Math.hypot(x - WATERHOLE.x, z - WATERHOLE.z) - WATERHOLE.r) : 1;
+    let wE = n.s > RAPID.path.L - 60 ? smoothstep(0, 12, Math.hypot(x - WATERHOLE.x, z - WATERHOLE.z) - WATERHOLE.r) : 1;
+    // (the railway's embankment up to its bridge keeps its own height)
+    if (SEEM_TRACK) { const m = SEEM_TRACK.path.near(x, z); if (m && m.d < 9 && !SEEM_TRACK.bridgeS(m.s)) wE *= smoothstep(3.5, 9, m.d); }
     const hb = lerp(bank, h, smoothstep(6, 66, n.d));
     let hh = hb;
     if (n.d < RAPID.half + 1.8) hh = Math.min(hh, lerp(ws - 1.3 - noise2(x * 0.4, z * 0.4) * 0.25, bank, smoothstep(RAPID.half - 2.0, RAPID.half + 1.8, n.d)));
@@ -2336,6 +2361,34 @@ TRACK_PONDS.push({ x: WATERHOLE.x, z: WATERHOLE.z, r: WATERHOLE.r, level: baseHe
       }
     }
   }
+  // the haat: stalls in two rows facing each other across a lane, the lane running on to Sonpur and Mariapur
+  // stations; charpais and a big shade tree at one end, a village walk through it
+  {
+    const Sy = TRACK.halts.find((h) => h.big)?.yard, My = TRACK3.halts.find((h) => h.name === 'Mariapur')?.yard;
+    if (Sy && My) {
+      const ang = Math.atan2(My.x - Sy.x, My.z - Sy.z), dx = Math.sin(ang), dz = Math.cos(ang), H = HAAT;
+      const at = (u, v) => [H.x + dx * u + dz * v, H.z + dz * u - dx * v];
+      dirtCircles.push({ x: H.x, z: H.z, r: 30, s: 1 }, { ...(([x, z]) => ({ x, z }))(at(-22, 0)), r: 18, s: 0.9 }, { ...(([x, z]) => ({ x, z }))(at(22, 0)), r: 18, s: 0.9 });
+      layout.haat = { x: H.x, z: H.z, ang };
+      for (let k = -3; k <= 3; k++) for (const sd of [-1, 1]) {
+        const [x, z] = at(k * 7.2, sd * 6.6), rot = Math.atan2(-dz * sd, dx * sd); // (open front toward the lane)
+        if (!isFree(x, z, 3)) continue;
+        layout.shops.push({ x, z, rot, village: 'Haat', i: k + 3 + (sd > 0 ? 7 : 0) });
+        occupy(x, z, 3.6);
+        for (const [lx, lz, hw, hd] of [[0, -1.3, 1.7, 0.12], [-1.7, 0, 0.12, 1.3], [1.7, 0, 0.12, 1.3], [0, 1.05, 1.6, 0.35]]) {
+          const q = rotPt({ x, z, rot }, lx, lz);
+          colliders.push({ kind: 'b', x: q.x, z: q.z, rot, hw, hd });
+        }
+      }
+      for (const [u, v] of [[30, 9], [33, -8]]) { const [x, z] = at(u, v); layout.charpais.push({ x, z, rot: ang + 0.4 }); occupy(x, z, 1.4); }
+      { const [x, z] = at(-32, 10); layout.trees.push({ x, z, s: 1.6, rot: 0.3, v: 1 }); occupy(x, z, 3); colliders.push({ kind: 'c', x, z, r: 0.6 }); }
+      const e0 = at(-34, 0), e1 = at(34, 0);
+      road([[Sy.x, Sy.z + 8], [(Sy.x + e0[0]) / 2 - 30, (Sy.z + e0[1]) / 2], e0, [H.x, H.z], e1, [(My.x + e1[0]) / 2 + 20, (My.z + e1[1]) / 2 - 30], [My.x, My.z]], 2.6);
+      layout.newRoads.haat = [[Sy.x, Sy.z + 8], [(Sy.x + e0[0]) / 2 - 30, (Sy.z + e0[1]) / 2], e0, [H.x, H.z], e1, [(My.x + e1[0]) / 2 + 20, (My.z + e1[1]) / 2 - 30], [My.x, My.z]];
+      layout.villageWalks.push({ name: 'Haat', pts: [e0, [H.x, H.z], e1], x: H.x, z: H.z });
+      layout.villageWalks.push({ name: 'Haat', pts: [e1, [H.x + dz * 3, H.z - dx * 3], e0], x: H.x, z: H.z });
+    }
+  }
   // rocky hills: clusters of big weathered boulders and crags on the slopes
   layout.crags = [];
   for (const [cx, cz, cr] of ROCKY) for (let i = 0; i < 26; i++) {
@@ -2611,6 +2664,7 @@ TRACK_PONDS.push({ x: WATERHOLE.x, z: WATERHOLE.z, r: WATERHOLE.r, level: baseHe
 
 export function regionName(x, z) {
   if (rapidDist(x, z) < 18) return 'Tez Nadi — the rushing river, down from the hills';
+  if (Math.hypot(x - HAAT.x, z - HAAT.z) < 45) return 'Haat — the little market between Sonpur and Mariapur';
   { const tn = tunnelAt(x, z); if (tn && tn.d < BORE_HALF + 1) return tn.T.name === 'ring' ? 'Pahadi Surang — the ring line\'s tunnel' : 'In the Mail line\'s tunnel'; }
   if (dipMask(x, z) > 0.35) return 'Ghati — the valley under the viaduct';
   if (jungleMask(x, z) > 0.5) return 'The jungle — lions, hyenas, monkeys and snakes live here';

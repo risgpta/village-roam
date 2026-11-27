@@ -20,6 +20,7 @@ const SEATS = {
   ambulance: [[0.85, 0.85, 0.2], [0.5, 0.75, -1.6]], firetruck: [[0.9, 1.1, 0.25], [0.3, 1.1, 0.25]],
   cart: [[0.42, 1.05, -1.0], [-0.42, 1.05, -1.0], [0, 1.05, -1.7]],
   boat: [[0, 0.32, -1.05]],
+  tractor: [[0.55, 1.2, -0.15], [0.6, 1.05, -2.2, Math.PI], [-0.6, 1.05, -2.2, Math.PI]],
   tonga: [[0.42, 1.18, 0.0], [0.25, 1.18, -0.93, Math.PI], [-0.25, 1.18, -0.93, Math.PI]],
 };
 const MAX_FRIENDS = 3;
@@ -103,6 +104,7 @@ export function buildFriends(scene, ctx) {
   function seatIn(f, k, v) {
     const s = SEATS[v.name] ?? (v.obj.seats ? null : undefined);
     if (s === undefined) return false;
+    if (v.name === 'tractor' && !v.obj.veh?.trolley && k > 0) return false; // (no trolley: just the one up beside the driver)
     if (s === null) {
       // the buses: one of the back seats
       const list = v.obj.seats, i = list.length - 1 - k;

@@ -38,6 +38,12 @@ function bake(pixels) {
     for (const [a, b] of T.segs) for (let t = a; t <= b + 0.1; t += 5) { T.path.at(Math.min(t, b), q); const u = toU(q.x), v = toV(q.z); if (t === a) g.moveTo(u, v); else g.lineTo(u, v); }
     g.stroke();
     g.setLineDash([1, 3]); g.strokeStyle = '#e6dccb'; g.lineWidth = 0.8; g.stroke(); g.setLineDash([]);
+    // stretches in tunnels: a dashed line, so every line shows end to end
+    if (T.tunnels.length) {
+      g.beginPath();
+      for (const [a, b] of T.tunnels) for (let t = a; t <= b + 0.1; t += 5) { T.path.at(Math.min(t, b), q); const u = toU(q.x), v = toV(q.z); if (t === a) g.moveTo(u, v); else g.lineTo(u, v); }
+      g.setLineDash([3, 2.5]); g.strokeStyle = 'rgba(58,53,50,0.85)'; g.lineWidth = 1.6; g.stroke(); g.setLineDash([]);
+    }
   }
   // play-area edge
   g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 2; g.setLineDash([6, 6]);
@@ -58,7 +64,7 @@ function places() {
     ['Marudhar', L.rv, '🐪', 1], ...BRIDGES.map((b) => ['Road bridge', b, '🌉', 0]),
     ['Banglagram', L.bv, '🪷', 1], ['Thennoor', L.tv, '🛕', 1], ['Pond', L.bv?.pond, '', 0],
     ['Vitthalwadi', L.mh, '🪔', 1], ['Bamboo hill', L.ne, '🎋', 1], ['Tea garden', L.ne && { x: (L.ne.tea.x0 + L.ne.tea.x1) / 2, z: (L.ne.tea.z0 + L.ne.tea.z1) / 2 }, '🍃', 0],
-    ['Tiger country', WILD.tiger, '🐅', 1], ['Wolf hills', WILD.wolf, '🐺', 1], ['Elephant forest', WILD.elephant, '🐘', 1], ...WILD.leopards.map((l) => ['Leopard rocks', l, '🐆', 1]), ...WILD.deer.map((d) => ['Deer meadow', d, '🦌', 0]), ...[...new Map(TRACKS.flatMap((T) => T.halts.filter((h) => !h.noStation && !h.island).map((h) => [h.name, [h.big ? `${h.name} station` : h.name, h.yard ?? h, '🚉', h.big || h.W ? 1 : 0]]))).values()], ...NEW_VILLAGES.map((v) => [v.name, v, v.icon ?? '🌾', 1]), ...(layout.tribGhat ? [['Choti Nadi ghat', layout.tribGhat, '🏞', 0]] : []), ['Pahadi Gaon', L.pg, '🏔', 1], ['Jungle', JUNGLE_HOMES.monkeys, '🦁', 1], ['Watering hole', WATERHOLE, '🦓', 1], ['Tez Nadi', RAPID.path.at(RAPID.path.L * 0.55), '🌊', 1], ...(layout.villagePonds ?? []).map((P) => ['Pond', P, '🪷', 0]), ['Rhino hills', JUNGLE_HOMES.rhinos, '🦏', 1], ['Viaduct', RING_SIGHTS.dip, '🌉', 0], ['Ring tunnel', RING_SIGHTS.hill, '⛰', 0],
+    ['Tiger country', WILD.tiger, '🐅', 1], ['Wolf hills', WILD.wolf, '🐺', 1], ['Elephant forest', WILD.elephant, '🐘', 1], ...WILD.leopards.map((l) => ['Leopard rocks', l, '🐆', 1]), ...WILD.deer.map((d) => ['Deer meadow', d, '🦌', 0]), ...[...new Map(TRACKS.flatMap((T) => T.halts.filter((h) => !h.noStation && !h.island).map((h) => [h.name, [h.big ? `${h.name} station` : h.name, h.yard ?? h, '🚉', h.big || h.W ? 1 : 0]]))).values()], ...NEW_VILLAGES.map((v) => [v.name, v, v.icon ?? '🌾', 1]), ...(layout.tribGhat ? [['Choti Nadi ghat', layout.tribGhat, '🏞', 0]] : []), ['Pahadi Gaon', L.pg, '🏔', 1], ['Jungle', JUNGLE_HOMES.monkeys, '🦁', 1], ['Watering hole', WATERHOLE, '🦓', 1], ['Tez Nadi', RAPID.path.at(RAPID.path.L * 0.55), '🌊', 1], ...(L.haat ? [['Haat (market)', L.haat, '🛍', 1]] : []), ...(layout.villagePonds ?? []).map((P) => ['Pond', P, '🪷', 0]), ['Rhino hills', JUNGLE_HOMES.rhinos, '🦏', 1], ['Viaduct', RING_SIGHTS.dip, '🌉', 0], ['Ring tunnel', RING_SIGHTS.hill, '⛰', 0],
     ['Noorpur', NP, '🕌', 1], ['Kabristan', NP.kab, '⚱', 0], ['Mariapur', MP, '⛪', 1], ['Cemetery', MP.cem, '✝', 0], ['Shikhar summit', PEAK, '🗻', 1],
     ...(L.busStops || []).map((b) => ['', b, '🚏', 0]),
     ['Crocodiles', { x: riverX(380) + 18, z: 380 }, '🐊', 1], ['Crocodiles', { x: riverX(-400) + 18, z: -400 }, '🐊', 1],
@@ -131,7 +137,7 @@ export class MapUI {
       this.listT = 0; this.centreOnFollow(); this.redraw();
     });
     // the railway lines, sampled once, to draw bright on the trains view
-    this.lines = TRACKS.map((T) => { const q = {}, pts = []; for (const [a, b] of T.segs) { for (let t = a; t <= b + 0.1; t += 12) { T.path.at(Math.min(t, b), q); pts.push({ x: q.x, z: q.z }); } pts.push(null); } return pts; });
+    this.lines = TRACKS.map((T) => { const q = {}, pts = []; for (const [a, b] of [...T.segs, ...T.tunnels].sort((u, v) => u[0] - v[0])) { for (let t = a; t <= b + 0.1; t += 12) { T.path.at(Math.min(t, b), q); pts.push({ x: q.x, z: q.z }); } pts.push(null); } return pts; });
     this.setMode(m);
   }
   setMode(m) {

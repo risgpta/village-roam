@@ -25,7 +25,7 @@ import { buildAnimals } from './animals.js';
 import { LanternLights } from './gear.js';
 import { Boy } from './boy.js';
 import { Bicycle, Moped } from './bicycle.js';
-import { AutoRickshaw, RowBoat, Scooter, SmallCar, MiniBus, ERickshaw, TakenVehicle, PoliceJeep } from './vehicles.js';
+import { AutoRickshaw, RowBoat, Scooter, SmallCar, MiniBus, ERickshaw, TakenVehicle, PoliceJeep, makeTractor } from './vehicles.js';
 import { buildGoodsYards } from './goods.js';
 import { buildWorkers } from './workers.js';
 import { buildPostcards } from './postcards.js';
@@ -813,7 +813,7 @@ function reachOf(v) {
   return { fr: 0.9, bk: -0.9, w: 0.25 };
 }
 // how steep a slope each kind can climb (rise over run)
-const CLIMB = { camel: 0.5, elephant: 0.45, police: 0.65, cart: 0.32, tonga: 0.36, bus: 0.38, minibus: 0.4, erick: 0.38, auto: 0.45, car: 0.5, jeep: 0.65, bicycle: 0.42, moped: 0.6, scooter: 0.55 };
+const CLIMB = { camel: 0.5, elephant: 0.45, police: 0.65, cart: 0.32, tonga: 0.36, tractor: 0.6, bus: 0.38, minibus: 0.4, erick: 0.38, auto: 0.45, car: 0.5, jeep: 0.65, bicycle: 0.42, moped: 0.6, scooter: 0.55 };
 function hornFor(v) {
   if (v.siren) {
     v.obj.siren = !v.obj.siren;
@@ -832,6 +832,8 @@ function hornFor(v) {
   else if (v.name === 'bus') audio.busHorn(1);
   else if (v.name === 'jeep') audio.jeepHorn(1);
   else if (v.name === 'cart') audio.cowbell(1);
+  else if (v.name === 'tonga') audio.cowbell(0.7);
+  else if (v.name === 'tractor') audio.jeepHorn(0.9);
   else if (v.name === 'camel') audio.camel(0.8);
   else if (v.name === 'elephant') audio.trumpet(0);
   if (v.name !== 'boat') makeWay();
@@ -865,9 +867,31 @@ TAKE_TPL.tonga = { walk: 3.6, run: 6.5, boost: 6.5, accel: 0.7, reach: 3.2, rad:
   four: true, wb: 2.4, rev: 1.2, probes: [3.1, 1.6, 0, -1.1], exit: [-1.2, 0.3], box: [0, 1.05, 0.88, 2.45],
   shapeOver: { half: [0.88, 1.0, 2.4], com: [0, 0.9, 1.05], mass: 520 },
   off: 'Down from the tonga', help: [['W', 'trot on'], ['Shift', 'canter'], ['S', 'whoa · back'], ['A D', 'steer'], ['V', 'view'], ['E', 'get down'], ['B', 'bell']], ask: 'drive the tonga' };
+// tractors: slow and strong, a deep diesel thump, and with a trolley behind a long load to steer round the bends
+function tractorTpl(veh) {
+  const fr = 1.55 + 0.62, bk = (veh.trolley ? -5.4 : -1.4) + 0.62, ps = [fr - 0.3, 0.6, -0.8];
+  if (veh.trolley) ps.push(-2.3, -3.6, bk + 0.5);
+  return { walk: 4.5, run: 7.5, boost: 7.5, accel: 0.55, reach: 3.2, rad: 1.0, lean: 0.03, flame: false, sound: 'bus',
+    four: true, wb: 2.2, rev: 2.5, probes: ps, exit: [-1.25, 0.2], box: [0, (fr + bk) / 2, 1.05, (fr - bk) / 2], tractor: true,
+    shapeOver: { half: [1.05, 1.1, (fr - bk) / 2], com: [0, 1.0, (fr + bk) / 2], mass: veh.trolley ? 4200 : 2600 },
+    off: 'Down from the tractor', help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster'], ['V', 'view'], ['L', 'lights'], ['E', 'get down'], ['B', 'horn']], ask: veh.trolley ? 'drive the tractor and trolley' : 'drive the tractor' };
+}
+TAKE_TPL.tractor = tractorTpl({ trolley: true });
 // a bullock cart standing by the road just short of the village, where the walk starts
 vehicles.push({ ...TAKE_TPL.cart, name: 'cart', obj: new TakenVehicle(makeBullockCart('#d8cfc0')), park: { x: roadX(startZ - 16) - 11, z: startZ - 16, rot: Math.PI },
   on: 'Up on the bullock cart — W to gee up, S to whoa', off: 'Off the bullock cart', ask: 'drive the bullock cart' });
+// tractors to drive: one by the village fields, one with a trolley of hay by the road; more out in the farming
+// villages (see below)
+{
+  const addTr = (o, x, z, rot, on) => { const veh = makeTractor(o); vehicles.push({ ...tractorTpl(veh), name: 'tractor', obj: new TakenVehicle(veh), park: { x, z, rot }, on }); };
+  addTr({ color: '#c0281e' }, roadX(startZ + 18) - 4.8, startZ + 18, Math.PI, 'On the tractor — W to go, it pulls anything (Shift for its top gear)');
+  addTr({ color: '#2a5a9a', trolley: true, load: 'hay', trolleyColor: '#c4241c' }, roadX(startZ + 40) - 4.8, startZ + 40, Math.PI, 'Tractor and trolley, loaded with hay — swing wide round the bends!');
+  for (const v of layout.newVillages ?? []) {
+    if (!(v.big || v.style === 'punjab' || v.canal)) continue;
+    const a = v.th + Math.PI * 0.5, d = v.big ? 22 : 16, x = v.x + Math.cos(v.th + Math.PI) * d + Math.cos(a) * 5, z = v.z + Math.sin(v.th + Math.PI) * d + Math.sin(a) * 5;
+    addTr({ color: ['#c0281e', '#2a5a9a', '#2e7a3a', '#e07a1e'][Math.round(v.th * 7) % 4], trolley: v.big, load: ['hay', 'cane', 'bricks'][Math.round(v.th * 5) % 3], trolleyColor: '#3a5a3a' }, x, z, -v.th, 'On the tractor — W to go');
+  }
+}
 // and a tonga waiting a little further along, its horse swishing its tail
 vehicles.push({ ...TAKE_TPL.tonga, name: 'tonga', obj: new TakenVehicle(makeTonga('#7a4a2a', '#2a2a2a')), park: { x: roadX(startZ - 34) - 4.6, z: startZ - 34, rot: Math.PI },
   on: 'Up on the tonga — W to trot, Shift to canter, S to whoa', off: 'Down from the tonga', ask: 'drive the tonga' });
@@ -877,7 +901,7 @@ for (const B of layout.police ?? []) {
     on: `The ${B.name} police jeep — B for the siren and lights`, off: 'Out of the police jeep', ask: 'drive the police jeep',
     help: [['W', 'go'], ['S', 'brake / reverse'], ['A D', 'steer'], ['Shift', 'faster'], ['B', 'siren on / off'], ['V', 'inside view'], ['L', 'lights'], ['E', 'get out']] });
 }
-const TAKE_NAME = { bicycle: 'bicycle', moped: 'motorbike', scooter: 'scooter', bus: 'bus', jeep: 'jeep', cart: 'bullock cart', car: 'car', tonga: 'tonga' };
+const TAKE_NAME = { bicycle: 'bicycle', moped: 'motorbike', scooter: 'scooter', bus: 'bus', jeep: 'jeep', cart: 'bullock cart', car: 'car', tonga: 'tonga', tractor: 'tractor' };
 const TAKE_SHOUT = {
   bicycle: [['अरे! मेरी साइकिल!', 'Arey! Meri cycle!'], ['ओ भाई, साइकिल वापस लाना!', 'O bhai, cycle vaapas laana!']],
   moped: [['अरे! मेरी गाड़ी!', 'Arey! Meri gaadi!'], ['ओए! धीरे चलाना!', 'Oye! Dheere chalaana!']],
@@ -887,9 +911,10 @@ const TAKE_SHOUT = {
   car: [['अरे! मेरी गाड़ी!', 'Arey! Meri gaadi!'], ['रुको! गाड़ी मेरी है!', 'Ruko! Gaadi meri hai!']],
   cart: [['अरे! मेरे बैल!', 'Arey! Mere bail!'], ['धीरे हाँकना, बैल थके हैं!', 'Dheere haankna, bail thake hain!']],
   tonga: [['अरे! मेरा ताँगा!', 'Arey! Mera taanga!'], ['घोड़ा तेज़ है, संभाल के!', 'Ghoda tez hai, sambhaal ke!']],
+  tractor: [['अरे! मेरा ट्रैक्टर!', 'Arey! Mera tractor!'], ['ट्रॉली भरी है, धीरे!', 'Trolley bhari hai, dheere!']],
 };
 const robbed = [];
-const takeKind = (t) => (t.kind === 'bike' ? t.bike.kind : t.veh?.kind === 'car' ? 'car' : t.tonga ? 'tonga' : t.kind);
+const takeKind = (t) => (t.kind === 'bike' ? t.bike.kind : t.veh?.kind === 'car' ? 'car' : t.tonga ? 'tonga' : t.tractor ? 'tractor' : t.kind);
 function nearTraffic() {
   if (!people || ride || swim.on) return null;
   let best = null, bd = 1e9;
@@ -921,7 +946,7 @@ function takeTraffic(t) {
     v = { ...vehicles.find((o) => o.name === kind), obj: t.bike, park: { x: t.p.x, z: t.p.z, rot: t.heading } };
   } else {
     const seat = t.holder.localToWorld(t.veh.driverSeat.clone());
-    v = { ...TAKE_TPL[kind], name: kind, obj: new TakenVehicle(t.veh, t.riders), park: { x: seat.x, z: seat.z, rot: t.heading } };
+    v = { ...(kind === 'tractor' ? tractorTpl(t.veh) : TAKE_TPL[kind]), name: kind, obj: new TakenVehicle(t.veh, t.riders), park: { x: seat.x, z: seat.z, rot: t.heading } };
     if (t.riders.length) v.on = `You took the ${name} — ${t.riders.length} passengers still aboard!`;
   }
   v.on = v.on && t.kind !== 'bike' ? v.on : `You took the ${name}! The owner waits by the road — bring it back to him`;
@@ -1000,7 +1025,7 @@ function updateRobbed(dt) {
 // a parked scooter shoved by the car falls on its side, the car hits a bus and stops dead, and anything
 // the train catches on the line is thrown clear — further and higher the faster the train is going.
 const crashes = new Crashes();
-const MASS = { camel: 500, elephant: 4000, police: 1800, bicycle: 60, moped: 130, scooter: 150, auto: 420, erick: 480, car: 900, jeep: 1800, minibus: 3600, bus: 7000, cart: 700, tonga: 520, ambulance: 2600, firetruck: 9000 };
+const MASS = { camel: 500, elephant: 4000, police: 1800, bicycle: 60, moped: 130, scooter: 150, auto: 420, erick: 480, car: 900, jeep: 1800, minibus: 3600, bus: 7000, cart: 700, tonga: 520, tractor: 3000, ambulance: 2600, firetruck: 9000 };
 const UPV = new THREE.Vector3(0, 1, 0);
 function obbDist(x, z, b) {
   const dx = x - b.x, dz = z - b.z, c = Math.cos(b.rot), sn = Math.sin(b.rot);

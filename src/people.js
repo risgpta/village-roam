@@ -4,7 +4,7 @@ import {
   layout, roadX, pathZ, groundHeight, heightAt, resolveCollisions, localToWorld, SQUARE, FOOT, EH, GHAT, TEA, MARKET, CRICKET, NV, BRIDGES, RV, BV, TV, MH, NE, PG, riverX, RIVER_HALF, WATER_Y, WATER, SHRINE_ROAD, HILLTOP, squareCrossings
 } from './world.js';
 import { Moped } from './bicycle.js';
-import { Scooter, VillageBus, Jeep, TrafficCar, RowBoat, poseRower, PoliceJeep } from './vehicles.js';
+import { Scooter, VillageBus, Jeep, TrafficCar, RowBoat, poseRower, PoliceJeep, makeTractor } from './vehicles.js';
 import { Bicycle, poseRider } from './bicycle.js';
 import { makeCow, makeHorse } from './animals.js';
 import { lathe, limb, limbZ, ellipsoid, muscle, folds, fixSeam } from './shapes.js';
@@ -1678,6 +1678,17 @@ function buildTravellers(scene, hooks) {
     });
     list.push({ kind: 'cart', tonga: true, holder, cart: null, bulls: [], veh, riders, person: driver, loop, s: s0, v: 3.6, speed: 3.6, heading: 0, p: { x: 0, z: 0 } });
   };
+  // tractors with trolleys trundling between the villages and the fields: hay, sugarcane, bricks
+  const addTractor = (loop, s0, o, look = {}) => {
+    const holder = new THREE.Group();
+    scene.add(holder);
+    const veh = makeTractor(o);
+    veh.root.position.z = -veh.mid; // (centred on its place on the road, trolley and all)
+    holder.add(veh.root);
+    const driver = new Person({ dress: 'kurta', top: '#e9dcc3', bottom: '#f4f1e8', headwear: 'turban', turban: '#f2a41a', mustache: true, skin: '#6e4530', sleeves: 'short', ...look }); driver.noHit = true;
+    driver.seatH = 0; driver.root.position.set(0, 1.26, -0.62); veh.root.add(driver.root);
+    list.push({ kind: 'cart', tractor: true, holder, cart: null, bulls: [], veh, riders: [], person: driver, loop, s: s0, v: 4.6, speed: 4.6, heading: 0, p: { x: 0, z: 0 } });
+  };
   // the new roads out to the far villages: cyclists, motorbikes and scooters, and people walking
   const along = (z0, z1, step = 10) => { const o = []; for (let z = z0; Math.sign(z1 - z0) * (z1 - z) > 0; z += Math.sign(z1 - z0) * step) o.push([roadX(z), z]); return o; };
   const [B1, B2, B3] = BRIDGES;
@@ -1705,6 +1716,7 @@ function buildTravellers(scene, hooks) {
   if (layout.newRoads?.dk) routes.dk = layout.newRoads.dk;
   // the Seemant road, out from Rannvas to the three big villages
   if (layout.newRoads?.seem) routes.seem = layout.newRoads.seem;
+  if (layout.newRoads?.haat) routes.haat = layout.newRoads.haat;
   // the shrine shuttle: from the village bus stop down the main road to the hilltop shrine, then all the way
   // up the hill road to the summit; it waits a while at each end and comes back
   routes.shrine = [...along(66, HILLTOP.z + 14, 10), ...SHRINE_ROAD.pts.map((q) => [q.x, q.z])];
@@ -1782,6 +1794,23 @@ function buildTravellers(scene, hooks) {
     { route: 'west', kind: Scooter, o: { dress: 'pants', top: '#f2efe6', bottom: '#4a4a52', skin: '#83553a', sleeves: 'short', mustache: true }, v: 7.5 },
     { route: 'west', kind: Bicycle, o: { dress: 'dhoti', top: '#dfe6ea', bottom: '#f4f1e8', skin: '#6e4530', headwear: 'cap', turban: '#f2efe6' }, v: 3.8 },
   ];
+  // and more on every road, so the way between villages is never deserted: a cyclist or two each way, a motorbike
+  {
+    const CY = [
+      { dress: 'dhoti', top: '#f4f1e8', bottom: '#f4f1e8', skin: '#6e4530', headwear: 'turban', turban: '#e07a1e', mustache: true, sleeves: 'short' },
+      { dress: 'shorts', k: 0.72, headScale: 1.2, top: '#2e8b57', bottom: '#2a3a6a', skin: '#8a5a3c', sleeves: 'short' },
+      { dress: 'saree', k: 0.92, top: '#c4241c', bottom: '#f2b705', veil: false, skin: '#80523a' },
+      { dress: 'kurta', top: '#e9dcc3', bottom: '#f4f1e8', skin: '#7a4c33', mustache: true, headwear: 'cap', turban: '#f2efe6' },
+      { dress: 'pants', top: '#8fa6c4', bottom: '#3a3a42', skin: '#83553a', sleeves: 'short' },
+    ];
+    let i = 0;
+    for (const route of ['main', 'east', 'south', 'north', 'west', 'ne', 'khet', 'rann', 'outer', 'outer', 'dk', 'nahar', 'kheri', 'canal', 'seem', 'seem', 'haat', 'haat', 'haat']) {
+      if (!routes[route]) continue;
+      motorRiders.push({ route, kind: Bicycle, o: CY[i % CY.length], v: 3.4 + (i % 4) * 0.35 });
+      if (i % 3 === 0) motorRiders.push({ route, kind: i % 2 ? Scooter : Moped, o: CY[(i + 3) % CY.length], v: 7.5 + (i % 3) * 0.5 });
+      i++;
+    }
+  }
   for (const r of motorRiders) {
     const holder = new THREE.Group();
     scene.add(holder);
@@ -1819,6 +1848,9 @@ function buildTravellers(scene, hooks) {
   if (routes.nahar) extra.push('nahar', 'nahar', 'nahar', 'nahar', 'kheri', 'kheri', 'kheri');
   if (routes.canal) extra.push('canal', 'canal', 'canal', 'canal', 'canal', 'canal', 'canalBank', 'canalBank', 'canalBank', 'canalBank');
   if (routes.seem) for (let i = 0; i < 12; i++) extra.push('seem');
+  if (routes.haat) for (let i = 0; i < 10; i++) extra.push('haat'); // (folk walking to and from the market, with bundles)
+  extra.push('main', 'east', 'south', 'north', 'west', 'ne');
+  for (const r of ['outer', 'dk', 'nahar', 'kheri', 'khet', 'rann', 'canal']) if (routes[r]) extra.push(r, r);
   // and more on the long country roads between the villages, so the open country is never empty
   extra.push('main', 'main', 'east', 'east', 'south', 'south', 'north', 'north', 'west', 'west', 'ne', 'ne');
   if (routes.outer) extra.push('outer', 'outer', 'outer', 'outer');
@@ -1931,11 +1963,33 @@ function buildTravellers(scene, hooks) {
     const loop = polyLoop(routes[route], 1.6);
     addCart(loop, frac * loop.total, coat, look);
   }
+  // more bullock carts plodding the far roads and to the market
+  for (const [route, frac, coat, look] of [['haat', 0.2, '#ece6da', { turban: '#e07a1e' }], ['haat', 0.7, '#b98e64', { turban: '#ffffff' }], ['east', 0.35, '#d8cfc0', { turban: '#c4241c' }], ['seem', 0.25, '#ece6da', { turban: '#f2a41a' }], ['seem', 0.65, '#8a6a4a', {}], ['dk', 0.4, '#ece6da', { headwear: 'cap', turban: '#f2efe6' }], ['nahar', 0.35, '#b98e64', {}], ['kheri', 0.5, '#d8cfc0', { turban: '#2e8b57' }]]) {
+    if (!routes[route]) continue;
+    const loop = polyLoop(routes[route], 1.6);
+    addCart(loop, frac * loop.total, coat, look);
+  }
   // and the tongas, trotting between the villages much quicker than the carts
-  for (const [route, frac, coat, hood] of [['main', 0.3, '#7a4a2a', '#2a2a2a'], ['east', 0.6, '#3a2a22', '#7a2a22'], ['west', 0.2, '#efe8dc', '#1e3a5a'], ['south', 0.15, '#8a5a3a', '#2a4a2a'], ['seem', 0.35, '#5a3a2a', '#6a2a5a'], ['seem', 0.8, '#d8cfc0', '#2a2a2a'], ['outer', 0.45, '#7a4a2a', '#3a2a5a']]) {
+  for (const [route, frac, coat, hood] of [['haat', 0.5, '#3a2a22', '#7a2a22'], ['north', 0.4, '#7a4a2a', '#1e3a5a'], ['ne', 0.6, '#efe8dc', '#2a2a2a'], ['khet', 0.7, '#8a5a3a', '#6a2a5a'], ['dk', 0.75, '#5a3a2a', '#2a4a2a'], ['nahar', 0.8, '#7a4a2a', '#2a2a2a'], ['canal', 0.6, '#3a2a22', '#3a2a5a'],['main', 0.3, '#7a4a2a', '#2a2a2a'], ['east', 0.6, '#3a2a22', '#7a2a22'], ['west', 0.2, '#efe8dc', '#1e3a5a'], ['south', 0.15, '#8a5a3a', '#2a4a2a'], ['seem', 0.35, '#5a3a2a', '#6a2a5a'], ['seem', 0.8, '#d8cfc0', '#2a2a2a'], ['outer', 0.45, '#7a4a2a', '#3a2a5a']]) {
     if (!routes[route]) continue;
     const loop = polyLoop(routes[route], 1.6);
     addTonga(loop, frac * loop.total, coat, hood);
+  }
+  // tractors and trolleys out on the roads
+  for (const [route, frac, o, look] of [
+    ['main', 0.7, { color: '#c0281e', trolley: true, load: 'hay', trolleyColor: '#2f6a9a' }, {}],
+    ['khet', 0.4, { color: '#2a5a9a', trolley: true, load: 'cane', trolleyColor: '#c4241c' }, { beard: true, turban: '#1e6fa8' }],
+    ['seem', 0.55, { color: '#2e7a3a', trolley: true, load: 'bricks', trolleyColor: '#6a6a6a' }, { turban: '#e0612b' }],
+    ['seem', 0.15, { color: '#c0281e', trolley: false }, { turban: '#c2185b' }],
+    ['nahar', 0.5, { color: '#e07a1e', trolley: true, load: 'cane', trolleyColor: '#3a5a3a' }, {}],
+    ['canal', 0.3, { color: '#2a5a9a', trolley: true, load: 'hay', trolleyColor: '#c4241c' }, { headwear: 'cap', turban: '#f2efe6' }],
+    ['outer', 0.65, { color: '#c0281e', trolley: true, load: 'hay', trolleyColor: '#2f6a9a' }, {}],
+    ['west', 0.5, { color: '#2e7a3a', trolley: false }, { turban: '#ffffff' }],
+    ['haat', 0.3, { color: '#c0281e', trolley: true, load: 'bricks', trolleyColor: '#2f6a9a' }, {}],
+  ]) {
+    if (!routes[route]) continue;
+    const loop = polyLoop(routes[route], 1.7);
+    addTractor(loop, frac * loop.total, o, look);
   }
   list.forEach((t, i) => { t.idx = i; });
   let weather = { rain: false, night: false };
@@ -1963,10 +2017,20 @@ function buildTravellers(scene, hooks) {
     colliders() {
       return list.filter((t) => t.holder.visible && !t.taken && !((t.nightOff || t.nightHide) && weather.night) && !t.crash && !(t.kind === 'walker' && (t.person.fallT > 0 || t.person.gone))).map((t) => ({ kind: 'b', x: t.p.x, z: t.p.z, rot: t.heading, hw: t.veh ? t.veh.half + 0.05 : t.kind === 'cart' ? 0.9 : 0.25, hd: t.veh ? t.veh.len / 2 : t.kind === 'cart' ? 2.6 : 0.8, person: t.kind === 'walker' }));
     },
-    update(dt, boy) {
+    update(dtAll, boy) {
+      const dt = dtAll;
       const sizeOf = (t) => (t.veh ? t.veh.len / 2 : t.kind === 'cart' ? 2.6 : t.kind === 'walker' ? 0.3 : 0.9);
       const obstacles = hooks.obstacles?.() ?? [];
       for (const t of list) {
+        // far from the boy (out of sight anyway) a traveller is moved along only every sixth frame, with the time
+        // saved up: the roads stay busy where you are, and the far ones cost next to nothing
+        const dt = (() => {
+          if (t.taken || t.crash || Math.abs(t.p.x - boy.x) + Math.abs(t.p.z - boy.z) < 520) { const a = (t._acc ?? 0) + dtAll; t._acc = 0; return Math.min(a, 0.5); }
+          t._acc = (t._acc ?? 0) + dtAll; t._k = ((t._k ?? 0) + 1) % 6;
+          if (t._k) return 0;
+          const a = Math.min(t._acc, 0.5); t._acc = 0; return a;
+        })();
+        if (dt === 0) continue;
         const big = t.kind === 'bus' || t.kind === 'jeep';
         if (t.crash || t.taken) continue; // knocked over (the crash physics has it) or taken by the boy
         if (t.kind === 'walker' && t.person.fallT > 0) { t.person.update(dt, 0, 'idle'); continue; }

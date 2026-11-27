@@ -1536,3 +1536,75 @@ export class ERickshaw {
     this.body.position.y = riding && Math.abs(speed) > 0.1 ? Math.sin(performance.now() * 0.03) * 0.004 : 0;
   }
 }
+
+// ---------------- tractors ----------------
+// A village tractor: a long bonnet with the grille and two lamps, big lugged rear tyres under curved mudguards,
+// small front wheels that steer, the tall exhaust stack, an open seat with the steering wheel raked up in front.
+// With a trolley hitched behind: a high-sided steel box on two wheels, loaded with hay, sugarcane or bricks, that
+// swings a little behind the tractor round the bends. Built like the other carts: the driver's seat is `driverSeat`.
+export function makeTractor({ color = '#c0281e', trolley = false, load = 'hay', trolleyColor = '#2f6a9a' } = {}) {
+  const root = new THREE.Group();
+  const body = std(color, { roughness: 0.42, metalness: 0.2 }), dark = std('#1e1d1c', { roughness: 0.9 }), steel = std('#9a9ea2', { metalness: 0.7, roughness: 0.35 });
+  const rim = std('#e2b628', { roughness: 0.5 }), lampM = std('#fff5d8', { emissive: '#ffe2a0', emissiveIntensity: 0.3 });
+  const add = (geo, m, x, y, z, p = root) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; o.receiveShadow = true; p.add(o); return o; };
+  add(RB(0.72, 0.62, 1.55, 0.08), body, 0, 1.0, 0.65); // the bonnet
+  add(RB(0.66, 0.52, 0.06, 0.02), dark, 0, 0.98, 1.44); // the grille
+  for (let i = 0; i < 6; i++) add(new THREE.BoxGeometry(0.58, 0.012, 0.02), steel, 0, 0.8 + i * 0.075, 1.475);
+  for (const sx of [-0.24, 0.24]) { add(new THREE.CylinderGeometry(0.075, 0.075, 0.06, 12).rotateX(Math.PI / 2), lampM, sx, 1.2, 1.46); add(new THREE.TorusGeometry(0.075, 0.012, 6, 14), steel, sx, 1.2, 1.49); }
+  add(new THREE.BoxGeometry(0.5, 0.5, 0.9), dark, 0, 0.7, 0.6); // the engine
+  add(RB(0.82, 0.5, 0.95, 0.06), body, 0, 0.85, -0.5); // gearbox and body
+  add(new THREE.CylinderGeometry(0.045, 0.05, 0.85, 8), dark, 0.26, 1.68, 0.95); // the exhaust stack
+  add(new THREE.CylinderGeometry(0.065, 0.045, 0.1, 8), dark, 0.26, 2.12, 0.95);
+  add(new THREE.BoxGeometry(0.44, 0.08, 0.38), dark, 0, 1.2, -0.62); // the seat
+  add(new THREE.BoxGeometry(0.44, 0.34, 0.06), dark, 0, 1.4, -0.83);
+  add(new THREE.CylinderGeometry(0.025, 0.025, 0.56, 6), steel, 0, 1.43, -0.15).rotation.x = -0.5;
+  const sw = add(new THREE.TorusGeometry(0.18, 0.02, 6, 18), dark, 0, 1.67, -0.28); sw.rotation.x = Math.PI / 2 - 0.5;
+  for (const sx of [-1, 1]) {
+    add(new THREE.CylinderGeometry(0.76, 0.76, 0.44, 20, 1, true, 0, Math.PI).rotateZ(Math.PI / 2), std(color, { roughness: 0.45, side: THREE.DoubleSide }), sx * 0.78, 0.66, -0.55);
+    add(new THREE.BoxGeometry(0.3, 0.04, 0.3), steel, sx * 0.38, 0.5, -0.3); // the footplates
+  }
+  const wheels = [], steer = [];
+  const tyre = (r, w, x, y, z, parent = root) => {
+    const pivot = new THREE.Group(); pivot.position.set(x, y, z); parent.add(pivot);
+    const wg = new THREE.Group(); pivot.add(wg);
+    add(new THREE.CylinderGeometry(r, r, w, 22).rotateZ(Math.PI / 2), dark, 0, 0, 0, wg);
+    add(new THREE.CylinderGeometry(r * 0.55, r * 0.55, w + 0.02, 16).rotateZ(Math.PI / 2), rim, 0, 0, 0, wg);
+    const n = Math.round(r * 24);
+    for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; const lug = add(new THREE.BoxGeometry(w * 0.9, 0.05, 0.08), dark, 0, Math.cos(a) * r, Math.sin(a) * r, wg); lug.rotation.x = -a; lug.rotation.y = i % 2 ? 0.35 : -0.35; }
+    wheels.push({ g: wg, r });
+    return pivot;
+  };
+  tyre(0.66, 0.38, -0.8, 0.66, -0.55); tyre(0.66, 0.38, 0.8, 0.66, -0.55);
+  steer.push(tyre(0.35, 0.16, -0.52, 0.35, 1.15), tyre(0.35, 0.16, 0.52, 0.35, 1.15));
+  add(new THREE.BoxGeometry(0.16, 0.12, 0.5), steel, 0, 0.5, -1.15); // the hitch
+  let trol = null, len = 3.2, back = -1.4;
+  if (trolley) {
+    // the trolley: pivots on the hitch; its box, its wheels and its load
+    trol = new THREE.Group(); trol.position.set(0, 0, -1.4); root.add(trol);
+    const tm = std(trolleyColor, { roughness: 0.6, metalness: 0.25 });
+    add(new THREE.BoxGeometry(0.12, 0.12, 1.0), steel, 0, 0.55, -0.5, trol); // the drawbar
+    add(new THREE.BoxGeometry(2.0, 0.12, 3.0), tm, 0, 1.0, -2.5, trol);
+    for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.06, 0.55, 3.0), tm, sx * 0.98, 1.33, -2.5, trol);
+    for (const z of [-1.0, -4.0]) add(new THREE.BoxGeometry(2.0, 0.55, 0.06), tm, 0, 1.33, z, trol);
+    for (const z of [-1.6, -2.5, -3.4]) for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.07, 0.6, 0.07), dark, sx * 1.0, 1.33, z, trol);
+    for (const sx of [-1, 1]) { const w = tyre(0.48, 0.26, sx * 1.14, 0.48, -2.6, trol); w.userData.trolley = true; add(new THREE.CylinderGeometry(0.55, 0.55, 0.3, 14, 1, true, 0, Math.PI).rotateZ(Math.PI / 2), std(trolleyColor, { side: THREE.DoubleSide, roughness: 0.6 }), sx * 1.14, 0.5, -2.6, trol); }
+    add(new THREE.BoxGeometry(0.18, 0.08, 0.04), std('#c4201c', { emissive: '#5a0806', emissiveIntensity: 0.6 }), 0.7, 1.2, -4.04, trol);
+    add(new THREE.BoxGeometry(0.18, 0.08, 0.04), std('#c4201c', { emissive: '#5a0806', emissiveIntensity: 0.6 }), -0.7, 1.2, -4.04, trol);
+    if (load === 'hay') { add(ellipsoid(1.05, 0.7, 1.6, 14, 10), std('#d8b45a', { roughness: 1 }), 0, 1.6, -2.5, trol); add(ellipsoid(0.9, 0.4, 1.4, 12, 8), std('#c9a24a', { roughness: 1 }), 0, 2.1, -2.5, trol); }
+    else if (load === 'cane') { const cane = std('#8a9a4a', { roughness: 0.8 }); for (let i = 0; i < 26; i++) add(new THREE.CylinderGeometry(0.035, 0.035, 3.2, 5).rotateX(Math.PI / 2), cane, -0.8 + (i % 9) * 0.2, 1.15 + Math.floor(i / 9) * 0.12, -2.5, trol); add(ellipsoid(0.95, 0.25, 1.5, 10, 6), std('#6a8a3a', { roughness: 0.9 }), 0, 1.5, -2.5, trol); }
+    else { const brick = std('#a8452a', { roughness: 0.95 }); for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) add(new THREE.BoxGeometry(0.55, 0.22, 0.85), brick, -0.62 + i * 0.41, 1.17 + j * 0.0, -1.5 - j * 0.98, trol); add(new THREE.BoxGeometry(1.8, 0.25, 2.8), brick, 0, 1.4, -2.5, trol); }
+    len = 6.6; back = -5.4;
+  }
+  const front = 1.55, mid = (front + back) / 2;
+  // the body's centre sits ahead of the seat: a vehicle frame with the seat at driverSeat
+  return {
+    kind: 'tractor', tractor: true, trolley: !!trolley, root, driverSeat: new THREE.Vector3(0, 1.26, -0.62), seats: [], len, half: 1.05, wheelR: 0.66, mid,
+    lamp: lampM, exhaust: new THREE.Vector3(0.26, 2.15, 0.95),
+    update(dt, speed, steerA = 0, riding = false, night = 0) {
+      for (const w of wheels) w.g.rotation.x += (speed * dt) / w.r;
+      for (const p of steer) p.rotation.y = steerA * 0.9;
+      if (trol) trol.rotation.y += (-steerA * 0.55 * Math.min(1, Math.abs(speed) / 3) - trol.rotation.y) * Math.min(1, dt * 2.5);
+      lampM.emissiveIntensity = night ? 4 : 0.3;
+    },
+  };
+}

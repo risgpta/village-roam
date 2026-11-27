@@ -597,6 +597,8 @@ function updateCrossing(X, dt, trains) {
       if (d < 80 || (d < 320 && b.moving && (X.cx - b.x) * b.vx + (X.cz - b.z) * b.vz > 0)) { near = true; break; }
     }
   }
+  // a train coming up to this crossing's signal (see the block system): the gateman closes the gates for it
+  if (X.wantT && performance.now() / 1000 - X.wantT < 0.6) near = true;
   if (near !== X.closed) { X.closed = near; X.t = 0; if (X.onBell) X.onBell(X, near); }
   X.t += dt;
   // the booms come down after the lamps have flashed a few seconds; go up a moment after it's clear
@@ -943,8 +945,17 @@ class Railway {
 const CRUISE = 22, ACCEL = 0.7, BRAKE = 0.9, TOP = 120 / 3.6; // timetable cruise ~80 km/h; the boy can take her up to 120
 // past a station's distant signal (showing yellow: the next signal, at the platform's end, is red) a train runs
 // at caution, about 50 km/h, ready to stop at the platform
-const CAUTION_D = 440, CAUTION_V = 14;
-const cautionV = (nh) => (nh && !nh.h.noStation && nh.d < CAUTION_D ? CAUTION_V : CRUISE);
+const CAUTION_V = 14, STARTER_OFF = 92;
+// what the next signal ahead allows: stop short of a red one, run at caution past a yellow one (toward the red
+// beyond it), line speed on green. (A driven train is the boy's to stop.)
+function sigCap(t) {
+  const S = t.sig;
+  if (!S || t.mode === 'driven') return Infinity;
+  const u = S.u - Math.abs(t.travel - S.tr);
+  if (S.a === 'r') return u <= 18 ? 0 : Math.sqrt(2 * BRAKE * 0.85 * (u - 18));
+  if (S.a === 'y') return Math.sqrt(CAUTION_V * CAUTION_V + 2 * BRAKE * Math.max(0, u - 80));
+  return Infinity;
+}
 class Train {
   constructor(scene, track, o) {
     this.tk = track;
@@ -1125,6 +1136,7 @@ class Train {
     if (this.mode === 'dwell') {
       this.v = 0;
       this.timer -= dt;
+      if (this.timer <= 0 && sigCap(this) < 0.5) this.timer = 0.4; // the starter's still at danger: wait for the road
       if (this.timer <= 0) {
         if (!this.nextStop(this.m)) this.m = -this.m; // the end of the line: back the other way
         this.mode = 'run';
@@ -1134,7 +1146,8 @@ class Train {
     } else if (this.mode === 'run') {
       const nh = this.nextStop(this.m);
       let target = CRUISE;
-      if (nh) target = Math.min(target, Math.sqrt(Math.max(0, 2 * BRAKE * Math.max(0, nh.d - 0.5))), cautionV(nh));
+      if (nh) target = Math.min(target, Math.sqrt(Math.max(0, 2 * BRAKE * Math.max(0, nh.d - 0.5))));
+      target = Math.min(target, sigCap(this));
       const sp = Math.abs(this.v);
       const nsp = sp < target ? Math.min(target, sp + ACCEL * dt) : Math.max(target, sp - BRAKE * 1.6 * dt);
       this.v = nsp * this.m;
@@ -1169,10 +1182,11 @@ class Train {
     const L = this.path.L;
     if (this.mode === 'dwell') {
       this.v = 0; this.timer -= dt;
+      if (this.timer <= 0 && sigCap(this) < 0.5) this.timer = 0.4; // (waiting for the starter to clear)
       if (this.timer <= 0) { this.mode = 'run'; if (this.at && this.onStation) this.onStation('depart', this, this.at); this.at = null; }
     } else if (this.mode === 'run') {
       const nh = this.nextLoopStop();
-      const target = nh ? Math.min(CRUISE, Math.sqrt(Math.max(0, 2 * BRAKE * Math.max(0, nh.d - 0.5))), cautionV(nh)) : CRUISE;
+      const target = nh ? Math.min(CRUISE, Math.sqrt(Math.max(0, 2 * BRAKE * Math.max(0, nh.d - 0.5))), sigCap(this)) : Math.min(CRUISE, sigCap(this));
       this.v = this.v < target ? Math.min(target, this.v + ACCEL * dt) : Math.max(target, this.v - BRAKE * 1.6 * dt);
       const step = this.v * dt;
       if (nh && nh.d - step < 0.6 && this.v < 1.2) {
@@ -1204,6 +1218,7 @@ class Train {
     } else if (this.mode === 'dwell') {
       this.v = 0;
       this.timer -= dt;
+      if (this.timer <= 0 && sigCap(this) < 0.5) this.timer = 0.4;
       if (this.timer <= 0) {
         this.mode = 'run';
         if (this.at && this.onStation) this.onStation('depart', this, this.at);
@@ -1214,7 +1229,7 @@ class Train {
       let target = CRUISE;
       if (nh) {
         const brakeV = Math.sqrt(Math.max(0, 2 * BRAKE * Math.max(0, nh.d - 0.5)));
-        target = Math.min(target, brakeV, cautionV(nh));
+        target = Math.min(target, brakeV);
         if (nh.d < 0.6 && this.v < 1.2) {
           this.v = 0; this.head = this.stopFor(nh.h);
           this.served.add(nh.h); this.at = nh.h;
@@ -1223,6 +1238,7 @@ class Train {
         }
       }
       if (this.mode === 'run') {
+        target = Math.min(target, sigCap(this));
         if (this.v < target) this.v = Math.min(target, this.v + ACCEL * dt);
         else this.v = Math.max(target, this.v - BRAKE * 1.6 * dt);
         this.head += this.dir * this.v * dt;
@@ -1389,15 +1405,35 @@ function buildSignals(scene) {
       const L = h.L ?? 110;
       for (const d of dirs) {
         const st = { h };
-        place(T, h.s + d * (L / 2 + 10), d, 'starter', st);
+        const off = Math.max(L / 2 + 10, STARTER_OFF);
+        place(T, h.s + d * off, d, 'starter', st);
         const starter = list[list.length - 1]?.h === h && list[list.length - 1].d === d ? list[list.length - 1] : null;
-        place(T, h.s - d * (L / 2 + 330), d, 'distant', { h, starter });
+        place(T, h.s - d * (off + 300), d, 'distant', { h, starter });
       }
     }
   }
   for (const X of CROSSINGS) for (const Ln of X.lines ?? []) {
     const T = Ln.T;
     for (const d of T.loop || T.name === 'outer' ? [1] : [1, -1]) place(T, Ln.s - d * 150, d, 'gate', { X });
+  }
+  // automatic block signals along the open line between all of those, about every 900 m: each guards the stretch
+  // up to the next signal, so trains keep their distance everywhere
+  const gap = (T, a, b) => { const d = Math.abs(a - b); return T.path.closed ? Math.min(d, T.path.L - d) : d; };
+  for (const T of TRACKS) {
+    if (T.name === 'mail') continue;
+    for (const d of T.loop || T.name === 'outer' ? [1] : [1, -1]) for (const [a, b] of T.segs) for (let s0 = a + 250; s0 < b - 250; s0 += 120) {
+      if (list.some((S) => S.T === T && S.d === d && gap(T, S.s, s0) < 820)) continue;
+      if ((T.halts ?? []).some((h) => !h.noStation && gap(T, h.s, s0) < STARTER_OFF + 380)) continue;
+      if (CROSSINGS.some((X) => (X.lines ?? []).some((Ln) => Ln.T === T && gap(T, Ln.s, s0) < 230))) continue;
+      place(T, s0, d, 'auto', {});
+    }
+  }
+  // each signal's next one along the line, the way its trains run
+  const groups = new Map();
+  for (const S of list) { const k = S.T.name + ':' + S.d; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(S); }
+  for (const g of groups.values()) {
+    g.sort((A, B) => (A.s - B.s) * A.d);
+    g.forEach((S, i) => { S.next = i + 1 < g.length ? g[i + 1] : S.T.path.closed ? g[0] : null; S.group = g; });
   }
   // the static parts: a grey lattice-like post on a concrete base, a black head with three hooded lenses, a
   // white number plate
@@ -1452,33 +1488,85 @@ function buildSignals(scene) {
     glow.setMatrixAt(i, o3.matrix); glow.setColorAt(i, SIG_COL[a]);
     lens.instanceColor.needsUpdate = true; glow.instanceColor.needsUpdate = true; glow.instanceMatrix.needsUpdate = true;
   };
-  // is any train coming up to (or just past) this signal, running its way? (u: how far past it, along its way)
-  const running = (S, trains, back, ahead) => {
-    const dx = Math.sin(S.rot + Math.PI), dz = Math.cos(S.rot + Math.PI); // the way the trains run past it
-    for (const t of trains) for (const b of t.boxes) {
-      const ux = b.x - S.x, uz = b.z - S.z, u = ux * dx + uz * dz, lat = Math.abs(ux * dz - uz * dx);
-      if (lat > 6 || u < -back - b.hd || u > ahead + b.hd) continue;
-      if (b.vx * dx + b.vz * dz > 0.3) return true;
+  // ---- the block system ----
+  const SIGT = TRACKS, n3 = {}, tq = {};
+  // how far along the line, its own way, from signal S to a point s (wrapping round a loop)
+  const along = (S, sv) => { let u = (sv - S.s) * S.d; if (S.T.path.closed) { const L = S.T.path.L; u = ((u % L) + L) % L; if (u > L - 40) u -= L; } return u; };
+  // how far ahead of a point s (the trains' way) signal S stands
+  const ahead = (S, sv) => { let u = (S.s - sv) * S.d; if (S.T.path.closed) { const L = S.T.path.L; u = ((u % L) + L) % L; if (u > L - 40) u -= L; } return u; };
+  const blockLen = (S) => { if (S.next) { let l = (S.next.s - S.s) * S.d; if (S.T.path.closed) { const L = S.T.path.L; l = ((l % L) + L) % L; } return l; } return S.d > 0 ? S.T.path.L - S.s : S.s; };
+  // a train's front, and which way it's heading, on whichever signalled lines it's on
+  const frontOn = (t) => {
+    const out = [];
+    if (!t.boxes.length || t.mode === 'wait') return out;
+    let sg = 1;
+    if (t.termini) sg = t.mode === 'dwell' ? (t.nextStop(t.m) ? t.m : -t.m) : Math.sign(t.v) || t.m || 1;
+    else if (!t.loopLine) sg = t.dir;
+    const fs = t.termini ? (sg > 0 ? t.head : t.head - t.length) : t.head;
+    t.path.at(fs, tq);
+    const vx = tq.tx * sg * (t.termini || t.loopLine ? 1 : 1), vz = tq.tz * sg;
+    for (const T of SIGT) {
+      const m = T.path.near(tq.x, tq.z, n3);
+      if (!m || m.d > 3.5) continue;
+      const q2 = T.path.at(m.s);
+      out.push({ T, s: m.s, d: q2.tx * vx + q2.tz * vz >= 0 ? 1 : -1 });
     }
-    return false;
+    return out;
   };
   let acc = 0;
+  const occ = new Map();
   const api = {
     list,
+    blocker: (S) => { for (const sv of occ.get(S.T) ?? []) { const u = along(S, sv); if (u > 2 && u < blockLen(S) + 25) return { sv: Math.round(sv), u: Math.round(u), len: Math.round(blockLen(S)) }; } return null; },
     update(dt, trains) {
       acc += dt;
-      if (acc < 0.25) return;
+      if (acc < 0.2) return;
       acc = 0;
-      list.forEach((S, i) => {
-        let a;
-        if (S.kind === 'gate') a = S.X.angle > -0.2 ? 'g' : 'r';
-        else if (S.kind === 'starter') {
-          // off (green) as the train standing at this platform is about to leave, and while it pulls out
-          const leaving = trains.some((t) => t.at && t.at.name === S.h.name && Math.abs(t.at.s - S.h.s) < 1 && t.mode === 'dwell' && t.timer < 4 && (t.termini ? (t.nextStop(t.m) ? t.m : -t.m) : t.loopLine ? 1 : t.dir) === S.d);
-          a = leaving || running(S, trains, (S.h.L ?? 110) + 60, 25) ? 'g' : 'r';
-        } else a = S.starter && S.starter.aspect === 'g' ? 'g' : 'y';
-        setAspect(S, i, a);
-      });
+      const now = performance.now() / 1000;
+      // where every train is on every signalled line: points along each car
+      for (const T of SIGT) occ.set(T, []);
+      for (const t of trains) {
+        if (t.mode === 'wait') continue;
+        for (const b of t.boxes) for (const T of SIGT) {
+          const m = T.path.near(b.x, b.z, n3);
+          if (!m || m.d > 3) continue;
+          const o = occ.get(T); o.push(m.s - b.hd, m.s, m.s + b.hd);
+        }
+        t._on = frontOn(t);
+      }
+      const occupied = (S) => blocker(S) !== null;
+      const blocker = (S) => { const len = blockLen(S); for (const sv of occ.get(S.T) ?? []) { const u = along(S, sv); if (u > 2 && u < len + 25) return sv; } return null; };
+      // a train standing just short of a starter, ready to go its way
+      const waiting = (S) => trains.some((t) => t._on?.some((f) => f.T === S.T && f.d === S.d && (() => { const u = ahead(S, f.s); return u >= -1 && u < 75; })())
+        && Math.abs(t.v) < 0.6 && (t.mode !== 'dwell' || t.timer < 5));
+      // 1. stop or clear: an occupied block is at danger; a starter clears only for a train ready to leave, and only
+      //    once the line ahead is free; a gate signal only once the booms are down
+      for (const S of list) {
+        const busy = S.kind !== 'distant' && occupied(S);
+        let red = busy;
+        if (S.kind === 'gate' && S.X.angle <= -0.2) red = true;
+        if (S.kind === 'starter') {
+          if (busy) S.cleared = false;
+          else if (!S.cleared && waiting(S)) { S.cleared = true; S.clearT = now; }
+          if (S.cleared && now - S.clearT > 60 && !waiting(S)) S.cleared = false;
+          red = red || !S.cleared;
+        }
+        S.a1 = red ? 'r' : 'c';
+      }
+      // 2. clear signals show yellow when the next one is at danger, green when it isn't
+      list.forEach((S, i) => setAspect(S, i, S.a1 === 'r' ? 'r' : S.next && S.next.a1 === 'r' ? 'y' : 'g'));
+      // 3. every train reads the next signal ahead of it: brake for red, caution for yellow; and a train nearing a
+      //    level crossing asks for the gates to close
+      for (const t of trains) {
+        let best = null, bu = 1100;
+        for (const f of t._on ?? []) {
+          const g = groups.get(f.T.name + ':' + f.d);
+          if (!g) continue;
+          for (const S of g) { const u = ahead(S, f.s); if (u > 1.5 && u < bu) { bu = u; best = S; } }
+        }
+        if (best && best.kind === 'gate' && bu < 760) best.X.wantT = now;
+        t.sig = best ? { a: best.aspect, u: bu, tr: t.travel, S: best } : null;
+      }
     },
   };
   // a first pass, so they all show something before the first update
